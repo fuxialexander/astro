@@ -115,7 +115,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       }
     }
     // Fall back to the most recent session
-    return projectChatSessions[projectChatSessions.length - 1]
+    return projectChatSessions[0]
   }, [activeSessionId, getSession, projectChatSessions, projectId])
 
   // Ensure session exists and track as active — wait for sessions to load first
@@ -188,7 +188,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
       if (remainingSessions.length > 0) {
         // Switch to the most recent remaining session
-        const mostRecent = remainingSessions[remainingSessions.length - 1]
+        const mostRecent = remainingSessions[0]
         setActiveSessionId(projectId, "project-chat", mostRecent.id)
       } else {
         // No sessions left, clear active and let the effect create a new one
@@ -471,7 +471,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   </div>
                 </div>
                 <DropdownMenuSeparator />
-                {[...projectChatSessions].reverse().map((session) => {
+                {projectChatSessions.map((session) => {
                   const messageCount = session.messageCount ?? session.messages.length
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id

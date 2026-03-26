@@ -358,7 +358,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         result.push(session)
       }
     }
-    return result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    return result.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
   },
 
   getSessionsForProject: (projectId, type?) => {
@@ -368,7 +368,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         result.push(session)
       }
     }
-    return result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    return result.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
   },
 
   getOrCreateSession: (params) => {
