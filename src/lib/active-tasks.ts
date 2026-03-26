@@ -8,11 +8,13 @@ const TERMINAL_ACTIVE_TASK_NODE_STATUSES = new Set([
   "pruned",
 ])
 
+const IDLE_RETENTION_MS = 60 * 60 * 1000 // 1 hour
+
 export interface ActiveTaskEntry {
   nodeId: string
   projectId: string
   title: string
-  status: "running" | "pending" | "generating"
+  status: "running" | "pending" | "generating" | "idle"
   startedAt?: Date
   executionId?: string
   nodeType?: string
@@ -166,6 +168,46 @@ export function deriveActiveTasks(params: {
       startedAt: session.updatedAt,
     })
     markRunning(session.projectId)
+  }
+
+  // Keep recently-active chat sessions visible for 1 hour after last activity,
+  // even after the model finishes responding (no longer in streamingSessions).
+  const now = Date.now()
+  for (const session of allSessions.values()) {
+    if (!session.projectId) continue
+    if (session.type !== "project-chat" && session.type !== "task-chat") continue
+    if (session.messages.length === 0) continue
+
+    const idleMs = now - session.updatedAt.getTime()
+    if (idleMs > IDLE_RETENTION_MS) continue
+
+    const isTaskChat = session.type === "task-chat"
+    const stableNodeId = isTaskChat
+      ? (session.nodeId ? `followup-${session.nodeId}` : `playground-${session.projectId}`)
+      : `chat-${session.id}`
+
+    if (addedNodeIds.has(stableNodeId)) continue
+
+    const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
+    const title = session.title
+      || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
+      || projectById.get(session.projectId)?.name
+      || "Chat Session"
+
+    const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
+    const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
+    const displayTitle = isTaskChat
+      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
+      : `Chat: ${title}`
+
+    pushTask(session.projectId, {
+      nodeId: stableNodeId,
+      projectId: session.projectId,
+      title: displayTitle,
+      status: "idle",
+      startedAt: session.updatedAt,
+    })
+    addedNodeIds.add(stableNodeId)
   }
 
   for (const [projectId, batch] of batchExecutions ?? new Map()) {
