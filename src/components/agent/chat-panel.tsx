@@ -167,6 +167,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (currentSession?.id) {
       abortChatStream(currentSession.id)
     }
+    setEditingMessageId(null)
     setActiveSessionId(projectId, "project-chat", sessionId)
   }, [projectId, setActiveSessionId, currentSession?.id, abortChatStream])
 
