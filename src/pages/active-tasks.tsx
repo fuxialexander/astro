@@ -59,7 +59,7 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
 
   const linkTo = task.nodeId.startsWith("plan-") || task.status === "generating"
     ? `/welcome?projectId=${projectId}`
-    : task.nodeId.startsWith("playground-")
+    : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
       ? `/playground?projectId=${projectId}`
       : isChatSession
         ? `/project/${projectId}`
@@ -77,7 +77,7 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
   if (hasPendingApproval) {
     const approvalLink = task.nodeId.startsWith("plan-") || task.status === "generating"
       ? `/plan?projectId=${projectId}`
-      : task.nodeId.startsWith("playground-")
+      : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
         ? `/playground?projectId=${projectId}`
         : `/project/${projectId}/task/${task.nodeId}`
 
@@ -117,6 +117,8 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
           <div className="relative h-3.5 w-3.5 shrink-0">
             <div className="absolute inset-0 rounded-full border-2 border-info border-t-transparent animate-spin" />
           </div>
+        ) : task.status === "idle" ? (
+          <div className="h-3.5 w-3.5 rounded-full bg-muted-foreground/30 shrink-0" />
         ) : (
           <Clock className="h-3.5 w-3.5 text-warning shrink-0" />
         )}
