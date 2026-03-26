@@ -115,16 +115,19 @@ describe("session store - CRUD", () => {
     expect(retrieved?.id).toBe(session.id)
   })
 
-  it("getSessionsForProject returns sessions sorted by creation time", () => {
+  it("getSessionsForProject returns sessions sorted by most recently updated first", () => {
     const store = useSessionStore.getState()
 
-    // Create sessions with slight time differences
     const s1 = store.createSession({ type: "project-chat", projectId: "proj-1" })
     const s2 = store.createSession({ type: "project-chat", projectId: "proj-1" })
     const s3 = store.createSession({ type: "project-chat", projectId: "proj-2" })
 
+    // Touch s1 so it has a newer updatedAt than s2
+    useSessionStore.getState().addMessage(s1.id, { role: "user", content: "bump" })
+
     const proj1Sessions = useSessionStore.getState().getSessionsForProject("proj-1", "project-chat")
     expect(proj1Sessions).toHaveLength(2)
+    // s1 was updated most recently (via addMessage), so it comes first
     expect(proj1Sessions[0].id).toBe(s1.id)
     expect(proj1Sessions[1].id).toBe(s2.id)
 
