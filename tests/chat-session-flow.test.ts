@@ -71,7 +71,7 @@ class TestSessionStore {
         result.push(session)
       }
     }
-    return result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    return result.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
   }
 
   getActiveSessionId(projectId: string, type: Session['type']): string | undefined {
@@ -325,7 +325,7 @@ describe('Session Switching', () => {
     store.deleteSession(s1.id)
     const remaining = store.getSessionsForProject('p1', 'project-chat')
     if (remaining.length > 0) {
-      store.setActiveSessionId('p1', 'project-chat', remaining[remaining.length - 1].id)
+      store.setActiveSessionId('p1', 'project-chat', remaining[0].id)
     } else {
       store.clearActiveSessionId('p1', 'project-chat')
     }
@@ -340,7 +340,7 @@ describe('Session Switching', () => {
     store.deleteSession(s1.id)
     const remaining = store.getSessionsForProject('p1', 'project-chat')
     if (remaining.length > 0) {
-      store.setActiveSessionId('p1', 'project-chat', remaining[remaining.length - 1].id)
+      store.setActiveSessionId('p1', 'project-chat', remaining[0].id)
     } else {
       store.clearActiveSessionId('p1', 'project-chat')
     }
