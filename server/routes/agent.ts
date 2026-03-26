@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
-import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED, MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -55,20 +55,23 @@ const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
 try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
 
 // Validation schemas
+// Validation limits are generous safety nets — agent SDKs handle context window
+// management and compaction internally. These prevent obviously malformed payloads
+// without artificially cutting off long conversations. See #1234.
 const chatSchema = z.object({
-  message: z.string().min(1).max(50000),
+  message: z.string().min(1).max(500_000),
   sessionId: z.string().max(100).nullish(),
   streamId: z.string().max(200).nullish(),
   projectId: z.string().min(1).max(100),
-  visionDoc: z.string().max(100000).nullish(),
+  visionDoc: z.string().max(500_000).nullish(),
   model: z.string().max(100).nullish(),
   providerId: z.string().max(100).nullish(),
   planNodes: z.array(z.any()).max(1000).nullish(),
   planEdges: z.array(z.any()).max(1000).nullish(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
-    content: z.string().max(50000),
-  })).max(100).nullish(),
+    content: z.string().max(500_000),
+  })).max(500).nullish(),
   /** When 'plan', the agent-runner restricts to read-only tools (Read, Glob, Grep, WebSearch, WebFetch). */
   taskType: z.enum(['plan', 'execution']).nullish(),
   /** Blob IDs for attached images (multimodal chat) */
@@ -398,59 +401,11 @@ agentRoute.post('/project-chat', async (c) => {
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
 
-  // ── Compaction: summarize long history ────────────────────────────
-  const COMPACTION_CHAR_THRESHOLD = 30_000
-  const COMPACTION_KEEP_RECENT = 6
-
-  let compactedMessages = historyMessages ?? undefined
   const preStreamEvents: Array<{ event: string; data: string }> = []
 
-  if (historyMessages && historyMessages.length > COMPACTION_KEEP_RECENT) {
-    const totalChars = historyMessages.reduce((sum, m) => sum + m.content.length, 0)
-    if (totalChars > COMPACTION_CHAR_THRESHOLD) {
-      const olderMessages = historyMessages.slice(0, -COMPACTION_KEEP_RECENT)
-      const recentMessages = historyMessages.slice(-COMPACTION_KEEP_RECENT)
-
-      try {
-        const compactionPrompt = buildCompactionPrompt(olderMessages)
-        const compactionResult = await executeViaRelay({
-          taskId: `compact-${taskId}-${Date.now()}`,
-          projectId,
-          nodeId: '',
-          prompt: compactionPrompt,
-          type: 'summarize',
-          maxTurns: 1,
-          userId: chatUser.id,
-          preferredProvider: providerId || undefined,
-          pathwayType: 'compaction',
-        })
-
-        if (compactionResult.success && compactionResult.output) {
-          const summary = compactionResult.output.trim()
-          compactedMessages = [
-            { role: 'user' as const, content: `[Earlier conversation summary]\n${summary}` },
-            { role: 'assistant' as const, content: 'Understood, I have context from our earlier conversation.' },
-            ...recentMessages,
-          ]
-          preStreamEvents.push({
-            event: 'compaction',
-            data: JSON.stringify({
-              originalCount: historyMessages.length,
-              compactedCount: compactedMessages.length,
-              summary,
-            }),
-          })
-        }
-        // If compaction fails, fall through with original messages
-      } catch (err) {
-        console.warn(`[project-chat] Compaction failed, using full history:`, err)
-      }
-    }
-  }
-
-  // Always forward messages so the agent runner has conversation context for fallback
-  // if resume fails (e.g. Codex session expired). The agent runner only uses messages
-  // when falling back to fresh execution, not during the resume itself.
+  // Forward messages as fallback context for the agent runner — used only if session
+  // resume fails (e.g. session expired). Context window management and compaction are
+  // handled internally by each agent SDK (Claude, Codex, OpenClaw). See #1234.
   const resolvedResumeId = existingSessionId || undefined
 
   // Fetch image blobs if attached
@@ -470,7 +425,7 @@ agentRoute.post('/project-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: taskType || 'chat',
-    messages: compactedMessages,
+    messages: historyMessages ?? undefined,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
@@ -484,21 +439,21 @@ agentRoute.post('/project-chat', async (c) => {
 })
 
 const taskChatSchema = z.object({
-  message: z.string().min(1).max(50000),
+  message: z.string().min(1).max(500_000),
   sessionId: z.string().nullable().optional(),
   streamId: z.string().max(200).optional(),
   nodeId: z.string().min(1),
   projectId: z.string().uuid(),
   taskTitle: z.string().max(1000),
-  taskDescription: z.string().max(50000).default(""),
-  taskOutput: z.string().max(100000).nullable().optional(),
-  visionDoc: z.string().max(100000).nullable().optional(),
+  taskDescription: z.string().max(500_000).default(""),
+  taskOutput: z.string().max(500_000).nullable().optional(),
+  visionDoc: z.string().max(500_000).nullable().optional(),
   model: z.string().nullable().optional(),
   providerId: z.string().nullable().optional(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
-    content: z.string().max(50000),
-  })).max(100).optional(),
+    content: z.string().max(500_000),
+  })).max(500).optional(),
   // Execution context for resumed sessions
   branchName: z.string().max(500).nullable().optional(),
   prUrl: z.string().max(2000).nullable().optional(),
