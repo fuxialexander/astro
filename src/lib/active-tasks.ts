@@ -45,7 +45,7 @@ function chatSessionEntry(
   if (!isTaskChat && session.type !== "project-chat") return null
 
   const stableNodeId = isTaskChat
-    ? (session.nodeId ? `followup-${session.nodeId}` : `playground-${session.projectId}`)
+    ? (session.nodeId ? `followup-${session.nodeId}` : `task-chat-${session.projectId}`)
     : `playground-${session.projectId}`
 
   const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
