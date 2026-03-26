@@ -59,7 +59,7 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
 
   const linkTo = task.nodeId.startsWith("plan-") || task.status === "generating"
     ? `/welcome?projectId=${projectId}`
-    : task.nodeId.startsWith("playground-")
+    : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
       ? `/playground?projectId=${projectId}`
       : isChatSession
         ? `/project/${projectId}`

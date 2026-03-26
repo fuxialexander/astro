@@ -1783,6 +1783,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             }
             return { executions: newExecutions }
           })
+          // Persist so playground execution survives page refresh
+          get().persist()
         }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
