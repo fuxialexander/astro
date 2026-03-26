@@ -543,6 +543,16 @@ export function Playground() {
     }, 0)
   }, [activeProjectId, isRunning, handleSteer, handleChat])
 
+  // Listen for send_chat_message events from json-render OptionCard specs
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const message = (e as CustomEvent<{ message: string }>).detail?.message
+      if (message) handleSendPrompt(message)
+    }
+    window.addEventListener('astro:send-chat-message', handler)
+    return () => window.removeEventListener('astro:send-chat-message', handler)
+  }, [handleSendPrompt])
+
   // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {
     backingRef.current = true
@@ -788,6 +798,14 @@ export function Playground() {
               isRunning={isRunning || isChatStreaming}
               onSendPrompt={handleSendPrompt}
               onFileSelect={() => setFileSidebarOpen(true)}
+              onLinkClick={(href) => {
+                // Intercept file-path links so they don't navigate away
+                if (href.startsWith('astro:')) return false
+                if (href.startsWith('http://') || href.startsWith('https://')) return false
+                // Looks like a relative file path — open the file sidebar instead
+                setFileSidebarOpen(true)
+                return true
+              }}
               onEditMessage={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined}
               onApprovalResponse={handleApprovalResponse}
               answeredApprovals={answeredRequestIds}
