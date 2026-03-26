@@ -48,11 +48,13 @@ function ElapsedTimer({ startedAt, status }: { startedAt: Date; status: Playgrou
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
+    // Reset now when startedAt changes (e.g. session retry while component stays mounted)
+    setNow(Date.now())
     // Only tick when running/waiting
     if (status !== 'running' && status !== 'waiting') return
     const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)
-  }, [status])
+  }, [status, startedAt])
 
   const seconds = Math.max(0, Math.floor((now - startedAt.getTime()) / 1000))
   const m = Math.floor(seconds / 60)
