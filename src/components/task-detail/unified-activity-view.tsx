@@ -64,11 +64,16 @@ export function UnifiedActivityView({
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [taskImages, setTaskImages] = useState<ChatImageAttachment[]>([])
+  /** When set, the next send will truncate the conversation from this message before re-sending */
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const taskFilePickerRef = useRef<(() => void) | null>(null)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
   const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery("(max-width: 767px)")
+
+  // Clear stale edit state when switching tasks
+  useEffect(() => { setEditingMessageId(null) }, [node.id])
 
   // Resizable file browser panel (desktop only)
   const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
@@ -300,6 +305,29 @@ export function UnifiedActivityView({
     }
   }
 
+  const handleEditMessage = useCallback((msg: string, timestamp: Date) => {
+    const session = useSessionStore.getState().sessions.get(chatSession?.id ?? '')
+    const msgs = session?.messages || []
+    const eventTime = timestamp.getTime()
+    let bestIdx = -1
+    let bestDelta = Infinity
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'user' && msgs[i].content === msg) {
+        const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
+        if (delta < bestDelta) {
+          bestDelta = delta
+          bestIdx = i
+        }
+      }
+    }
+    if (bestIdx >= 0) {
+      setEditingMessageId(msgs[bestIdx].id)
+    } else {
+      console.warn('[UnifiedActivityView] edit: no matching session message found — sending as new message')
+    }
+    setInput(msg)
+  }, [chatSession?.id])
+
   // Chat handler (post-completion)
   function handleChat(text: string) {
     if ((!text && taskImages.length === 0) || !chatSession) return
@@ -308,6 +336,13 @@ export function UnifiedActivityView({
     setTaskImages([])
 
     const sid = chatSession.id
+
+    // Edit & retry: truncate conversation from the edited message forward
+    if (editingMessageId) {
+      useSessionStore.getState().truncateAfterMessage(sid, editingMessageId)
+      setEditingMessageId(null)
+    }
+
     addMessage(sid, { role: "user", content: text || "(See attached images)" })
     addMessage(sid, { role: "assistant", content: "" })
 
@@ -488,7 +523,7 @@ export function UnifiedActivityView({
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
           onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
-          onEditMessage={!isRunning && !isChatStreaming ? (msg) => setInput(msg) : undefined}
+          onEditMessage={!isRunning && !isChatStreaming ? handleEditMessage : undefined}
           onApprovalResponse={handleApprovalResponse}
           githubContext={githubContext}
           answeredApprovals={answeredRequestIds}

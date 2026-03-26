@@ -1,4 +1,4 @@
-import type { PlanNode, Project, Session, TaskExecution } from "@/types"
+import type { PlanNode, Project, Session, SessionStatus, TaskExecution } from "@/types"
 
 const TERMINAL_ACTIVE_TASK_NODE_STATUSES = new Set([
   "completed",
@@ -9,6 +9,9 @@ const TERMINAL_ACTIVE_TASK_NODE_STATUSES = new Set([
 ])
 
 const IDLE_RETENTION_MS = 60 * 60 * 1000 // 1 hour
+
+// Session statuses that indicate the chat is finished — don't show in active tasks
+const TERMINAL_SESSION_STATUSES = new Set<SessionStatus>(["completed", "cancelled"])
 
 export interface ActiveTaskEntry {
   nodeId: string
@@ -25,6 +28,37 @@ export interface ActiveTaskEntry {
 
 interface BatchExecutionLike {
   active: boolean
+}
+
+/**
+ * Build a stable node ID and display title for a chat session.
+ *
+ * project-chat sessions use `playground-{projectId}` so that multiple
+ * chat sessions within the same project collapse into a single Active Jobs entry.
+ * task-chat sessions use `followup-{nodeId}` to differentiate per-task follow-ups.
+ */
+function chatSessionEntry(
+  session: Session,
+  rawNodesById: Map<string, PlanNode>,
+): { stableNodeId: string; displayTitle: string } | null {
+  const isTaskChat = session.type === "task-chat"
+  if (!isTaskChat && session.type !== "project-chat") return null
+
+  const stableNodeId = isTaskChat
+    ? (session.nodeId ? `followup-${session.nodeId}` : `task-chat-${session.projectId}`)
+    : `playground-${session.projectId}`
+
+  const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
+  const shortTitle = session.title
+    || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
+
+  const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
+  const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
+  const displayTitle = isTaskChat
+    ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
+    : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
+
+  return { stableNodeId, displayTitle }
 }
 
 export function deriveActiveTasks(params: {
@@ -80,6 +114,7 @@ export function deriveActiveTasks(params: {
     projectsWithRunning.add(projectId)
   }
 
+  // Pass 1: Active executions (pending/running from execution store)
   for (const [nodeId, exec] of executions) {
     if (exec.status !== "pending" && exec.status !== "running") continue
 
@@ -100,7 +135,7 @@ export function deriveActiveTasks(params: {
       projectId,
       title: (() => {
         if (isPlanSession) return "Interactive Planning"
-        if (isPlayground) return projectById.get(projectId)?.name || "Playground Session"
+        if (isPlayground) return "Playground Chat"
         return node?.title || (nodesLoaded ? `Task ${nodeId.slice(0, 8)}` : "Loading…")
       })(),
       status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
@@ -117,6 +152,7 @@ export function deriveActiveTasks(params: {
     markRunning(projectId)
   }
 
+  // Pass 2: Live plan nodes (in_progress/dispatched not covered by executions)
   for (const node of liveNodes) {
     if (node.status !== "in_progress" && node.status !== "dispatched") continue
     if (executions.has(node.id)) continue
@@ -133,84 +169,53 @@ export function deriveActiveTasks(params: {
     markRunning(node.projectId)
   }
 
+  // Pass 3: Streaming chat sessions (actively receiving model output)
   for (const sessionId of streamingSessions) {
     const session = allSessions.get(sessionId)
     if (!session?.projectId) continue
 
-    const isTaskChat = session.type === "task-chat"
-    if (!isTaskChat && session.type !== "project-chat") continue
-
-    // Use session's nodeId for task-chat to differentiate per-task follow-ups
-    const stableNodeId = isTaskChat
-      ? (session.nodeId ? `followup-${session.nodeId}` : `playground-${session.projectId}`)
-      : `chat-${sessionId}`
-
-    if (addedNodeIds.has(stableNodeId)) continue
-
-    const firstUserMessage = session.titlePreview ?? session.messages.find((message) => message.role === "user")?.content
-    const title = session.title
-      || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
-      || projectById.get(session.projectId)?.name
-      || "Chat Session"
-
-    // For task-chat, check if the associated task already completed (= follow-up chat)
-    const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
-    const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
-    const displayTitle = isTaskChat
-      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
-      : `Chat: ${title}`
+    const entry = chatSessionEntry(session, rawNodesById)
+    if (!entry) continue
+    if (addedNodeIds.has(entry.stableNodeId)) continue
 
     pushTask(session.projectId, {
-      nodeId: stableNodeId,
+      nodeId: entry.stableNodeId,
       projectId: session.projectId,
-      title: displayTitle,
+      title: entry.displayTitle,
       status: "running",
       startedAt: session.updatedAt,
     })
-    addedNodeIds.add(stableNodeId)
+    addedNodeIds.add(entry.stableNodeId)
     markRunning(session.projectId)
   }
 
-  // Keep recently-active chat sessions visible for 1 hour after last activity,
-  // even after the model finishes responding (no longer in streamingSessions).
+  // Pass 4: Recently-active chat sessions (idle — visible for 1 hour after last activity).
+  // Sessions that have completed or been cancelled are excluded.
   const now = Date.now()
   for (const session of allSessions.values()) {
     if (!session.projectId) continue
     if (session.type !== "project-chat" && session.type !== "task-chat") continue
     if ((session.messageCount ?? session.messages.length) === 0) continue
+    if (TERMINAL_SESSION_STATUSES.has(session.status)) continue
 
     const idleMs = now - session.updatedAt.getTime()
     if (idleMs > IDLE_RETENTION_MS) continue
 
-    const isTaskChat = session.type === "task-chat"
-    const stableNodeId = isTaskChat
-      ? (session.nodeId ? `followup-${session.nodeId}` : `playground-${session.projectId}`)
-      : `chat-${session.id}`
-
-    if (addedNodeIds.has(stableNodeId)) continue
-
-    const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
-    const title = session.title
-      || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
-      || projectById.get(session.projectId)?.name
-      || "Chat Session"
-
-    const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
-    const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
-    const displayTitle = isTaskChat
-      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
-      : `Chat: ${title}`
+    const entry = chatSessionEntry(session, rawNodesById)
+    if (!entry) continue
+    if (addedNodeIds.has(entry.stableNodeId)) continue
 
     pushTask(session.projectId, {
-      nodeId: stableNodeId,
+      nodeId: entry.stableNodeId,
       projectId: session.projectId,
-      title: displayTitle,
+      title: entry.displayTitle,
       status: "idle",
       startedAt: session.updatedAt,
     })
-    addedNodeIds.add(stableNodeId)
+    addedNodeIds.add(entry.stableNodeId)
   }
 
+  // Pass 5: Batch executions
   for (const [projectId, batch] of batchExecutions ?? new Map()) {
     if (batch.active) markRunning(projectId)
   }

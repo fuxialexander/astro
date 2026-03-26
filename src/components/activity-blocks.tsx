@@ -25,7 +25,6 @@ import {
   Reply,
   Send,
   MessageCircle,
-  FileText,
   Network,
   Clock,
 } from "lucide-react"
@@ -323,12 +322,22 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushTools()
         blocks.push({ type: 'branch_linked', events: [event] })
         break
-      case 'system_message':
+      case 'system_message': {
         flushOperational()
         flushText()
         flushTools()
-        blocks.push({ type: 'system_message', events: [event] })
+        // Deduplicate consecutive system messages with identical text
+        // (SSE reconnections can re-emit session_init, producing duplicates)
+        const sysMsgEvent = event as Extract<TaskActivityEvent, { type: 'system_message' }>
+        const prevBlock = blocks[blocks.length - 1]
+        const prevSysMsg = prevBlock?.type === 'system_message'
+          ? (prevBlock.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>)
+          : undefined
+        if (!prevSysMsg || prevSysMsg.message !== sysMsgEvent.message) {
+          blocks.push({ type: 'system_message', events: [event] })
+        }
         break
+      }
       case 'system_prompt':
         flushOperational()
         flushText()
@@ -845,7 +854,7 @@ export function ErrorBlock({ event }: { event: Extract<TaskActivityEvent, { type
   )
 }
 
-export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEvent, { type: 'chat_user' }>; onEdit?: (message: string) => void }) {
+export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEvent, { type: 'chat_user' }>; onEdit?: (message: string, timestamp: Date) => void }) {
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
@@ -859,7 +868,7 @@ export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEv
         )}
         {onEdit && !event.queued && (
           <button
-            onClick={() => onEdit(event.message)}
+            onClick={() => onEdit(event.message, event.timestamp)}
             className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/msg:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"
             title="Edit & resend"
           >
@@ -1362,48 +1371,6 @@ export function SystemMessageBlock({ event }: { event: Extract<TaskActivityEvent
       <div className="flex-1 border-t border-border/40" />
       <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap">{event.message}</span>
       <div className="flex-1 border-t border-border/40" />
-    </div>
-  )
-}
-
-/**
- * Collapsible system prompt block — shows at the top of the activity feed
- * for task execution and plan generation sessions.
- */
-export function SystemPromptBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'system_prompt' }> }) {
-  const [expanded, setExpanded] = useState(false)
-  const sizeKB = (new TextEncoder().encode(event.content).length / 1024).toFixed(1)
-
-  const pathwayLabel: Record<string, string> = {
-    'interactive-plan': 'plan-generation',
-    'execution': 'task-execution',
-    'hpc': 'hpc-execution',
-  }
-  const label = event.pathwayType ? pathwayLabel[event.pathwayType] ?? event.pathwayType : undefined
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-muted/30 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
-      >
-        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="text-xs font-medium text-muted-foreground">System Prompt</span>
-        <span className="text-[10px] text-muted-foreground/60">{sizeKB} KB</span>
-        {label && (
-          <span className="text-[10px] text-muted-foreground/60 bg-muted rounded px-1.5 py-0.5">{label}</span>
-        )}
-        <div className="flex-1" />
-        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-      </button>
-      {expanded && (
-        <div className="border-t border-border/40 px-3 py-2 max-h-[400px] overflow-y-auto">
-          <pre className="text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words font-mono">
-            {event.content}
-          </pre>
-        </div>
-      )}
     </div>
   )
 }
