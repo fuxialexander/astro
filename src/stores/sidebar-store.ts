@@ -45,6 +45,7 @@ interface SidebarStore {
 
 const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
+  { id: "active", to: "/active", icon: "Zap", label: "Active Jobs", visible: true, protected: false },
   { id: "plan", to: "/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
@@ -52,7 +53,6 @@ const defaultItems: SidebarItem[] = [
   { id: "community", to: "/community", icon: "Globe", label: "Community", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
-  { id: "active", to: "/active", icon: "Zap", label: "Active", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
 ]
 
