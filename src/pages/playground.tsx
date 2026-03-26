@@ -900,7 +900,7 @@ export function Playground() {
         <div className="text-center mb-8 mt-4 md:mt-8">
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">{t('playground')}</h1>
           <p className="text-sm text-muted-foreground">
-            {t('playgroundDesc', { defaultValue: 'A regular Claude Code session in any of your machines.' })}
+            {t('playgroundDesc', { defaultValue: 'An agent (e.g., Claude Code or Codex) session on any of your machines.' })}
           </p>
         </div>
 
