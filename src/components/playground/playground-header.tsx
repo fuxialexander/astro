@@ -43,20 +43,21 @@ interface PlaygroundHeaderProps {
   modelName?: string
 }
 
-/** Live elapsed timer that updates every second */
+/**
+ * Live elapsed timer that updates every second.
+ * Parent must set key={startedAt.getTime()} to reset state across session retries.
+ */
 function ElapsedTimer({ startedAt, status }: { startedAt: Date; status: PlaygroundStatus }) {
-  const [now, setNow] = useState(() => Date.now())
+  const startMs = startedAt.getTime()
+  const [now, setNow] = useState(() => Math.floor(performance.timeOrigin + performance.now()))
 
   useEffect(() => {
-    // Reset now when startedAt changes (e.g. session retry while component stays mounted)
-    setNow(Date.now())
-    // Only tick when running/waiting
     if (status !== 'running' && status !== 'waiting') return
-    const interval = setInterval(() => setNow(Date.now()), 1000)
+    const interval = setInterval(() => setNow(Math.floor(performance.timeOrigin + performance.now())), 1000)
     return () => clearInterval(interval)
-  }, [status, startedAt])
+  }, [status])
 
-  const seconds = Math.max(0, Math.floor((now - startedAt.getTime()) / 1000))
+  const seconds = Math.max(0, Math.floor((now - startMs) / 1000))
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return (
@@ -184,7 +185,7 @@ export function PlaygroundHeader({
               <span className="text-[10px] text-muted-foreground/40 hidden md:inline">&middot;</span>
               <span className="hidden md:flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Clock className="h-3 w-3" />
-                <ElapsedTimer startedAt={startedAt} status={status} />
+                <ElapsedTimer key={startedAt.getTime()} startedAt={startedAt} status={status} />
               </span>
             </>
           )}
