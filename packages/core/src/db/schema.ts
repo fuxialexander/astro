@@ -1,5 +1,5 @@
 import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
-import { sql } from 'drizzle-orm'
+import { sql, isNull } from 'drizzle-orm'
 import type { GitHubSyncSettings } from '../types.js'
 
 // ── Projects ──────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export const planNodes = pgTable('plan_nodes', {
   loopBestMetricValue: real('loop_best_metric_value'),
   loopBestIteration: integer('loop_best_iteration'),
   loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
-  deliveryBranchId: uuid('delivery_branch_id'),
+  deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -221,7 +221,8 @@ export const deliveryBranches = pgTable('delivery_branches', {
 }, (table) => ({
   projectIdIdx: index('idx_delivery_branches_project').on(table.projectId),
   projectBranchUniq: uniqueIndex('idx_delivery_branches_project_branch')
-    .on(table.projectId, table.branchName),
+    .on(table.projectId, table.branchName)
+    .where(isNull(table.deletedAt)),
 }))
 
 // ── Plan Node Dependencies ────────────────────────────────────────────
@@ -446,6 +447,15 @@ export const registeredMachines = pgTable('registered_machines', {
 }, (table) => ({
   userIdIdx: index('idx_registered_machines_user_id').on(table.userId),
   teamIdIdx: index('idx_registered_machines_team_id').on(table.teamId),
+}))
+
+// ── Machine Team Shares (many-to-many) ──────────────────────────────
+export const machineTeamShares = pgTable('machine_team_shares', {
+  machineId: text('machine_id').notNull().references(() => registeredMachines.id, { onDelete: 'cascade' }),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  sharedAt: timestamp('shared_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.machineId, table.teamId] }),
 }))
 
 // ── Project Members ──────────────────────────────────────────────────
