@@ -176,7 +176,7 @@ export function deriveActiveTasks(params: {
   for (const session of allSessions.values()) {
     if (!session.projectId) continue
     if (session.type !== "project-chat" && session.type !== "task-chat") continue
-    if (session.messages.length === 0) continue
+    if ((session.messageCount ?? session.messages.length) === 0) continue
 
     const idleMs = now - session.updatedAt.getTime()
     if (idleMs > IDLE_RETENTION_MS) continue
