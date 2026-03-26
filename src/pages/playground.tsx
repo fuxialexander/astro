@@ -275,12 +275,15 @@ export function Playground() {
   }, [execution?.machineId, allMachines, globalProviders])
 
   // Playground session history
-  const playgroundHistory = useMemo(() => {
+  const [historyDisplayLimit, setHistoryDisplayLimit] = useState(20)
+  const allPlaygroundHistory = useMemo(() => {
     return allProjects
       .filter((p) => isPlaygroundProject(p, allExecutions))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, 20)
   }, [allProjects, allExecutions])
+  const playgroundHistory = useMemo(() => {
+    return allPlaygroundHistory.slice(0, historyDisplayLimit)
+  }, [allPlaygroundHistory, historyDisplayLimit])
 
   const isRunning = execution?.status === "pending" || execution?.status === "running"
 
@@ -1146,6 +1149,14 @@ export function Playground() {
                   </div>
                 )
               })}
+              {allPlaygroundHistory.length > historyDisplayLimit && (
+                <button
+                  onClick={() => setHistoryDisplayLimit((prev) => prev + 20)}
+                  className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Show more ({allPlaygroundHistory.length - historyDisplayLimit} remaining)
+                </button>
+              )}
             </div>
           </div>
         )}

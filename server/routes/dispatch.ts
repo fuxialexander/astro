@@ -708,7 +708,7 @@ dispatchRoute.post('/task', async (c) => {
           deliveryMode = derived
           // Backfill so future dispatches hit the DB path directly
           db.update(projects)
-            .set({ deliveryMode: derived, updatedAt: new Date() })
+            .set({ deliveryMode: derived })
             .where(eq(projects.id, projectId))
             .catch(err => console.warn(`[dispatch] Failed to backfill deliveryMode for ${projectId}:`, err))
         }
@@ -1635,7 +1635,7 @@ ${verificationSection}${executiveSummarySection}`)
   // Persist projectBranch to the project record for backward compatibility (idempotent)
   try {
     await db.update(projects)
-      .set({ projectBranch: `astro/${shortProjectId}`, updatedAt: new Date() })
+      .set({ projectBranch: `astro/${shortProjectId}` })
       .where(and(eq(projects.id, projectId), isNull(projects.projectBranch)))
   } catch (err) {
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
@@ -2050,7 +2050,7 @@ ${verificationSection}${executiveSummarySection}`)
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
         db.update(projects)
-          .set({ defaultMachineId: machineId, updatedAt: new Date() })
+          .set({ defaultMachineId: machineId })
           .where(and(eq(projects.id, projectId), isNull(projects.defaultMachineId)))
           .execute()
           .catch((err: unknown) => {
