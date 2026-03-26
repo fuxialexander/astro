@@ -1,373 +1,411 @@
 /**
- * Active Tasks — Streaming Session Inclusion Tests
+ * Active Tasks — Tests for deriveActiveTasks()
  *
- * Verifies that the Active Tasks page includes streaming playground/chat
- * sessions that are tracked in streamingSessions but NOT in the execution
- * store. This was the root cause of the sidebar badge showing "1" while
- * the active tasks page showed nothing.
+ * Tests the real deriveActiveTasks function from src/lib/active-tasks.ts,
+ * verifying streaming session inclusion, per-project dedup, idle retention,
+ * and terminal session filtering.
  */
 import { describe, it, expect } from 'vitest'
+import { deriveActiveTasks } from '../src/lib/active-tasks'
+import type { Session, TaskExecution, Project, PlanNode } from '../src/types'
 
 // ============================================================================
-// Minimal types mirroring the active-tasks.tsx logic
+// Helpers to build minimal test objects
 // ============================================================================
 
-interface ActiveTask {
-  nodeId: string
-  projectId: string
-  title: string
-  status: 'running' | 'pending' | 'generating'
-  startedAt?: Date
-}
-
-interface Execution {
-  status: 'running' | 'pending' | 'success' | 'failure' | 'cancelled'
-  projectId?: string
-  executionId?: string
-  startedAt?: Date
-  machineId?: string
-  providerId?: string
-}
-
-interface Session {
-  id: string
-  type: 'project-chat' | 'task-chat' | 'execution' | 'steer'
-  projectId: string
-  title?: string
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
-  updatedAt: Date
-}
-
-interface Project {
-  id: string
-  name: string
-}
-
-/**
- * Replicates the core logic of active-tasks.tsx's useMemo that builds
- * the grouped task list from executions + streaming sessions.
- */
-function buildActiveTaskList(
-  executions: Map<string, Execution>,
-  streamingSessions: Set<string>,
-  allSessions: Map<string, Session>,
-  projects: Project[],
-): { taskMap: Map<string, ActiveTask[]>; totalCount: number } {
-  const taskMap = new Map<string, ActiveTask[]>()
-  const addedNodeIds = new Set<string>()
-
-  // 1. Add active executions
-  for (const [nodeId, exec] of executions) {
-    if (exec.status !== 'pending' && exec.status !== 'running') continue
-    const projectId = exec.projectId
-    if (!projectId) continue
-
-    const isPlayground = nodeId.startsWith('playground-')
-    const title = isPlayground
-      ? (projects.find((p) => p.id === projectId)?.name || 'Playground Session')
-      : `Task ${nodeId.slice(0, 8)}`
-
-    const list = taskMap.get(projectId) || []
-    list.push({
-      nodeId,
-      projectId,
-      title,
-      status: exec.status === 'running' ? 'running' : 'pending',
-      startedAt: exec.startedAt,
-    })
-    taskMap.set(projectId, list)
-    addedNodeIds.add(nodeId)
+function makeSession(overrides: Partial<Session> & { id: string; projectId: string }): Session {
+  return {
+    type: 'project-chat',
+    status: 'active',
+    messages: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
   }
+}
 
-  // 2. Add streaming sessions not already covered by executions
-  for (const sessionId of streamingSessions) {
-    const session = allSessions.get(sessionId)
-    if (!session?.projectId) continue
-
-    const isPlayground = session.type === 'task-chat'
-    const stableNodeId = isPlayground
-      ? `playground-${session.projectId}`
-      : `chat-${sessionId}`
-
-    if (addedNodeIds.has(stableNodeId) || addedNodeIds.has(sessionId)) continue
-
-    const proj = projects.find((p) => p.id === session.projectId)
-    const title = session.title
-      || session.messages.find((m) => m.role === 'user')?.content.slice(0, 50)
-      || proj?.name
-      || 'Chat Session'
-
-    const list = taskMap.get(session.projectId) || []
-    list.push({
-      nodeId: stableNodeId,
-      projectId: session.projectId,
-      title: isPlayground ? title : `Chat: ${title}`,
-      status: 'running',
-      startedAt: session.updatedAt,
-    })
-    taskMap.set(session.projectId, list)
+function makeExecution(overrides: Partial<TaskExecution> & { nodeId: string; projectId: string }): TaskExecution {
+  return {
+    executionId: `exec-${overrides.nodeId}`,
+    status: 'running',
+    streamText: '',
+    startedAt: new Date(),
+    toolTraces: [],
+    fileChanges: [],
+    activityEvents: [],
+    ...overrides,
   }
+}
 
-  let count = 0
-  for (const tasks of taskMap.values()) count += tasks.length
-  return { taskMap, totalCount: count }
+function makeProject(id: string, name: string): Project {
+  return {
+    id,
+    name,
+    description: '',
+    visionDoc: '',
+    status: 'active',
+    teamId: 'team-1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as Project
+}
+
+/** Default params for deriveActiveTasks with empty collections */
+function defaultParams() {
+  return {
+    executions: new Map<string, TaskExecution>(),
+    rawNodes: [] as PlanNode[],
+    liveNodes: [] as PlanNode[],
+    nodesLoaded: true,
+    projects: [] as Project[],
+    projectsLoaded: true,
+    streamingSessions: new Set<string>(),
+    allSessions: new Map<string, Session>(),
+  }
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
 
-describe('Active Tasks: streaming sessions included', () => {
-  it('includes streaming playground session when no execution exists', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['session-1'])
-    const allSessions = new Map<string, Session>([
-      ['session-1', {
-        id: 'session-1',
-        type: 'task-chat',
-        projectId: 'proj-1',
-        title: 'Debug auth flow',
-        messages: [{ role: 'user', content: 'Fix the login bug' }],
-        updatedAt: new Date(),
-      }],
-    ])
-    const projects: Project[] = [{ id: 'proj-1', name: 'My Project' }]
+describe('deriveActiveTasks: streaming sessions', () => {
+  it('includes streaming project-chat session when no execution exists', () => {
+    const session = makeSession({
+      id: 'session-1',
+      projectId: 'proj-1',
+      type: 'project-chat',
+      title: 'Debug auth flow',
+    })
 
-    const { taskMap, totalCount } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, projects,
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['session-1']),
+      allSessions: new Map([['session-1', session]]),
+    })
 
-    expect(totalCount).toBe(1)
-    const tasks = taskMap.get('proj-1')!
+    expect(result.activeCount).toBe(1)
+    const tasks = result.groupedTasks.get('proj-1')!
     expect(tasks).toHaveLength(1)
     expect(tasks[0].nodeId).toBe('playground-proj-1')
-    expect(tasks[0].title).toBe('Debug auth flow')
+    expect(tasks[0].title).toBe('Playground Chat: Debug auth flow')
     expect(tasks[0].status).toBe('running')
   })
 
   it('does NOT double-count when execution already exists for same playground', () => {
-    const executions = new Map<string, Execution>([
-      ['playground-proj-1', {
-        status: 'running',
-        projectId: 'proj-1',
-        startedAt: new Date(),
-      }],
-    ])
-    const streamingSessions = new Set(['session-1'])
-    const allSessions = new Map<string, Session>([
-      ['session-1', {
-        id: 'session-1',
-        type: 'task-chat',
-        projectId: 'proj-1',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
-    const projects: Project[] = [{ id: 'proj-1', name: 'My Project' }]
+    const exec = makeExecution({ nodeId: 'playground-proj-1', projectId: 'proj-1' })
+    const session = makeSession({ id: 'session-1', projectId: 'proj-1', type: 'project-chat' })
+    const project = makeProject('proj-1', 'My Project')
 
-    const { totalCount } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, projects,
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      executions: new Map([['playground-proj-1', exec]]),
+      projects: [project],
+      streamingSessions: new Set(['session-1']),
+      allSessions: new Map([['session-1', session]]),
+    })
 
-    // Should be 1, not 2
-    expect(totalCount).toBe(1)
+    // Should be 1 (execution), not 2
+    expect(result.activeCount).toBe(1)
   })
 
-  it('includes project-chat streaming session', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['chat-session-1'])
-    const allSessions = new Map<string, Session>([
-      ['chat-session-1', {
-        id: 'chat-session-1',
-        type: 'project-chat',
-        projectId: 'proj-1',
-        messages: [{ role: 'user', content: 'Refactor the module structure' }],
-        updatedAt: new Date(),
-      }],
-    ])
-    const projects: Project[] = [{ id: 'proj-1', name: 'Refactor Project' }]
+  it('uses session.title for streaming project-chat', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      title: 'Custom Title',
+      messages: [{ id: 'm1', role: 'user', content: 'ignored when title exists', timestamp: new Date() }],
+    })
 
-    const { taskMap, totalCount } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, projects,
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
 
-    expect(totalCount).toBe(1)
-    const tasks = taskMap.get('proj-1')!
-    expect(tasks[0].title).toBe('Chat: Refactor the module structure')
-  })
-
-  it('uses session.title when available', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        title: 'Custom Title',
-        messages: [{ role: 'user', content: 'This is a long message that should not be used' }],
-        updatedAt: new Date(),
-      }],
-    ])
-
-    const { taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
-
-    expect(taskMap.get('p1')![0].title).toBe('Custom Title')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat: Custom Title')
   })
 
   it('falls back to first user message when no title', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        messages: [{ role: 'user', content: 'Help me debug the API' }],
-        updatedAt: new Date(),
-      }],
-    ])
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      messages: [{ id: 'm1', role: 'user', content: 'Help me debug the API', timestamp: new Date() }],
+    })
 
-    const { taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
 
-    expect(taskMap.get('p1')![0].title).toBe('Help me debug the API')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat: Help me debug the API')
   })
 
-  it('falls back to project name when no title and no messages', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
-    const projects: Project[] = [{ id: 'p1', name: 'My Playground' }]
+  it('shows "Playground Chat" when nothing else available', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+    })
 
-    const { taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, projects,
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
 
-    expect(taskMap.get('p1')![0].title).toBe('My Playground')
-  })
-
-  it('falls back to "Chat Session" when nothing else available', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
-
-    const { taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
-
-    expect(taskMap.get('p1')![0].title).toBe('Chat Session')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat')
   })
 
   it('handles multiple streaming sessions across projects', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1', 's2'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        title: 'Session A',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-      ['s2', {
-        id: 's2',
-        type: 'task-chat',
-        projectId: 'p2',
-        title: 'Session B',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
+    const s1 = makeSession({ id: 's1', projectId: 'p1', type: 'project-chat', title: 'A' })
+    const s2 = makeSession({ id: 's2', projectId: 'p2', type: 'project-chat', title: 'B' })
 
-    const { totalCount, taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1', 's2']),
+      allSessions: new Map([['s1', s1], ['s2', s2]]),
+    })
 
-    expect(totalCount).toBe(2)
-    expect(taskMap.get('p1')!).toHaveLength(1)
-    expect(taskMap.get('p2')!).toHaveLength(1)
+    expect(result.activeCount).toBe(2)
+    expect(result.groupedTasks.get('p1')!).toHaveLength(1)
+    expect(result.groupedTasks.get('p2')!).toHaveLength(1)
   })
 
   it('mixes executions and streaming sessions correctly', () => {
-    const executions = new Map<string, Execution>([
-      ['task-node-1', {
-        status: 'running',
-        projectId: 'p1',
-        startedAt: new Date(),
-      }],
-    ])
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: 'p1',
-        title: 'Playground Chat',
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
+    const exec = makeExecution({ nodeId: 'task-node-1', projectId: 'p1' })
+    const session = makeSession({ id: 's1', projectId: 'p1', type: 'project-chat', title: 'Chat' })
+    // Provide a raw node so the execution isn't skipped as "unknown node"
+    const rawNode = {
+      id: 'task-node-1', projectId: 'p1', title: 'Build feature',
+      description: '', type: 'task', status: 'in_progress',
+      dependencies: [], position: { x: 0, y: 0 },
+      createdAt: new Date(), updatedAt: new Date(),
+    } as PlanNode
 
-    const { totalCount, taskMap } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      executions: new Map([['task-node-1', exec]]),
+      rawNodes: [rawNode],
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
 
     // Both the execution and the streaming session should appear
-    expect(totalCount).toBe(2)
-    expect(taskMap.get('p1')!).toHaveLength(2)
+    expect(result.activeCount).toBe(2)
+    expect(result.groupedTasks.get('p1')!).toHaveLength(2)
   })
 
   it('skips sessions without projectId', () => {
-    const executions = new Map<string, Execution>()
-    const streamingSessions = new Set(['s1'])
-    const allSessions = new Map<string, Session>([
-      ['s1', {
-        id: 's1',
-        type: 'task-chat',
-        projectId: '', // empty
-        messages: [],
-        updatedAt: new Date(),
-      }],
-    ])
+    const session = makeSession({ id: 's1', projectId: '' })
 
-    const { totalCount } = buildActiveTaskList(
-      executions, streamingSessions, allSessions, [],
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
 
-    expect(totalCount).toBe(0)
+    expect(result.activeCount).toBe(0)
   })
 
   it('skips completed executions', () => {
-    const executions = new Map<string, Execution>([
-      ['playground-p1', { status: 'success', projectId: 'p1' }],
-      ['task-1', { status: 'failure', projectId: 'p1' }],
-    ])
+    const exec1 = makeExecution({ nodeId: 'playground-p1', projectId: 'p1', status: 'success' })
+    const exec2 = makeExecution({ nodeId: 'task-1', projectId: 'p1', status: 'failure' })
 
-    const { totalCount } = buildActiveTaskList(
-      executions, new Set(), new Map(), [],
-    )
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      executions: new Map([['playground-p1', exec1], ['task-1', exec2]]),
+    })
 
-    expect(totalCount).toBe(0)
+    expect(result.activeCount).toBe(0)
+  })
+})
+
+describe('deriveActiveTasks: per-project dedup', () => {
+  it('collapses multiple project-chat sessions for same project into one entry', () => {
+    const s1 = makeSession({
+      id: 'session-1',
+      projectId: 'proj-1',
+      type: 'project-chat',
+      title: 'First chat',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: new Date() }],
+    })
+    const s2 = makeSession({
+      id: 'session-2',
+      projectId: 'proj-1',
+      type: 'project-chat',
+      title: 'Second chat',
+      messages: [{ id: 'm2', role: 'user', content: 'world', timestamp: new Date() }],
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['session-1', 'session-2']),
+      allSessions: new Map([['session-1', s1], ['session-2', s2]]),
+    })
+
+    // Only one entry per project
+    expect(result.activeCount).toBe(1)
+    expect(result.groupedTasks.get('proj-1')!).toHaveLength(1)
+    // First session wins (iteration order of Set)
+    expect(result.groupedTasks.get('proj-1')![0].nodeId).toBe('playground-proj-1')
+  })
+
+  it('collapses idle project-chat sessions per project', () => {
+    const now = new Date()
+    const s1 = makeSession({
+      id: 'session-1',
+      projectId: 'proj-1',
+      type: 'project-chat',
+      title: 'Idle chat 1',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: now }],
+      updatedAt: now,
+    })
+    const s2 = makeSession({
+      id: 'session-2',
+      projectId: 'proj-1',
+      type: 'project-chat',
+      title: 'Idle chat 2',
+      messages: [{ id: 'm2', role: 'user', content: 'world', timestamp: now }],
+      updatedAt: now,
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      allSessions: new Map([['session-1', s1], ['session-2', s2]]),
+    })
+
+    // One idle entry per project
+    expect(result.activeCount).toBe(1)
+    expect(result.groupedTasks.get('proj-1')![0].status).toBe('idle')
+  })
+})
+
+describe('deriveActiveTasks: terminal session filtering', () => {
+  it('excludes completed sessions from idle retention', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      status: 'completed',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: new Date() }],
+      updatedAt: new Date(), // recent enough for idle retention
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.activeCount).toBe(0)
+  })
+
+  it('excludes cancelled sessions from idle retention', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      status: 'cancelled',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: new Date() }],
+      updatedAt: new Date(),
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.activeCount).toBe(0)
+  })
+
+  it('includes errored sessions in idle retention', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      status: 'error',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: new Date() }],
+      updatedAt: new Date(),
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.activeCount).toBe(1)
+    expect(result.groupedTasks.get('p1')![0].status).toBe('idle')
+  })
+
+  it('excludes sessions older than idle retention (1 hour)', () => {
+    const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000) // 2 hours ago
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'project-chat',
+      messages: [{ id: 'm1', role: 'user', content: 'hello', timestamp: oldDate }],
+      updatedAt: oldDate,
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.activeCount).toBe(0)
+  })
+})
+
+describe('deriveActiveTasks: task-chat sessions', () => {
+  it('uses followup-{nodeId} for task-chat with nodeId', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'task-chat',
+      nodeId: 'node-abc',
+      title: 'Fix the bug',
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.groupedTasks.get('p1')![0].nodeId).toBe('followup-node-abc')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Fix the bug')
+  })
+
+  it('shows follow-up title when task node is completed', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'task-chat',
+      nodeId: 'node-abc',
+    })
+
+    const completedNode: PlanNode = {
+      id: 'node-abc',
+      projectId: 'p1',
+      title: 'Original Task',
+      description: '',
+      type: 'task',
+      status: 'completed',
+      dependencies: [],
+      position: { x: 0, y: 0 },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as PlanNode
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      rawNodes: [completedNode],
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Follow-up: Original Task')
   })
 })

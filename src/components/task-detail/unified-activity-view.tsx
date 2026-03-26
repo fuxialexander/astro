@@ -72,6 +72,9 @@ export function UnifiedActivityView({
   const containerRef = useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery("(max-width: 767px)")
 
+  // Clear stale edit state when switching tasks
+  useEffect(() => { setEditingMessageId(null) }, [node.id])
+
   // Resizable file browser panel (desktop only)
   const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
     if (typeof window !== "undefined") {
@@ -497,16 +500,23 @@ export function UnifiedActivityView({
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
           onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
-          onEditMessage={!isRunning && !isChatStreaming ? (msg) => {
-            // Find the matching session message (search from end for most recent match)
+          onEditMessage={!isRunning && !isChatStreaming ? (msg, timestamp) => {
+            // Find the matching session message by content + closest timestamp
             const session = useSessionStore.getState().sessions.get(chatSession?.id ?? '')
             const msgs = session?.messages || []
-            for (let i = msgs.length - 1; i >= 0; i--) {
+            const eventTime = timestamp.getTime()
+            let bestIdx = -1
+            let bestDelta = Infinity
+            for (let i = 0; i < msgs.length; i++) {
               if (msgs[i].role === 'user' && msgs[i].content === msg) {
-                setEditingMessageId(msgs[i].id)
-                break
+                const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
+                if (delta < bestDelta) {
+                  bestDelta = delta
+                  bestIdx = i
+                }
               }
             }
+            if (bestIdx >= 0) setEditingMessageId(msgs[bestIdx].id)
             setInput(msg)
           } : undefined}
           onApprovalResponse={handleApprovalResponse}

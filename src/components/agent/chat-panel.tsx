@@ -662,16 +662,23 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               return true
             }
           }}
-          onEditMessage={!isStreaming ? (msg) => {
-            // Find the matching session message (search from end for most recent match)
+          onEditMessage={!isStreaming ? (msg, timestamp) => {
+            // Find the matching session message by content + closest timestamp
             const session = useSessionStore.getState().sessions.get(currentSession?.id ?? '')
             const msgs = session?.messages || []
-            for (let i = msgs.length - 1; i >= 0; i--) {
+            const eventTime = timestamp.getTime()
+            let bestIdx = -1
+            let bestDelta = Infinity
+            for (let i = 0; i < msgs.length; i++) {
               if (msgs[i].role === 'user' && msgs[i].content === msg) {
-                setEditingMessageId(msgs[i].id)
-                break
+                const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
+                if (delta < bestDelta) {
+                  bestDelta = delta
+                  bestIdx = i
+                }
               }
             }
+            if (bestIdx >= 0) setEditingMessageId(msgs[bestIdx].id)
             setInput(msg)
           } : undefined}
           preprocessContent={preprocessTextContent}

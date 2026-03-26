@@ -49,8 +49,8 @@ export interface ActivityBlockRendererProps {
   onSendPrompt?: (text: string) => void
   /** Callback for file selection in file change blocks */
   onFileSelect?: (path: string) => void
-  /** Callback for editing a chat user message */
-  onEditMessage?: (message: string) => void
+  /** Callback for editing a chat user message (timestamp helps disambiguate duplicate messages) */
+  onEditMessage?: (message: string, timestamp: Date) => void
   /** Callback for responding to an approval request */
   onApprovalResponse?: (requestId: string, answer: string) => void
   /** Text preprocessing function (e.g., strip XML tags, convert uuid links) */

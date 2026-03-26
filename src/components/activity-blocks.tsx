@@ -854,7 +854,7 @@ export function ErrorBlock({ event }: { event: Extract<TaskActivityEvent, { type
   )
 }
 
-export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEvent, { type: 'chat_user' }>; onEdit?: (message: string) => void }) {
+export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEvent, { type: 'chat_user' }>; onEdit?: (message: string, timestamp: Date) => void }) {
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
@@ -868,7 +868,7 @@ export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEv
         )}
         {onEdit && !event.queued && (
           <button
-            onClick={() => onEdit(event.message)}
+            onClick={() => onEdit(event.message, event.timestamp)}
             className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/msg:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"
             title="Edit & resend"
           >
