@@ -225,12 +225,56 @@ async function streamChatViaRelay(
     }
   }
 
+  // Check machine connectivity before dispatch and emit a visible system message.
+  // This gives users clear feedback about which machine will run their task.
+  if (opts.targetMachineId) {
+    const targetConn = machineRegistry.getConnection(opts.targetMachineId)
+    if (targetConn) {
+      const machineName = targetConn.entry.name || opts.targetMachineId.slice(0, 12)
+      await streamingEventLog.append(persistId, 'system_message', {
+        message: `Connected to machine "${machineName}" via WebSocket`,
+      })
+    } else {
+      // Target machine is offline — look up its name from the DB for a helpful error
+      let machineName = opts.targetMachineId.slice(0, 12)
+      try {
+        const [row] = await db.select({ name: registeredMachines.name })
+          .from(registeredMachines).where(eq(registeredMachines.id, opts.targetMachineId)).limit(1)
+        if (row?.name) machineName = row.name
+      } catch { /* use truncated ID */ }
+      await streamingEventLog.append(persistId, 'system_message', {
+        message: `Machine "${machineName}" is offline — agent runner is not connected. Please start the agent runner on that machine.`,
+      })
+      // Persist a terminal error so the frontend sees the stream as failed
+      await streamingEventLog.append(persistId, 'result', {
+        status: 'failure',
+        error: `Machine "${machineName}" is offline. Start the agent runner with: npx @astroanywhere/agent start`,
+      })
+      return c.json({
+        success: false,
+        error: `Machine "${machineName}" is offline. Start the agent runner on that machine.`,
+      }, 503)
+    }
+  } else {
+    // No specific target — findBestMachine will pick one. Emit generic connecting message.
+    await streamingEventLog.append(persistId, 'system_message', {
+      message: 'Selecting best available machine…',
+    })
+  }
+
   // Fire-and-forget relay dispatch — all subsequent events reach the frontend
   // exclusively through the global SSE bus (relay-server → executionEventBus → events.ts → realtime-store).
   const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
 
   if (!dispatched) {
-    return c.json({ success: false, error: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>' }, 503)
+    await streamingEventLog.append(persistId, 'system_message', {
+      message: 'No agent runner connected. Start one with: npx @astroanywhere/agent start',
+    })
+    await streamingEventLog.append(persistId, 'result', {
+      status: 'failure',
+      error: 'No agent runner connected.',
+    })
+    return c.json({ success: false, error: 'No agent runner connected. Start one with: npx @astroanywhere/agent start --relay wss://<your-relay-url>' }, 503)
   }
 
   // Persist "agent working" operational event so the frontend shows a blue status
