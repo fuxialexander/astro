@@ -14,7 +14,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
+import { projects, registeredMachines, machineInstructions, blobs, taskExecutions } from '../lib/db/schema.js'
 import { eq, and, inArray, isNull } from 'drizzle-orm'
 
 const DEFAULT_INSTRUCTION_ID = 'builtin:default'
@@ -163,13 +163,35 @@ async function streamChatViaRelay(
   // and flush the in-memory text buffer for this session (chat/plan pathways).
   const user = c.get('user') as { id: string } | undefined
   if (opts.projectId && user?.id) {
-    executionContextStore.register({
+    // Await Redis write to ensure cross-instance visibility before dispatch
+    await executionContextStore.register({
       executionId: persistId,
       projectId: opts.projectId,
       nodeId: opts.nodeId || '',
       userId: user.id,
       machineId: opts.targetMachineId || '',
     })
+  }
+
+  // Insert a taskExecutions row for chat/plan sessions so the SSE event handler's
+  // DB fallback (loadExecutionContext) can resolve the context even if the in-memory
+  // store and Redis are unavailable. Execution tasks already have this row from dispatch.ts.
+  if ((opts.type === 'chat' || opts.type === 'plan') && opts.projectId && user?.id) {
+    try {
+      await db.insert(taskExecutions).values({
+        executionId: persistId,
+        nodeClientId: opts.nodeId || '',
+        projectId: opts.projectId,
+        userId: user.id,
+        status: 'running',
+        machineId: opts.targetMachineId || null,
+        providerId: opts.preferredProvider || null,
+        model: opts.model || null,
+      }).onConflictDoNothing()
+    } catch (err) {
+      // Non-fatal: the in-memory + Redis path still works
+      console.warn('[agent] Failed to insert chat taskExecution row:', err)
+    }
   }
 
   // Fire-and-forget relay dispatch — all subsequent events reach the frontend

@@ -175,15 +175,38 @@ eventsRoute.get('/stream', async (c) => {
     // subsequent tasks in the same project auto-proceed silently.
     const safetyApprovedProjects = new Set<string>()
     const executionContextCache = new Map<string, Promise<ResolvedExecutionContext | null>>()
+    /** Track when a null result was cached so we can expire it and retry */
+    const nullCacheTimestamps = new Map<string, number>()
+    /** How long to cache a null (not-found) execution context before retrying */
+    const NULL_CACHE_TTL_MS = 5_000
     const projectAccessCache = new Map<string, Promise<boolean>>()
 
     const getExecutionContextForTask = (taskId: string): Promise<ResolvedExecutionContext | null> => {
       const cached = executionContextCache.get(taskId)
-      if (cached) return cached
+      if (cached) {
+        // If this was a null result, check if it has expired
+        const nullTs = nullCacheTimestamps.get(taskId)
+        if (nullTs && Date.now() - nullTs > NULL_CACHE_TTL_MS) {
+          // Expired negative cache — evict and retry
+          executionContextCache.delete(taskId)
+          nullCacheTimestamps.delete(taskId)
+        } else {
+          return cached
+        }
+      }
 
       const pending = loadExecutionContext(taskId)
+        .then((result) => {
+          if (!result) {
+            // Track when we cached a null so we can expire it
+            nullCacheTimestamps.set(taskId, Date.now())
+            console.warn(`[events] Execution context not found for task ${taskId} — will retry in ${NULL_CACHE_TTL_MS}ms`)
+          }
+          return result
+        })
         .catch((err) => {
           console.error('[events] Failed to resolve execution context:', err)
+          nullCacheTimestamps.set(taskId, Date.now())
           return null
         })
       executionContextCache.set(taskId, pending)
@@ -212,6 +235,9 @@ eventsRoute.get('/stream', async (c) => {
       return canAccessTaskContext(ctx)
     }
 
+    /** Track which taskIds we've already warned about to avoid log spam */
+    const accessDeniedWarned = new Set<string>()
+
     const withTaskAccess = (
       taskId: string,
       handler: (ctx: ResolvedExecutionContext | null) => void | Promise<void>,
@@ -219,7 +245,13 @@ eventsRoute.get('/stream', async (c) => {
       void (async () => {
         if (!alive) return
         const ctx = await getExecutionContextForTask(taskId)
-        if (!await canAccessTaskContext(ctx)) return
+        if (!await canAccessTaskContext(ctx)) {
+          if (!accessDeniedWarned.has(taskId)) {
+            accessDeniedWarned.add(taskId)
+            console.warn(`[events] Dropping event for task ${taskId}: context=${ctx ? `project=${ctx.projectId}` : 'null'}`)
+          }
+          return
+        }
         if (!alive) return
         await handler(ctx)
       })()
