@@ -258,6 +258,9 @@ async function syncIssuesForProject(
       ))
       .limit(1);
 
+    // Prefix issue number to title for display (e.g., "#1060 feat: auto-discovery")
+    const prefixedTitle = `#${issue.number} ${issue.title}`;
+
     if (existing) {
       // Resurrect edges if the node was soft-deleted
       if (existing.deletedAt && existing.deletionActionId) {
@@ -298,7 +301,7 @@ async function syncIssuesForProject(
       ];
 
       await db.update(planNodes).set({
-        title: issue.title,
+        title: prefixedTitle,
         description: issue.body || '',
         content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
@@ -314,7 +317,7 @@ async function syncIssuesForProject(
         projectId,
         clientId: `gh-issue-${issue.number}`,
         type: 'task',
-        title: issue.title,
+        title: prefixedTitle,
         description: issue.body || '',
         content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
