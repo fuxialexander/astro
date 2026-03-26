@@ -543,7 +543,9 @@ export function Playground() {
     }, 0)
   }, [activeProjectId, isRunning, handleSteer, handleChat])
 
-  // Listen for send_chat_message events from json-render OptionCard specs
+  // Listen for send_chat_message events from json-render OptionCard specs.
+  // Note: chat-panel.tsx has an identical listener but they are mutually exclusive
+  // by routing — playground and project pages are never mounted simultaneously.
   useEffect(() => {
     const handler = (e: Event) => {
       const message = (e as CustomEvent<{ message: string }>).detail?.message

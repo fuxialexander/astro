@@ -410,6 +410,8 @@ export function UnifiedActivityView({
   // Listen for send_chat_message events from json-render OptionCard specs.
   // Use a ref so the listener always calls the latest handleSendPrompt without
   // re-registering on every render (handleSendPrompt is not wrapped in useCallback).
+  // Note: chat-panel.tsx has an identical listener but they are mutually exclusive
+  // by routing — task detail and project chat are never mounted simultaneously.
   const sendPromptRef = useRef(handleSendPrompt)
   sendPromptRef.current = handleSendPrompt
   useEffect(() => {
