@@ -437,8 +437,14 @@ export class MachineRegistry extends EventEmitter {
       return undefined;
     }
 
-    // Sort by load (lowest first) and pick the best
+    // Sort by: user-owned first, then by load (lowest first)
     candidates.sort((a, b) => {
+      // Strongly prefer user-owned machines over shared/anonymous ones
+      if (userId) {
+        const aOwned = a.userId === userId ? 1 : 0;
+        const bOwned = b.userId === userId ? 1 : 0;
+        if (aOwned !== bOwned) return bOwned - aOwned;
+      }
       // Combine CPU and task load for scoring
       const scoreA = a.load.cpuPercent + (a.load.activeTasks * 10);
       const scoreB = b.load.cpuPercent + (b.load.activeTasks * 10);
