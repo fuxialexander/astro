@@ -1,4 +1,4 @@
-import type { PlanNode, Project, Session, TaskExecution } from "@/types"
+import type { PlanNode, Project, Session, SessionStatus, TaskExecution } from "@/types"
 
 const TERMINAL_ACTIVE_TASK_NODE_STATUSES = new Set([
   "completed",
@@ -11,7 +11,7 @@ const TERMINAL_ACTIVE_TASK_NODE_STATUSES = new Set([
 const IDLE_RETENTION_MS = 60 * 60 * 1000 // 1 hour
 
 // Session statuses that indicate the chat is finished — don't show in active tasks
-const TERMINAL_SESSION_STATUSES = new Set<string>(["completed", "cancelled"])
+const TERMINAL_SESSION_STATUSES = new Set<SessionStatus>(["completed", "cancelled"])
 
 export interface ActiveTaskEntry {
   nodeId: string
