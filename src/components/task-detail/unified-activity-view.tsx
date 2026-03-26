@@ -305,6 +305,29 @@ export function UnifiedActivityView({
     }
   }
 
+  const handleEditMessage = useCallback((msg: string, timestamp: Date) => {
+    const session = useSessionStore.getState().sessions.get(chatSession?.id ?? '')
+    const msgs = session?.messages || []
+    const eventTime = timestamp.getTime()
+    let bestIdx = -1
+    let bestDelta = Infinity
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'user' && msgs[i].content === msg) {
+        const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
+        if (delta < bestDelta) {
+          bestDelta = delta
+          bestIdx = i
+        }
+      }
+    }
+    if (bestIdx >= 0) {
+      setEditingMessageId(msgs[bestIdx].id)
+    } else {
+      console.warn('[UnifiedActivityView] edit: no matching session message found — sending as new message')
+    }
+    setInput(msg)
+  }, [chatSession?.id])
+
   // Chat handler (post-completion)
   function handleChat(text: string) {
     if ((!text && taskImages.length === 0) || !chatSession) return
@@ -500,25 +523,7 @@ export function UnifiedActivityView({
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
           onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
-          onEditMessage={!isRunning && !isChatStreaming ? (msg, timestamp) => {
-            // Find the matching session message by content + closest timestamp
-            const session = useSessionStore.getState().sessions.get(chatSession?.id ?? '')
-            const msgs = session?.messages || []
-            const eventTime = timestamp.getTime()
-            let bestIdx = -1
-            let bestDelta = Infinity
-            for (let i = 0; i < msgs.length; i++) {
-              if (msgs[i].role === 'user' && msgs[i].content === msg) {
-                const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
-                if (delta < bestDelta) {
-                  bestDelta = delta
-                  bestIdx = i
-                }
-              }
-            }
-            if (bestIdx >= 0) setEditingMessageId(msgs[bestIdx].id)
-            setInput(msg)
-          } : undefined}
+          onEditMessage={!isRunning && !isChatStreaming ? handleEditMessage : undefined}
           onApprovalResponse={handleApprovalResponse}
           githubContext={githubContext}
           answeredApprovals={answeredRequestIds}

@@ -351,6 +351,31 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     })
   }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages, editingMessageId])
 
+  const handleEditMessage = useCallback((msg: string, timestamp: Date) => {
+    const session = useSessionStore.getState().sessions.get(
+      useSessionStore.getState().activeSessionIds.get(`${projectId}:project-chat`) ?? ''
+    )
+    const msgs = session?.messages || []
+    const eventTime = timestamp.getTime()
+    let bestIdx = -1
+    let bestDelta = Infinity
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'user' && msgs[i].content === msg) {
+        const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
+        if (delta < bestDelta) {
+          bestDelta = delta
+          bestIdx = i
+        }
+      }
+    }
+    if (bestIdx >= 0) {
+      setEditingMessageId(msgs[bestIdx].id)
+    } else {
+      console.warn('[ChatPanel] edit: no matching session message found — sending as new message')
+    }
+    setInput(msg)
+  }, [projectId])
+
   function handleSend() {
     const text = input.trim()
     if (!text && chatImages.length === 0) return
@@ -662,25 +687,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               return true
             }
           }}
-          onEditMessage={!isStreaming ? (msg, timestamp) => {
-            // Find the matching session message by content + closest timestamp
-            const session = useSessionStore.getState().sessions.get(currentSession?.id ?? '')
-            const msgs = session?.messages || []
-            const eventTime = timestamp.getTime()
-            let bestIdx = -1
-            let bestDelta = Infinity
-            for (let i = 0; i < msgs.length; i++) {
-              if (msgs[i].role === 'user' && msgs[i].content === msg) {
-                const delta = Math.abs(msgs[i].timestamp.getTime() - eventTime)
-                if (delta < bestDelta) {
-                  bestDelta = delta
-                  bestIdx = i
-                }
-              }
-            }
-            if (bestIdx >= 0) setEditingMessageId(msgs[bestIdx].id)
-            setInput(msg)
-          } : undefined}
+          onEditMessage={!isStreaming ? handleEditMessage : undefined}
           preprocessContent={preprocessTextContent}
           answeredApprovals={answeredApprovals.answeredApprovals}
           approvalResponses={answeredApprovals.approvalResponses}
