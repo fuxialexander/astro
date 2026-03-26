@@ -101,7 +101,7 @@ async function streamChatViaRelay(
     streamId?: string
     /** Pathway type for observability (stored in init event) */
     pathwayType?: string
-    /** SSE events to emit before dispatching the relay task (e.g. compaction notice) */
+    /** SSE events to emit before dispatching the relay task (e.g. image warnings) */
     preStreamEvents?: Array<{ event: string; data: string }>
     /** Pre-fetched image attachments for multimodal chat */
     images?: ImageAttachment[]
@@ -170,17 +170,6 @@ async function streamChatViaRelay(
       userId: user.id,
       machineId: opts.targetMachineId || '',
     })
-  }
-
-  // Persist compaction events before dispatching (pre-stream events)
-  if (opts.preStreamEvents) {
-    for (const evt of opts.preStreamEvents) {
-      if (evt.event === 'compaction') {
-        try {
-          await streamingEventLog.append(persistId, 'compaction', JSON.parse(evt.data))
-        } catch { /* ignore parse errors for malformed compaction data */ }
-      }
-    }
   }
 
   // Fire-and-forget relay dispatch — all subsequent events reach the frontend
