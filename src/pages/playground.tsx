@@ -41,6 +41,7 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { FileBrowser } from "@/components/file-browser"
+import { resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
 import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
@@ -85,6 +86,7 @@ export function Playground() {
   // Activity phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
   const [fileSidebarOpen, setFileSidebarOpen] = useState(false)
+  const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   // pendingSteerText removed: pending steers now render inline in activityEvents
@@ -799,12 +801,20 @@ export function Playground() {
               isStreaming={isRunning || isChatStreaming}
               isRunning={isRunning || isChatStreaming}
               onSendPrompt={handleSendPrompt}
-              onFileSelect={() => setFileSidebarOpen(true)}
+              onFileSelect={(path) => {
+                const baseDir = project?.workingDirectory || workingDir
+                if (baseDir) setInitialFilePath(resolveFilePathForBrowsing(path, baseDir))
+                setFileSidebarOpen(true)
+              }}
               onLinkClick={(href) => {
                 // Intercept file-path links so they don't navigate away
                 if (href.startsWith('astro:')) return false
                 if (href.startsWith('http://') || href.startsWith('https://')) return false
-                // Looks like a relative file path — open the file sidebar instead
+                // Relative file path — open the file sidebar and navigate to the file
+                const baseDir = project?.workingDirectory || workingDir
+                if (execution?.machineId && baseDir) {
+                  setInitialFilePath(resolveFilePathForBrowsing(href, baseDir))
+                }
                 setFileSidebarOpen(true)
                 return true
               }}
@@ -896,7 +906,7 @@ export function Playground() {
 
         {/* File Sidebar — Sheet on mobile, inline on desktop */}
         {isMobile ? (
-          <Sheet open={fileSidebarOpen} onOpenChange={setFileSidebarOpen}>
+          <Sheet open={fileSidebarOpen} onOpenChange={(open) => { setFileSidebarOpen(open); if (!open) setInitialFilePath(null) }}>
             <SheetContent side="bottom" className="h-[70vh] w-full p-0">
               <SheetHeader className="px-4 pt-4 pb-2">
                 <SheetTitle>Files</SheetTitle>
@@ -906,7 +916,8 @@ export function Playground() {
                   machineId={execution.machineId}
                   machineName={machineName}
                   workingDirectory={project?.workingDirectory || workingDir}
-                  onClose={() => setFileSidebarOpen(false)}
+                  onClose={() => { setFileSidebarOpen(false); setInitialFilePath(null) }}
+                  initialFilePath={initialFilePath}
                   embedded
                 />
               )}
@@ -918,7 +929,8 @@ export function Playground() {
               machineId={execution.machineId}
               machineName={machineName}
               workingDirectory={project?.workingDirectory || workingDir}
-              onClose={() => setFileSidebarOpen(false)}
+              onClose={() => { setFileSidebarOpen(false); setInitialFilePath(null) }}
+              initialFilePath={initialFilePath}
             />
           )
         )}
