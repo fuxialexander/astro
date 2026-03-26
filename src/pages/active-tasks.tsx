@@ -287,7 +287,7 @@ export function ActiveTasks() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-primary font-semibold text-foreground">{t('active', 'Active')}</h1>
+          <h1 className="text-xl font-primary font-semibold text-foreground">{t('active', 'Active Jobs')}</h1>
           {filteredCount > 0 && (
             <span className="flex items-center gap-1.5 rounded-full bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
               <div className="relative h-2 w-2">
