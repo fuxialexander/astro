@@ -169,7 +169,6 @@ async function syncRepoCacheForWebhook(eventType: string, payload: Record<string
             const deletionActionId = `webhook-close-${Date.now()}`
             await db.update(planNodes).set({
               status: 'completed',
-              completedAt: new Date(),
               deletedAt: new Date(),
               deletionActionId,
               updatedAt: new Date(),
