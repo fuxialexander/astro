@@ -41,6 +41,7 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { FileBrowser } from "@/components/file-browser"
+import { resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
 import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
@@ -85,6 +86,7 @@ export function Playground() {
   // Activity phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
   const [fileSidebarOpen, setFileSidebarOpen] = useState(false)
+  const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   // pendingSteerText removed: pending steers now render inline in activityEvents
@@ -543,6 +545,18 @@ export function Playground() {
     }, 0)
   }, [activeProjectId, isRunning, handleSteer, handleChat])
 
+  // Listen for send_chat_message events from json-render OptionCard specs.
+  // Note: chat-panel.tsx has an identical listener but they are mutually exclusive
+  // by routing — playground and project pages are never mounted simultaneously.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const message = (e as CustomEvent<{ message: string }>).detail?.message
+      if (message) handleSendPrompt(message)
+    }
+    window.addEventListener('astro:send-chat-message', handler)
+    return () => window.removeEventListener('astro:send-chat-message', handler)
+  }, [handleSendPrompt])
+
   // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {
     backingRef.current = true
@@ -787,7 +801,24 @@ export function Playground() {
               isStreaming={isRunning || isChatStreaming}
               isRunning={isRunning || isChatStreaming}
               onSendPrompt={handleSendPrompt}
-              onFileSelect={() => setFileSidebarOpen(true)}
+              onFileSelect={(path) => {
+                const baseDir = project?.workingDirectory || workingDir
+                if (baseDir) setInitialFilePath(resolveFilePathForBrowsing(path, baseDir))
+                setFileSidebarOpen(true)
+              }}
+              onLinkClick={(href) => {
+                // Intercept file-path links so they don't navigate away
+                if (href.startsWith('astro:')) return false
+                if (href.startsWith('http://') || href.startsWith('https://')) return false
+                // Relative file path — open the file sidebar and navigate to the file
+                const baseDir = project?.workingDirectory || workingDir
+                if (execution?.machineId && baseDir) {
+                  setInitialFilePath(resolveFilePathForBrowsing(href, baseDir))
+                  setFileSidebarOpen(true)
+                }
+                // Always prevent default to avoid broken relative URL navigation
+                return true
+              }}
               onEditMessage={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined}
               onApprovalResponse={handleApprovalResponse}
               answeredApprovals={answeredRequestIds}
@@ -876,7 +907,7 @@ export function Playground() {
 
         {/* File Sidebar — Sheet on mobile, inline on desktop */}
         {isMobile ? (
-          <Sheet open={fileSidebarOpen} onOpenChange={setFileSidebarOpen}>
+          <Sheet open={fileSidebarOpen} onOpenChange={(open) => { setFileSidebarOpen(open); if (!open) setInitialFilePath(null) }}>
             <SheetContent side="bottom" className="h-[70vh] w-full p-0">
               <SheetHeader className="px-4 pt-4 pb-2">
                 <SheetTitle>Files</SheetTitle>
@@ -886,7 +917,8 @@ export function Playground() {
                   machineId={execution.machineId}
                   machineName={machineName}
                   workingDirectory={project?.workingDirectory || workingDir}
-                  onClose={() => setFileSidebarOpen(false)}
+                  onClose={() => { setFileSidebarOpen(false); setInitialFilePath(null) }}
+                  initialFilePath={initialFilePath}
                   embedded
                 />
               )}
@@ -898,7 +930,8 @@ export function Playground() {
               machineId={execution.machineId}
               machineName={machineName}
               workingDirectory={project?.workingDirectory || workingDir}
-              onClose={() => setFileSidebarOpen(false)}
+              onClose={() => { setFileSidebarOpen(false); setInitialFilePath(null) }}
+              initialFilePath={initialFilePath}
             />
           )
         )}

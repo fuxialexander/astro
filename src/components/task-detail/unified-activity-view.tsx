@@ -407,6 +407,22 @@ export function UnifiedActivityView({
     }
   }
 
+  // Listen for send_chat_message events from json-render OptionCard specs.
+  // Use a ref so the listener always calls the latest handleSendPrompt without
+  // re-registering on every render (handleSendPrompt is not wrapped in useCallback).
+  // Note: chat-panel.tsx has an identical listener but they are mutually exclusive
+  // by routing — task detail and project chat are never mounted simultaneously.
+  const sendPromptRef = useRef(handleSendPrompt)
+  sendPromptRef.current = handleSendPrompt
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const message = (e as CustomEvent<{ message: string }>).detail?.message
+      if (message) sendPromptRef.current(message)
+    }
+    window.addEventListener('astro:send-chat-message', handler)
+    return () => window.removeEventListener('astro:send-chat-message', handler)
+  }, [])
+
   const isInputDisabled = sending || isChatStreaming
 
   const baseWorkDir = project?.workingDirectory || ""
@@ -523,6 +539,17 @@ export function UnifiedActivityView({
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
           onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
+          onLinkClick={(href) => {
+            if (href.startsWith('astro:')) return false
+            if (href.startsWith('http://') || href.startsWith('https://')) return false
+            // Relative file path — open file browser if available
+            if (machineId && fileBrowserDir) {
+              handleFileSelect(href)
+              return true
+            }
+            // No file browser available — just prevent broken navigation
+            return true
+          }}
           onEditMessage={!isRunning && !isChatStreaming ? handleEditMessage : undefined}
           onApprovalResponse={handleApprovalResponse}
           githubContext={githubContext}
