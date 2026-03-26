@@ -16,6 +16,9 @@ import { usePlanStore, isLive } from './plan-store'
 import { dataClient } from '@/lib/data-client'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
+// Circular import: session-store imports realtime-store too. Safe because both
+// use lazy .getState() access inside store methods, never at module init time.
+import { useSessionStore } from './session-store'
 import { useMachinesStore } from './machines-store'
 import { planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
@@ -905,6 +908,28 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       }
     }
 
+    // 3. Reconcile chat sessions that may still be streaming after page refresh.
+    //    Chat streams use session ID as stream ID (set in session-store's sendChatMessage).
+    //    Sessions without completedAt that have messages and were recently active
+    //    need taskStream entries so useStreamEvents can hydrate from DB.
+    const sessionStore = useSessionStore.getState()
+    if (sessionStore.loaded) {
+      const now = Date.now()
+      const CHAT_RECONCILE_WINDOW = 5 * 60 * 1000 // 5 minutes
+      for (const session of sessionStore.sessions.values()) {
+        if (session.type !== 'project-chat' && session.type !== 'task-chat') continue
+        if ((session.messageCount ?? session.messages.length) === 0) continue
+        if (session.completedAt) continue
+        const age = now - session.updatedAt.getTime()
+        if (age > CHAT_RECONCILE_WINDOW) continue
+        const streamId = session.id
+        if (newStreams.has(streamId)) continue
+        newStreams.set(streamId, createEmptyTaskStream(streamId))
+        streamChanged = true
+        catchUpIds.push(streamId)
+      }
+    }
+
     if (execChanged) {
       useExecutionStore.setState({ executions: newExecs })
     }
@@ -1216,6 +1241,15 @@ function handleRealtimeEvent(
         streams.set(execId, { ...existing, sessionId, model })
         return { taskStreams: streams }
       })
+      // Push "Agent started" system message for chat sessions
+      const chatSession = useSessionStore.getState().sessions.get(execId)
+      if (chatSession && (chatSession.type === 'project-chat' || chatSession.type === 'task-chat')) {
+        useRealtimeStore.getState().pushActivityEvent(execId, {
+          type: 'system_message',
+          message: 'Agent started working on your request.',
+          timestamp: new Date(),
+        })
+      }
       break
     }
 

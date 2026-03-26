@@ -830,6 +830,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Mark chat stream as running so periodic catch-up polling activates
     setChatStreamStatus(sid, 'running')
 
+    // System message: request received
+    useRealtimeStore.getState().pushActivityEvent(sid, {
+      type: 'system_message',
+      message: 'Astro received your request. Connecting to agent…',
+      timestamp: new Date(),
+    })
+
     // Only send providerSessionId if session has completed exchanges
     // and the provider hasn't changed (resume on a different provider would fail)
     const hasCompletedExchange = session.messages.some(
@@ -1056,6 +1063,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     // Mark chat stream as running so periodic catch-up polling activates
     setChatStreamStatus(sid, 'running')
+
+    // System message: request received
+    useRealtimeStore.getState().pushActivityEvent(sid, {
+      type: 'system_message',
+      message: 'Astro received your request. Connecting to agent…',
+      timestamp: new Date(),
+    })
 
     // Determine if we should resume a provider session.
     // A valid resume requires: (1) a completed assistant exchange, AND

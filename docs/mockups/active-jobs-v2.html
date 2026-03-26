@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Active Jobs — v2 Split View Mockup</title>
+<style>
+  :root {
+    --bg: #0C0C0E;
+    --fg: #ECECEA;
+    --card: #151517;
+    --card-hover: #1a1a1d;
+    --muted: #1C1C1F;
+    --muted-fg: #808085;
+    --border: #262629;
+    --border-strong: #363639;
+    --primary: #7FA8C4;
+    --success: #82B888;
+    --warning: #CDB47A;
+    --info: #8AAEC4;
+    --error: #D08080;
+    --purple: #B39DDB;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ═══ Top-level split layout ═══ */
+  .page { display: flex; flex-direction: column; height: 100vh; }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .count {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(130,184,136,0.12); color: var(--success);
+    font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: 999px; margin-left: 10px;
+  }
+  .header .count .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    border: 1.5px solid var(--success); border-top-color: transparent;
+    animation: spin 1s linear infinite;
+  }
+
+  .split { display: flex; flex: 1; overflow: hidden; }
+
+  /* ═══ Left panel: Job list ═══ */
+  .left-panel {
+    width: 340px; min-width: 280px; max-width: 400px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg);
+  }
+  .job-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .job-list::-webkit-scrollbar { width: 4px; }
+  .job-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+  /* Job card */
+  .job-card {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); margin-bottom: 8px; overflow: hidden;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .job-card:hover { background: var(--card-hover); border-color: var(--border-strong); }
+  .job-card.selected { border-color: var(--primary); background: rgba(127,168,196,0.06); }
+  .job-card.approval { border-color: rgba(205,180,122,0.3); }
+
+  .job-card-header {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  }
+  .project-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .job-title {
+    font-size: 12px; font-weight: 500; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .job-time {
+    font-size: 10px; color: var(--muted-fg); font-variant-numeric: tabular-nums; flex-shrink: 0;
+  }
+
+  /* Status pills */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 9px; font-weight: 600; padding: 1px 7px;
+    border-radius: 999px; flex-shrink: 0; white-space: nowrap; text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .status-pill.running { background: rgba(130,184,136,0.12); color: var(--success); }
+  .status-pill.running .ind { width: 5px; height: 5px; border-radius: 50%; border: 1.5px solid var(--success); border-top-color: transparent; animation: spin 1s linear infinite; }
+  .status-pill.idle { background: rgba(128,128,133,0.12); color: var(--muted-fg); }
+  .status-pill.idle .ind { width: 5px; height: 5px; border-radius: 50%; background: var(--muted-fg); opacity: 0.5; }
+  .status-pill.approval { background: rgba(205,180,122,0.15); color: var(--warning); animation: pulse 2s ease-in-out infinite; }
+  .status-pill.queued { background: rgba(138,174,196,0.12); color: var(--info); }
+  .status-pill.queued .ind { width: 5px; height: 5px; border-radius: 50%; border: 1.5px solid var(--info); }
+  .status-pill.planning { background: rgba(179,157,219,0.12); color: var(--purple); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @keyframes flash { 0% { background: rgba(130,184,136,0.08); } 100% { background: transparent; } }
+
+  /* Live log preview inside job card */
+  .log-preview {
+    padding: 0 12px 10px 12px;
+    font-family: "SF Mono", "Fira Code", "Menlo", monospace;
+    font-size: 10px; line-height: 1.6; color: var(--muted-fg);
+  }
+  .log-preview .log-line {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-preview .log-line.new { animation: flash 1s ease-out; }
+  .log-preview .log-line.tool {
+    color: var(--info); display: flex; align-items: center; gap: 4px;
+  }
+  .log-preview .log-line.approval-q { color: var(--warning); font-style: italic; }
+
+  /* Progress bar inside job card */
+  .progress-mini {
+    display: flex; align-items: center; gap: 6px; padding: 0 12px 8px 12px;
+  }
+  .progress-track { flex: 1; height: 3px; border-radius: 1.5px; background: var(--muted); overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 1.5px; background: var(--success); transition: width 0.5s; }
+  .progress-pct { font-size: 9px; font-weight: 600; color: var(--success); font-variant-numeric: tabular-nums; }
+
+  /* ═══ Right panel: Selected chat ═══ */
+  .right-panel {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg);
+  }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .chat-header .chat-title { flex: 1; font-size: 14px; font-weight: 600; }
+  .expand-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500; color: var(--muted-fg);
+    background: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; transition: all 0.15s;
+  }
+  .expand-btn:hover { color: var(--fg); border-color: var(--border-strong); }
+
+  .chat-body { flex: 1; overflow-y: auto; padding: 20px; }
+  .chat-body::-webkit-scrollbar { width: 4px; }
+  .chat-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+  .msg { margin-bottom: 20px; }
+  .msg:last-child { margin-bottom: 0; }
+  .msg .role {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .msg.user .role { color: var(--primary); }
+  .msg.assistant .role { color: var(--success); }
+  .msg.system .role { color: var(--muted-fg); }
+  .msg .body { font-size: 13px; line-height: 1.7; color: var(--fg); opacity: 0.92; }
+  .msg.system .body { font-size: 11px; color: var(--muted-fg); font-style: italic; }
+
+  .tool-block {
+    margin: 12px 0; padding: 10px 14px;
+    background: var(--muted); border-radius: 8px; border: 1px solid var(--border);
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 11px; line-height: 1.5;
+  }
+  .tool-block .tool-name { color: var(--info); font-weight: 600; margin-bottom: 4px; }
+  .tool-block .tool-output { color: var(--muted-fg); white-space: pre-wrap; }
+
+  .chat-input-area {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    background: var(--card); flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1; background: var(--muted); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px;
+    color: var(--fg); outline: none; font-family: inherit;
+  }
+  .chat-input::placeholder { color: var(--muted-fg); }
+  .send-btn {
+    background: var(--primary); color: var(--bg); border: none;
+    border-radius: 8px; padding: 8px 18px; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  .send-btn:hover { opacity: 0.9; }
+
+  /* Empty state for right panel */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    color: var(--muted-fg);
+  }
+  .empty-state .icon { font-size: 32px; opacity: 0.3; }
+  .empty-state p { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- Header -->
+  <div class="header">
+    <div style="display:flex; align-items:center;">
+      <h1>Active Jobs</h1>
+      <span class="count"><span class="dot"></span> 4</span>
+    </div>
+  </div>
+
+  <!-- Split view -->
+  <div class="split">
+
+    <!-- ═══ LEFT PANEL: Job list with live logs ═══ -->
+    <div class="left-panel">
+      <div class="job-list">
+
+        <!-- Job 1: Running, selected -->
+        <div class="job-card selected">
+          <div class="job-card-header">
+            <span class="project-dot" style="background: #82B888;"></span>
+            <span class="status-pill running"><span class="ind"></span> Running</span>
+            <span class="job-title">Add prefix tree merging</span>
+            <span class="job-time">3:42</span>
+          </div>
+          <div class="log-preview">
+            <div class="log-line tool">⚡ bash — running tests</div>
+            <div class="log-line">$ pytest tests/test_prefix_tree.py -v</div>
+            <div class="log-line">PASSED test_insert_single ... ok</div>
+            <div class="log-line">PASSED test_merge_overlapping ... ok</div>
+            <div class="log-line new">RUNNING test_concurrent_access ...</div>
+          </div>
+          <div class="progress-mini">
+            <div class="progress-track"><div class="progress-fill" style="width:67%;"></div></div>
+            <span class="progress-pct">67%</span>
+          </div>
+        </div>
+
+        <!-- Job 2: Needs input -->
+        <div class="job-card approval">
+          <div class="job-card-header">
+            <span class="project-dot" style="background: #82B888;"></span>
+            <span class="status-pill approval">⚠ Input</span>
+            <span class="job-title">Optimize KV cache eviction</span>
+            <span class="job-time">1:15</span>
+          </div>
+          <div class="log-preview">
+            <div class="log-line approval-q">"Should I use LRU or LFU eviction?"</div>
+          </div>
+        </div>
+
+        <!-- Job 3: Running -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <span class="project-dot" style="background: #8AAEC4;"></span>
+            <span class="status-pill running"><span class="ind"></span> Running</span>
+            <span class="job-title">Draw a mermaid comparison diagram</span>
+            <span class="job-time">12:10</span>
+          </div>
+          <div class="log-preview">
+            <div class="log-line tool">📝 write_file — diagram.md</div>
+            <div class="log-line">Creating mermaid diagram comparing</div>
+            <div class="log-line new">vLLM, SGLang, and Pie architectures...</div>
+          </div>
+        </div>
+
+        <!-- Job 4: Idle -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <span class="project-dot" style="background: #82B888;"></span>
+            <span class="status-pill idle"><span class="ind"></span> Idle 5m</span>
+            <span class="job-title">Chat: Debug attention mask issue</span>
+            <span class="job-time">12:10</span>
+          </div>
+        </div>
+
+        <!-- Job 5: Queued -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <span class="project-dot" style="background: #B39DDB;"></span>
+            <span class="status-pill queued"><span class="ind"></span> Queued</span>
+            <span class="job-title">Benchmark throughput on A100</span>
+            <span class="job-time">—</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══ RIGHT PANEL: Selected chat (full height) ═══ -->
+    <div class="right-panel">
+      <div class="chat-header">
+        <span class="project-dot" style="background: #82B888;"></span>
+        <span class="chat-title">Add prefix tree merging</span>
+        <span class="status-pill running" style="font-size:10px;"><span class="ind"></span> Running</span>
+        <button class="expand-btn">⤢ Open full page</button>
+      </div>
+
+      <div class="chat-body">
+        <!-- System message: request received -->
+        <div class="msg system">
+          <div class="role">System</div>
+          <div class="body">Astro received your request. Connecting to agent...</div>
+        </div>
+
+        <div class="msg user">
+          <div class="role">You</div>
+          <div class="body">For RL training, add prefix tree merging (the highest-impact optimization), weighted by token frequency from replay buffer data.</div>
+        </div>
+
+        <!-- System message: agent started -->
+        <div class="msg system">
+          <div class="role">System</div>
+          <div class="body">Agent started working on your request.</div>
+        </div>
+
+        <div class="msg assistant">
+          <div class="role">Agent</div>
+          <div class="body">I'll implement a prefix tree (trie) merging optimization for the RL training pipeline. The key idea is to identify shared prefix sequences across training examples and merge their KV cache entries, weighted by token frequency from the replay buffer.<br><br>Let me start by examining the current implementation:</div>
+        </div>
+
+        <div class="tool-block">
+          <div class="tool-name">⚡ bash</div>
+          <div class="tool-output">$ find src/engine/rl/ -name "*.py" | head -20
+src/engine/rl/trajectory.py
+src/engine/rl/collector.py
+src/engine/rl/export.py
+src/engine/rl/replay_buffer.py</div>
+        </div>
+
+        <div class="msg assistant">
+          <div class="role">Agent</div>
+          <div class="body">Found the replay buffer module. Let me read it and the trajectory collector to understand the current data flow:</div>
+        </div>
+
+        <div class="tool-block">
+          <div class="tool-name">📖 read — src/engine/rl/replay_buffer.py</div>
+          <div class="tool-output">class ReplayBuffer:
+    """Stores (state, action, reward, next_state) tuples
+    for experience replay during RL training."""
+
+    def __init__(self, capacity: int = 10000):
+        self.buffer = deque(maxlen=capacity)
+        self.token_freq = Counter()  # Track token frequencies
+        ...</div>
+        </div>
+
+        <div class="msg assistant">
+          <div class="role">Agent</div>
+          <div class="body">Now I'll implement the prefix tree with frequency-weighted merging. The trie will store shared prefixes and their cumulative token frequencies from the replay buffer, allowing us to prioritize caching the most frequently accessed prefix paths.<br><br>Let me write the implementation and then run the tests:</div>
+        </div>
+
+        <div class="tool-block">
+          <div class="tool-name">⚡ bash — running tests</div>
+          <div class="tool-output">$ pytest tests/test_prefix_tree.py -v
+PASSED test_insert_single ... ok
+PASSED test_merge_overlapping ... ok
+PASSED test_frequency_weighting ... ok
+RUNNING test_concurrent_access ...</div>
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <input class="chat-input" placeholder="Send a message to the agent..." />
+        <button class="send-btn">Send</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
