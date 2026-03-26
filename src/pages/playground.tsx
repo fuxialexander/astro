@@ -814,8 +814,9 @@ export function Playground() {
                 const baseDir = project?.workingDirectory || workingDir
                 if (execution?.machineId && baseDir) {
                   setInitialFilePath(resolveFilePathForBrowsing(href, baseDir))
+                  setFileSidebarOpen(true)
                 }
-                setFileSidebarOpen(true)
+                // Always prevent default to avoid broken relative URL navigation
                 return true
               }}
               onEditMessage={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined}
