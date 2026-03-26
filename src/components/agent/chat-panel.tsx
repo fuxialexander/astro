@@ -188,7 +188,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
       if (remainingSessions.length > 0) {
         // Switch to the most recent remaining session
-        const mostRecent = remainingSessions[remainingSessions.length - 1]
+        const mostRecent = remainingSessions[0]
         setActiveSessionId(projectId, "project-chat", mostRecent.id)
       } else {
         // No sessions left, clear active and let the effect create a new one
