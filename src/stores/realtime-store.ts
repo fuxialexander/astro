@@ -16,6 +16,8 @@ import { usePlanStore, isLive } from './plan-store'
 import { dataClient } from '@/lib/data-client'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
+// Circular import: session-store imports realtime-store too. Safe because both
+// use lazy .getState() access inside store methods, never at module init time.
 import { useSessionStore } from './session-store'
 import { useMachinesStore } from './machines-store'
 import { planNodeIdToProjectId } from '@/lib/plan-extraction'
@@ -913,7 +915,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const sessionStore = useSessionStore.getState()
     if (sessionStore.loaded) {
       const now = Date.now()
-      const CHAT_RECONCILE_WINDOW = 60 * 60 * 1000 // 1 hour
+      const CHAT_RECONCILE_WINDOW = 5 * 60 * 1000 // 5 minutes
       for (const session of sessionStore.sessions.values()) {
         if (session.type !== 'project-chat' && session.type !== 'task-chat') continue
         if ((session.messageCount ?? session.messages.length) === 0) continue
