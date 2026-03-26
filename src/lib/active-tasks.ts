@@ -44,9 +44,14 @@ function chatSessionEntry(
   const isTaskChat = session.type === "task-chat"
   if (!isTaskChat && session.type !== "project-chat") return null
 
-  const stableNodeId = isTaskChat
-    ? (session.nodeId ? `followup-${session.nodeId}` : `task-chat-${session.projectId}`)
-    : `playground-${session.projectId}`
+  // Playground follow-up chats (task-chat with nodeId = playground-{projectId})
+  // collapse into the same playground entry to avoid duplicate Active Jobs rows.
+  const isPlaygroundFollowup = isTaskChat && session.nodeId?.startsWith('playground-')
+  const stableNodeId = isPlaygroundFollowup
+    ? session.nodeId!
+    : isTaskChat
+      ? (session.nodeId ? `followup-${session.nodeId}` : `task-chat-${session.projectId}`)
+      : `playground-${session.projectId}`
 
   const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
   const shortTitle = session.title
@@ -54,9 +59,11 @@ function chatSessionEntry(
 
   const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
   const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
-  const displayTitle = isTaskChat
-    ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
-    : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
+  const displayTitle = isPlaygroundFollowup
+    ? `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
+    : isTaskChat
+      ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
+      : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
 
   return { stableNodeId, displayTitle }
 }

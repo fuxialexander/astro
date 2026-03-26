@@ -144,6 +144,14 @@ export function Playground() {
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
 
+  // Task stream stats for header monitoring indicators
+  const taskStreamModel = useRealtimeStore(
+    useCallback((s) => executionId ? s.taskStreams.get(executionId)?.model : undefined, [executionId])
+  )
+  const taskStreamToolCount = useRealtimeStore(
+    useCallback((s) => executionId ? s.taskStreams.get(executionId)?.toolTraces.length : undefined, [executionId])
+  )
+
   // Sessions store (Claude Code sessions picker)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
 
@@ -667,6 +675,9 @@ export function Playground() {
             onRetry={handleRetry}
             onToggleFileSidebar={() => setFileSidebarOpen(!fileSidebarOpen)}
             onRename={(newTitle) => updateProject(activeProjectId, { name: newTitle })}
+            startedAt={execution.startedAt ? new Date(execution.startedAt) : undefined}
+            toolCallCount={taskStreamToolCount}
+            modelName={taskStreamModel}
           />
 
           {/* Activity Timeline — always visible (playground IS the activity view) */}

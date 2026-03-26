@@ -358,6 +358,52 @@ describe('deriveActiveTasks: terminal session filtering', () => {
   })
 })
 
+describe('deriveActiveTasks: playground follow-up dedup', () => {
+  it('collapses task-chat with playground nodeId into the playground execution entry', () => {
+    const exec = makeExecution({ nodeId: 'playground-p1', projectId: 'p1' })
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'task-chat',
+      nodeId: 'playground-p1',
+      title: 'Follow-up question',
+    })
+    const project = makeProject('p1', 'My Project')
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      executions: new Map([['playground-p1', exec]]),
+      projects: [project],
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    // Should be 1 (execution), NOT 2 — the task-chat session collapses
+    expect(result.activeCount).toBe(1)
+  })
+
+  it('shows playground task-chat as Playground Chat when no execution exists', () => {
+    const session = makeSession({
+      id: 's1',
+      projectId: 'p1',
+      type: 'task-chat',
+      nodeId: 'playground-p1',
+      title: 'My question',
+    })
+
+    const result = deriveActiveTasks({
+      ...defaultParams(),
+      streamingSessions: new Set(['s1']),
+      allSessions: new Map([['s1', session]]),
+    })
+
+    expect(result.activeCount).toBe(1)
+    const tasks = result.groupedTasks.get('p1')!
+    expect(tasks[0].nodeId).toBe('playground-p1')
+    expect(tasks[0].title).toBe('Playground Chat: My question')
+  })
+})
+
 describe('deriveActiveTasks: task-chat sessions', () => {
   it('uses followup-{nodeId} for task-chat with nodeId', () => {
     const session = makeSession({

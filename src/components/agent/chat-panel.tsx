@@ -470,11 +470,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             <span>Plan</span>
           </Link>
           {/* Session metadata */}
-          {messages.length > 0 && (
+          {isStreaming ? (
+            <span className="flex items-center gap-1.5 text-[10px] text-info">
+              <span className="relative h-2 w-2 shrink-0">
+                <span className="absolute inset-0 rounded-full border-[1.5px] border-info border-t-transparent animate-spin" />
+              </span>
+              Running
+            </span>
+          ) : messages.length > 0 ? (
             <span className="text-[10px] text-muted-foreground tabular-nums">
               {messages.length} msgs
             </span>
-          )}
+          ) : null}
           {/* Session Switcher */}
           {projectChatSessions.length > 0 && (
             <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
