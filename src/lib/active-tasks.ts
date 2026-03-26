@@ -167,6 +167,7 @@ export function deriveActiveTasks(params: {
       status: "running",
       startedAt: session.updatedAt,
     })
+    addedNodeIds.add(stableNodeId)
     markRunning(session.projectId)
   }
 
