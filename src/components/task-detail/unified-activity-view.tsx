@@ -407,15 +407,19 @@ export function UnifiedActivityView({
     }
   }
 
-  // Listen for send_chat_message events from json-render OptionCard specs
+  // Listen for send_chat_message events from json-render OptionCard specs.
+  // Use a ref so the listener always calls the latest handleSendPrompt without
+  // re-registering on every render (handleSendPrompt is not wrapped in useCallback).
+  const sendPromptRef = useRef(handleSendPrompt)
+  sendPromptRef.current = handleSendPrompt
   useEffect(() => {
     const handler = (e: Event) => {
       const message = (e as CustomEvent<{ message: string }>).detail?.message
-      if (message) handleSendPrompt(message)
+      if (message) sendPromptRef.current(message)
     }
     window.addEventListener('astro:send-chat-message', handler)
     return () => window.removeEventListener('astro:send-chat-message', handler)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const isInputDisabled = sending || isChatStreaming
 
