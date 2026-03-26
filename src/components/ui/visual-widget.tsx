@@ -20,6 +20,14 @@ export interface VisualWidgetProps {
 }
 
 /**
+ * Detect if the parent document is in dark mode.
+ */
+function isDarkMode(): boolean {
+  if (typeof document === "undefined") return false
+  return document.documentElement.classList.contains("dark")
+}
+
+/**
  * Read CSS custom properties from the document root to inject into the iframe.
  * Falls back to sensible defaults if properties are not set.
  */
@@ -113,16 +121,18 @@ function extractBodyContent(code: string): { headContent: string; bodyContent: s
  */
 function buildDocument(code: string): string {
   const themeVars = getThemeVariables()
+  const darkMode = isDarkMode()
   const { headContent, bodyContent } = extractBodyContent(code)
 
   return `<!DOCTYPE html>
-<html>
+<html${darkMode ? ' class="dark"' : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
     ${themeVars}
+    color-scheme: ${darkMode ? 'dark' : 'light'};
   }
   *, *::before, *::after { box-sizing: border-box; }
   html, body {
@@ -132,7 +142,7 @@ function buildDocument(code: string): string {
     overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: transparent;
-    color: hsl(var(--foreground, 0 0% 3.9%));
+    color: var(--foreground, ${darkMode ? '#ECECEA' : '#1A1A1A'});
     max-width: 100%;
   }
   body { padding: 8px; }
@@ -158,6 +168,33 @@ function buildDocument(code: string): string {
   svg > g:nth-child(4) { animation-delay: 0.15s; }
   svg > g:nth-child(5) { animation-delay: 0.2s; }
   svg > g:nth-child(6) { animation-delay: 0.25s; }
+  ${darkMode ? `
+  /* Dark mode defense — override hardcoded colors from AI-generated HTML.
+     AI models often produce inline styles with dark text colors (color: #333, black)
+     that are unreadable on dark backgrounds. Force text elements to inherit the
+     theme foreground color, and fix table borders/backgrounds. */
+  html.dark td, html.dark th,
+  html.dark p, html.dark li, html.dark dt, html.dark dd,
+  html.dark h1, html.dark h2, html.dark h3, html.dark h4, html.dark h5, html.dark h6,
+  html.dark blockquote, html.dark figcaption, html.dark caption, html.dark label {
+    color: inherit !important;
+  }
+  html.dark table {
+    border-color: var(--border, #262629) !important;
+  }
+  html.dark td, html.dark th {
+    border-color: var(--border, #262629) !important;
+  }
+  html.dark th {
+    background-color: var(--muted, #1C1C1F) !important;
+  }
+  html.dark tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+  html.dark a {
+    color: var(--info, #8AAEC4) !important;
+  }
+  ` : ''}
 </style>
 ${headContent}
 </head>
