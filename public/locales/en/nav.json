@@ -28,7 +28,7 @@
   "openProject": "Open project",
   "myTasks": "My Tasks",
   "activeTasks": "Active Tasks",
-  "playgroundDesc": "A regular Claude Code session in any of your machines.",
+  "playgroundDesc": "An agent (e.g., Claude Code or Codex) session on any of your machines.",
   "category": {
     "recent": "Recent",
     "navigation": "Navigation",
