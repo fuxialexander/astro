@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Link, useNavigate } from "react-router"
+import { Link } from "react-router"
 import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, AlertCircle, ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -8,7 +8,6 @@ import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
-import { useUIStore } from "@/stores/ui-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { deriveActiveTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
@@ -41,9 +40,6 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
   const stream = task.executionId ? useRealtimeStore.getState().taskStreams.get(task.executionId) : undefined
   const progress = stream?.progress ?? 0
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
-  const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
-  const setChatPanelVisible = useUIStore((s) => s.setChatPanelVisible)
-  const navigate = useNavigate()
 
   // Check if this task has pending approval requests
   const hasPendingApproval = useMemo(() => {
@@ -54,32 +50,29 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
     return false
   }, [dynamicApprovals, task.executionId])
 
-  const isChatSession = task.nodeId.startsWith("chat-")
-  const chatSessionId = isChatSession ? task.nodeId.slice(5) : undefined
-
+  // Determine link target based on nodeId prefix convention
   const linkTo = task.nodeId.startsWith("plan-") || task.status === "generating"
     ? `/welcome?projectId=${projectId}`
     : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
       ? `/playground?projectId=${projectId}`
-      : isChatSession
-        ? `/project/${projectId}`
-        : `/project/${projectId}/task/${task.nodeId}`
-
-  const handleChatClick = (e: React.MouseEvent) => {
-    if (!isChatSession || !chatSessionId) return
-    e.preventDefault()
-    setActiveSessionId(projectId, "project-chat", chatSessionId)
-    setChatPanelVisible(true)
-    navigate(`/project/${projectId}`)
-  }
+      : task.nodeId.startsWith("followup-")
+        ? `/project/${projectId}/task/${task.nodeId.replace('followup-', '')}`
+        : task.nodeId.startsWith("task-chat-")
+          ? `/project/${projectId}`
+          : `/project/${projectId}/task/${task.nodeId}`
 
   // For tasks with pending approvals, show a warning card
   if (hasPendingApproval) {
+    // Approval link uses the same routing logic as linkTo
     const approvalLink = task.nodeId.startsWith("plan-") || task.status === "generating"
       ? `/plan?projectId=${projectId}`
       : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
         ? `/playground?projectId=${projectId}`
-        : `/project/${projectId}/task/${task.nodeId}`
+        : task.nodeId.startsWith("followup-")
+          ? `/project/${projectId}/task/${task.nodeId.replace('followup-', '')}`
+          : task.nodeId.startsWith("task-chat-")
+            ? `/project/${projectId}`
+            : `/project/${projectId}/task/${task.nodeId}`
 
     return (
       <Link
@@ -106,7 +99,6 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
   return (
     <Link
       to={linkTo}
-      onClick={handleChatClick}
       className="flex flex-col gap-2 px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border last:border-b-0"
     >
       <div className="flex items-center gap-3">
