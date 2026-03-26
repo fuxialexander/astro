@@ -10,7 +10,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
-import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
+import { eq, and, or, isNotNull, isNull, inArray, notInArray, gte, desc, count } from 'drizzle-orm';
 import { marked } from 'marked';
 import {
   getLinkedNodeIdsForProject,
@@ -229,7 +229,7 @@ async function syncIssuesForProject(
   owner: string,
   repo: string,
   accessToken: string
-): Promise<{ created: number; updated: number; total: number }> {
+): Promise<{ created: number; updated: number; total: number; cleared: number; clearedTitles: string[] }> {
   const issues = await githubClient.listIssues(accessToken, owner, repo, { state: 'open' });
   let created = 0;
   let updated = 0;
@@ -257,6 +257,9 @@ async function syncIssuesForProject(
         eq(planNodes.githubIssueNumber, issue.number)
       ))
       .limit(1);
+
+    // Prefix issue number to title for display (e.g., "#1060 feat: auto-discovery")
+    const prefixedTitle = `#${issue.number} ${issue.title}`;
 
     if (existing) {
       // Resurrect edges if the node was soft-deleted
@@ -298,7 +301,7 @@ async function syncIssuesForProject(
       ];
 
       await db.update(planNodes).set({
-        title: issue.title,
+        title: prefixedTitle,
         description: issue.body || '',
         content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
@@ -314,7 +317,7 @@ async function syncIssuesForProject(
         projectId,
         clientId: `gh-issue-${issue.number}`,
         type: 'task',
-        title: issue.title,
+        title: prefixedTitle,
         description: issue.body || '',
         content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
@@ -327,7 +330,81 @@ async function syncIssuesForProject(
     }
   }
 
-  return { created, updated, total: issues.length };
+  // ── Reconcile closed issues: clear plan nodes whose issues are no longer open ──
+  // Since we fetched ALL open issues above, any linked plan node NOT in that set
+  // has a closed (or deleted) GitHub issue. Soft-delete those nodes.
+  const openIssueNumbers = issues.map(i => i.number);
+  let cleared = 0;
+  const clearedTitles: string[] = [];
+
+  // Safety guard: if we got zero open issues, check if there are linked nodes first.
+  // An empty response could mean the API failed silently (rate limit, token revoked).
+  // Only proceed with full clearance if the repo genuinely has no open issues.
+  if (openIssueNumbers.length === 0) {
+    const [linkedCount] = await db.select({ count: count() })
+      .from(planNodes)
+      .where(and(
+        eq(planNodes.projectId, projectId),
+        isNotNull(planNodes.githubIssueNumber),
+        isNull(planNodes.deletedAt),
+      ));
+    if ((linkedCount?.count ?? 0) > 5) {
+      console.warn(`[github] Skipping reconciliation: 0 open issues but ${linkedCount?.count} linked nodes — possible API issue for ${owner}/${repo}`);
+      return { created, updated, total: issues.length, cleared: 0, clearedTitles: [] };
+    }
+  }
+
+  const staleConditions = [
+    eq(planNodes.projectId, projectId),
+    isNotNull(planNodes.githubIssueNumber),
+    isNull(planNodes.deletedAt),
+    // Only clear idle/terminal nodes — skip dispatched/in_progress (active work)
+    inArray(planNodes.status, ['planned', 'completed', 'auto_verified', 'awaiting_judgment']),
+  ];
+  // If there are open issues, exclude their numbers from the stale query
+  if (openIssueNumbers.length > 0) {
+    staleConditions.push(notInArray(planNodes.githubIssueNumber, openIssueNumbers));
+  }
+
+  const staleNodes = await db.select({
+    id: planNodes.id,
+    clientId: planNodes.clientId,
+    title: planNodes.title,
+    githubIssueNumber: planNodes.githubIssueNumber,
+  })
+    .from(planNodes)
+    .where(and(...staleConditions));
+
+  if (staleNodes.length > 0) {
+    const deletionActionId = `sync-clear-${Date.now()}`;
+    await db.update(planNodes).set({
+      status: 'completed',
+      deletedAt: new Date(),
+      deletionActionId,
+      updatedAt: new Date(),
+    }).where(inArray(planNodes.id, staleNodes.map(n => n.id)));
+
+    // Also soft-delete associated edges
+    for (const node of staleNodes) {
+      await db.update(planEdges).set({
+        deletedAt: new Date(),
+        deletionActionId,
+      }).where(and(
+        eq(planEdges.projectId, projectId),
+        or(
+          eq(planEdges.sourceClientId, node.clientId),
+          eq(planEdges.targetClientId, node.clientId)
+        ),
+        isNull(planEdges.deletedAt),
+      ));
+    }
+
+    cleared = staleNodes.length;
+    clearedTitles.push(...staleNodes.map(n => n.title));
+    console.log(`[github] Cleared ${cleared} closed-issue nodes for ${owner}/${repo}: ${clearedTitles.join(', ')}`);
+  }
+
+  return { created, updated, total: issues.length, cleared, clearedTitles };
 }
 
 /**

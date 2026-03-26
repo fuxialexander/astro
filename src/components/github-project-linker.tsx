@@ -183,10 +183,12 @@ export function GitHubProjectLinker() {
         if (!res.ok) throw new Error("Failed to sync")
         const data = await res.json()
         await usePlanStore.getState().load()
+        const parts = [`${data.created} new`, `${data.updated} updated`]
+        if (data.cleared > 0) parts.push(`${data.cleared} completed issues cleared`)
         addToast({
           type: "success",
           title: "Issues synced",
-          description: `${data.created} new, ${data.updated} updated`,
+          description: parts.join(", "),
         })
       } catch (err) {
         addToast({

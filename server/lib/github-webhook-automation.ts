@@ -217,10 +217,5 @@ export async function handleReviewAutomation(ctx: WebhookContext, payload: Recor
     }],
   })
 
-  console.log(`[webhook-automation] Created Address Review task ${clientId} for ${ctx.repoFullName}#${prNumber}`)
-
-  // Dispatch agent in background
-  serverSideDispatch(clientId, ctx.projectId).catch((err) => {
-    console.error(`[webhook-automation] Dispatch failed for ${clientId}:`, err)
-  })
+  console.log(`[webhook-automation] Created Address Review task ${clientId} for ${ctx.repoFullName}#${prNumber} (awaiting manual dispatch)`)
 }
