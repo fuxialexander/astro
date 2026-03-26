@@ -2060,7 +2060,9 @@ export function PlanView() {
       if (!res.ok) throw new Error("Failed to sync")
       const data = await res.json()
       await usePlanStore.getState().load()
-      useToastStore.getState().add({ type: "success", title: "Issues synced", description: `${data.created} new, ${data.updated} updated` })
+      const parts = [`${data.created} new`, `${data.updated} updated`]
+      if (data.cleared > 0) parts.push(`${data.cleared} completed issues cleared`)
+      useToastStore.getState().add({ type: "success", title: "Issues synced", description: parts.join(", ") })
     } catch (err) {
       useToastStore.getState().add({ type: "error", title: "Sync failed", description: err instanceof Error ? err.message : "Unknown error" })
     } finally {

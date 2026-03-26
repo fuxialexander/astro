@@ -18,6 +18,9 @@ import { channelRouter } from '../lib/channel/channel-router.js'
 import { lookupGitHubProject } from '../lib/github-store.js'
 import { resolveGitHubToken } from '../lib/github-client.js'
 import { syncGitHubRepoCacheByProjectId, upsertIssueCacheEntries } from '../lib/github-repo-cache.js'
+import { db } from '../lib/db/index.js'
+import { planNodes, planEdges } from '../lib/db/schema.js'
+import { eq, and, isNull, or } from 'drizzle-orm'
 import { handleCheckRunAutomation, handleReviewAutomation } from '../lib/github-webhook-automation.js'
 import { postGitHubComment } from '../plugins/channel-github/github-api.js'
 import type { InboundMessage } from '../lib/channel/channel-types.js'
@@ -148,6 +151,47 @@ async function syncRepoCacheForWebhook(eventType: string, payload: Record<string
             login: typeof a.login === 'string' ? a.login : undefined,
           })),
         }])
+
+        // Auto-clear plan node when issue is closed (PR merged or manually closed)
+        const action = payload.action as string
+        if (action === 'closed' && projectId) {
+          const issueNumber = issue.number as number
+          const [node] = await db.select({ id: planNodes.id, clientId: planNodes.clientId })
+            .from(planNodes)
+            .where(and(
+              eq(planNodes.projectId, projectId),
+              eq(planNodes.githubIssueNumber, issueNumber),
+              isNull(planNodes.deletedAt),
+            ))
+            .limit(1)
+
+          if (node) {
+            const deletionActionId = `webhook-close-${Date.now()}`
+            await db.update(planNodes).set({
+              status: 'completed',
+              completedAt: new Date(),
+              deletedAt: new Date(),
+              deletionActionId,
+              updatedAt: new Date(),
+            }).where(eq(planNodes.id, node.id))
+
+            // Soft-delete associated edges
+            await db.update(planEdges).set({
+              deletedAt: new Date(),
+              deletionActionId,
+            }).where(and(
+              eq(planEdges.projectId, projectId),
+              or(
+                eq(planEdges.sourceClientId, node.clientId),
+                eq(planEdges.targetClientId, node.clientId)
+              ),
+              isNull(planEdges.deletedAt),
+            ))
+
+            console.log(`[github-app-webhook] Cleared plan node for closed issue #${issueNumber} in project ${projectId}`)
+          }
+        }
+
         return
       }
     }

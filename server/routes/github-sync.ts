@@ -10,7 +10,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
-import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
+import { eq, and, or, isNotNull, isNull, inArray, notInArray, gte, desc, count } from 'drizzle-orm';
 import { marked } from 'marked';
 import {
   getLinkedNodeIdsForProject,
@@ -229,7 +229,7 @@ async function syncIssuesForProject(
   owner: string,
   repo: string,
   accessToken: string
-): Promise<{ created: number; updated: number; total: number }> {
+): Promise<{ created: number; updated: number; total: number; cleared: number; clearedTitles: string[] }> {
   const issues = await githubClient.listIssues(accessToken, owner, repo, { state: 'open' });
   let created = 0;
   let updated = 0;
@@ -327,7 +327,66 @@ async function syncIssuesForProject(
     }
   }
 
-  return { created, updated, total: issues.length };
+  // ── Reconcile closed issues: clear plan nodes whose issues are no longer open ──
+  // Since we fetched ALL open issues above, any linked plan node NOT in that set
+  // has a closed (or deleted) GitHub issue. Soft-delete those nodes.
+  const openIssueNumbers = issues.map(i => i.number);
+  let cleared = 0;
+  const clearedTitles: string[] = [];
+
+  // Only reconcile if we got a successful response (openIssueNumbers may be empty
+  // if every issue is closed — that's valid and we should clear them all)
+  const staleConditions = [
+    eq(planNodes.projectId, projectId),
+    isNotNull(planNodes.githubIssueNumber),
+    isNull(planNodes.deletedAt),
+    // Don't clear nodes that are actively being worked on
+    inArray(planNodes.status, ['planned', 'completed', 'auto_verified', 'awaiting_judgment']),
+  ];
+  // If there are open issues, exclude their numbers from the stale query
+  if (openIssueNumbers.length > 0) {
+    staleConditions.push(notInArray(planNodes.githubIssueNumber, openIssueNumbers));
+  }
+
+  const staleNodes = await db.select({
+    id: planNodes.id,
+    title: planNodes.title,
+    githubIssueNumber: planNodes.githubIssueNumber,
+  })
+    .from(planNodes)
+    .where(and(...staleConditions));
+
+  if (staleNodes.length > 0) {
+    const deletionActionId = `sync-clear-${Date.now()}`;
+    await db.update(planNodes).set({
+      status: 'completed',
+      completedAt: new Date(),
+      deletedAt: new Date(),
+      deletionActionId,
+      updatedAt: new Date(),
+    }).where(inArray(planNodes.id, staleNodes.map(n => n.id)));
+
+    // Also soft-delete associated edges
+    for (const node of staleNodes) {
+      await db.update(planEdges).set({
+        deletedAt: new Date(),
+        deletionActionId,
+      }).where(and(
+        eq(planEdges.projectId, projectId),
+        or(
+          eq(planEdges.sourceClientId, `gh-issue-${node.githubIssueNumber}`),
+          eq(planEdges.targetClientId, `gh-issue-${node.githubIssueNumber}`)
+        ),
+        isNull(planEdges.deletedAt),
+      ));
+    }
+
+    cleared = staleNodes.length;
+    clearedTitles.push(...staleNodes.map(n => `#${n.githubIssueNumber} ${n.title}`));
+    console.log(`[github] Cleared ${cleared} closed-issue nodes for ${owner}/${repo}: ${clearedTitles.join(', ')}`);
+  }
+
+  return { created, updated, total: issues.length, cleared, clearedTitles };
 }
 
 /**
