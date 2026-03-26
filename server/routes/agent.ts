@@ -180,7 +180,7 @@ async function streamChatViaRelay(
     try {
       await db.insert(taskExecutions).values({
         executionId: persistId,
-        nodeClientId: opts.nodeId || '',
+        nodeClientId: opts.nodeId || persistId,
         projectId: opts.projectId,
         userId: user.id,
         status: 'running',
