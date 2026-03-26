@@ -100,7 +100,7 @@ export function deriveActiveTasks(params: {
       projectId,
       title: (() => {
         if (isPlanSession) return "Interactive Planning"
-        if (isPlayground) return projectById.get(projectId)?.name || "Playground Session"
+        if (isPlayground) return "Playground Chat"
         return node?.title || (nodesLoaded ? `Task ${nodeId.slice(0, 8)}` : "Loading…")
       })(),
       status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
@@ -146,19 +146,19 @@ export function deriveActiveTasks(params: {
       : `chat-${sessionId}`
 
     if (addedNodeIds.has(stableNodeId)) continue
+    // Skip project-chat sessions if a playground execution already covers this project
+    if (!isTaskChat && addedNodeIds.has(`playground-${session.projectId}`)) continue
 
     const firstUserMessage = session.titlePreview ?? session.messages.find((message) => message.role === "user")?.content
-    const title = session.title
+    const shortTitle = session.title
       || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
-      || projectById.get(session.projectId)?.name
-      || "Chat Session"
 
     // For task-chat, check if the associated task already completed (= follow-up chat)
     const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
     const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
     const displayTitle = isTaskChat
-      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
-      : `Chat: ${title}`
+      ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
+      : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
 
     pushTask(session.projectId, {
       nodeId: stableNodeId,
@@ -188,18 +188,18 @@ export function deriveActiveTasks(params: {
       : `chat-${session.id}`
 
     if (addedNodeIds.has(stableNodeId)) continue
+    // Skip project-chat sessions if a playground execution already covers this project
+    if (!isTaskChat && addedNodeIds.has(`playground-${session.projectId}`)) continue
 
     const firstUserMessage = session.titlePreview ?? session.messages.find((m) => m.role === "user")?.content
-    const title = session.title
+    const shortTitle = session.title
       || (firstUserMessage ? firstUserMessage.slice(0, 50) + (firstUserMessage.length > 50 ? "..." : "") : undefined)
-      || projectById.get(session.projectId)?.name
-      || "Chat Session"
 
     const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
     const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
     const displayTitle = isTaskChat
-      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
-      : `Chat: ${title}`
+      ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
+      : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
 
     pushTask(session.projectId, {
       nodeId: stableNodeId,
