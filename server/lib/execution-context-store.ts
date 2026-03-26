@@ -44,13 +44,16 @@ const cleanupTimer = setInterval(prune, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref() // Don't prevent process exit
 
 export const executionContextStore = {
-  register(ctx: Omit<ExecutionContext, 'createdAt'>): void {
+  async register(ctx: Omit<ExecutionContext, 'createdAt'>): Promise<void> {
     const entry = { ...ctx, createdAt: Date.now() }
     store.set(ctx.executionId, entry)
-    // Write-through to Redis for cross-instance visibility
-    redisPubSub.registerExecutionContext(entry).catch((err) => {
+    // Write-through to Redis for cross-instance visibility.
+    // Awaited so callers can ensure cross-instance visibility before dispatching.
+    try {
+      await redisPubSub.registerExecutionContext(entry)
+    } catch (err) {
       console.error('[exec-context] Failed to write context to Redis:', err)
-    })
+    }
   },
 
   get(executionId: string): ExecutionContext | undefined {

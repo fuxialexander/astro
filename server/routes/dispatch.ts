@@ -1145,7 +1145,7 @@ async function dispatchViaRelay(
     }
 
     // Register execution context for user-scoped SSE filtering + ownership validation
-    executionContextStore.register({
+    await executionContextStore.register({
       executionId,
       projectId,
       nodeId,

@@ -175,15 +175,39 @@ eventsRoute.get('/stream', async (c) => {
     // subsequent tasks in the same project auto-proceed silently.
     const safetyApprovedProjects = new Set<string>()
     const executionContextCache = new Map<string, Promise<ResolvedExecutionContext | null>>()
+    /** Track when a null result was cached so we can expire it and retry */
+    const nullCacheTimestamps = new Map<string, number>()
+    /** How long to cache a null (not-found) execution context before retrying */
+    const NULL_CACHE_TTL_MS = 5_000
     const projectAccessCache = new Map<string, Promise<boolean>>()
 
     const getExecutionContextForTask = (taskId: string): Promise<ResolvedExecutionContext | null> => {
       const cached = executionContextCache.get(taskId)
-      if (cached) return cached
+      if (cached) {
+        // If this was a null result, check if it has expired
+        const nullTs = nullCacheTimestamps.get(taskId)
+        if (nullTs && Date.now() - nullTs > NULL_CACHE_TTL_MS) {
+          // Expired negative cache — fall through to create a new entry
+          // (overwrites the stale one atomically, no delete-then-set gap)
+          nullCacheTimestamps.delete(taskId)
+        } else {
+          return cached
+        }
+      }
 
       const pending = loadExecutionContext(taskId)
+        .then((result) => {
+          if (!result) {
+            nullCacheTimestamps.set(taskId, Date.now())
+          } else {
+            // Successful lookup — remove from negative cache tracking
+            nullCacheTimestamps.delete(taskId)
+          }
+          return result
+        })
         .catch((err) => {
           console.error('[events] Failed to resolve execution context:', err)
+          nullCacheTimestamps.set(taskId, Date.now())
           return null
         })
       executionContextCache.set(taskId, pending)
@@ -212,6 +236,9 @@ eventsRoute.get('/stream', async (c) => {
       return canAccessTaskContext(ctx)
     }
 
+    /** Track which taskIds we've already warned about to avoid log spam */
+    const accessDeniedWarned = new Set<string>()
+
     const withTaskAccess = (
       taskId: string,
       handler: (ctx: ResolvedExecutionContext | null) => void | Promise<void>,
@@ -219,7 +246,13 @@ eventsRoute.get('/stream', async (c) => {
       void (async () => {
         if (!alive) return
         const ctx = await getExecutionContextForTask(taskId)
-        if (!await canAccessTaskContext(ctx)) return
+        if (!await canAccessTaskContext(ctx)) {
+          if (!accessDeniedWarned.has(taskId)) {
+            accessDeniedWarned.add(taskId)
+            console.warn(`[events] Dropping event for task ${taskId}: context=${ctx ? `project=${ctx.projectId}` : 'null'}`)
+          }
+          return
+        }
         if (!alive) return
         await handler(ctx)
       })()
@@ -319,6 +352,19 @@ eventsRoute.get('/stream', async (c) => {
           prNumber: msg.result.prNumber,
           deliveryStatus: msg.result.deliveryStatus,
         }).catch((err) => console.warn('[events] Failed to persist task result:', (err as Error).message))
+
+        // Update chat/plan taskExecutions rows to terminal status (they were inserted
+        // as 'running' by streamChatViaRelay and have no dispatch.ts result handler).
+        const terminalStatus = msg.result.status === 'completed' ? 'success' : 'failure'
+        db.update(taskExecutions)
+          .set({
+            status: terminalStatus,
+            completedAt: new Date(),
+            error: msg.result.error || null,
+            durationMs: msg.result.duration ? Math.round(msg.result.duration) : null,
+          })
+          .where(eq(taskExecutions.executionId, msg.result.taskId))
+          .catch((err) => console.warn('[events] Failed to update chat execution status:', (err as Error).message))
       })
     }
 
