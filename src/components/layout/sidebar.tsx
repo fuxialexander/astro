@@ -64,6 +64,12 @@ const projectColors = [
 
 const EMPTY_FLAGS: Record<string, boolean> = {}
 
+/** Must match GLOBAL_DEFAULTS in use-feature-flag.ts and server/lib/feature-flags.ts */
+const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
+  'github-integration': true,
+  'team-machines': true,
+}
+
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { t, i18n } = useTranslation("nav")
   const { theme, setTheme } = useTheme()
@@ -244,7 +250,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     // Hide Community nav item in local mode
     if (item.id === 'community' && !showAuth) return false
     // Hide items gated behind a feature flag the team doesn't have
-    if (item.featureFlag && !teamFeatureFlags[item.featureFlag]) return false
+    if (item.featureFlag && !(teamFeatureFlags[item.featureFlag] ?? FEATURE_FLAG_DEFAULTS[item.featureFlag] ?? false)) return false
     return item.visible
   })
 
