@@ -16,6 +16,7 @@ import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMess
 import { db } from '../lib/db/index.js'
 import { projects, registeredMachines, machineInstructions, blobs, taskExecutions } from '../lib/db/schema.js'
 import { eq, and, inArray, isNull } from 'drizzle-orm'
+import { truncateMessagesForFallback } from '../lib/chat-context-truncation.js'
 
 const DEFAULT_INSTRUCTION_ID = 'builtin:default'
 
@@ -111,6 +112,25 @@ async function streamChatViaRelay(
   // but callers can supply a stable streamId so the frontend can find events after refresh.
   const persistId = opts.streamId || opts.taskId
 
+  // When there's no resume session, the messages array is the only context the agent
+  // gets. Truncate to avoid exceeding the model's context window on the first API call
+  // (before the SDK's auto-compaction can kick in).
+  let effectiveMessages = opts.messages
+  const preStreamEvents = [...(opts.preStreamEvents || [])]
+
+  if (effectiveMessages?.length && !opts.resumeSessionId) {
+    const { messages: truncated, truncated: wasTruncated, originalCount } =
+      truncateMessagesForFallback(effectiveMessages)
+    effectiveMessages = truncated
+    if (wasTruncated) {
+      console.log(`[agent] Truncated fallback context: ${originalCount} → ${truncated.length} messages (no resume session)`)
+      preStreamEvents.push({
+        event: 'operational',
+        data: JSON.stringify({ message: `New session — context trimmed to recent ${truncated.length} messages (was ${originalCount})`, source: 'astro' }),
+      })
+    }
+  }
+
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
     projectId: opts.projectId,
@@ -120,7 +140,7 @@ async function streamChatViaRelay(
     prompt: opts.prompt,
     systemPrompt: opts.systemPrompt,
     type: opts.type,
-    messages: opts.messages,
+    messages: effectiveMessages,
     model: opts.model,
     preferredProvider: opts.preferredProvider as ProviderType | undefined,
     maxTurns: opts.maxTurns,
@@ -191,6 +211,17 @@ async function streamChatViaRelay(
     } catch (err) {
       // Non-fatal: the in-memory + Redis path still works
       console.warn('[agent] Failed to insert chat taskExecution row:', err)
+    }
+  }
+
+  // Emit pre-stream events (truncation notice, image warnings) before relay dispatch
+  // so the frontend sees them first when hydrating from the streaming event log.
+  for (const evt of preStreamEvents) {
+    if (evt.event === 'text') {
+      await streamingEventLog.append(persistId, 'text', { text: evt.data })
+    } else if (evt.event === 'operational') {
+      const parsed = JSON.parse(evt.data) as { message: string; source: string }
+      await streamingEventLog.append(persistId, 'operational', parsed)
     }
   }
 
