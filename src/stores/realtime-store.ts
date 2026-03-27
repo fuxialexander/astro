@@ -663,8 +663,15 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               // hydrated), so the canonical DB version replaces them.
               return true
             })
-            const mergedActivity = [...existingKept, ...hydratedNew]
-            mergedActivity.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+            const mergedActivityRaw = [...existingKept, ...hydratedNew]
+            mergedActivityRaw.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+            // Deduplicate consecutive operational events with the same message
+            const mergedActivity = mergedActivityRaw.filter((e, i) => {
+              if (i === 0) return true
+              if (e.type !== 'operational') return true
+              const prev = mergedActivityRaw[i - 1]
+              return !(prev.type === 'operational' && (prev as { message?: string }).message === (e as { message?: string }).message)
+            })
 
             // Rebuild stdout from merged text events; fall back to existing.stdout when
             // no text events survived the merge (e.g. flush not yet in DB at catch-up time)
@@ -1013,14 +1020,14 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   // duplicates that slip through. Previous 1s buffer was too aggressive
   // and dropped the last block of live events when hydration raced with SSE.
   //
-  // Also dedup no-seq chat_user/steer events whose message already appears
-  // in a seq'd hydrated event (steer resolution creates a no-seq chat_user
+  // Also dedup no-seq chat_user/steer/operational events whose message already
+  // appears in a seq'd hydrated event (steer resolution creates a no-seq chat_user
   // locally; the DB persists a seq'd version — both must not coexist).
   const hydratedUserMessages = new Set<string>()
   for (const e of hydrated) {
     const typed = e as unknown as { type?: string; message?: string }
-    if (e.seq != null && (typed.type === 'chat_user' || typed.type === 'steer') && typed.message) {
-      hydratedUserMessages.add(typed.message)
+    if (e.seq != null && (typed.type === 'chat_user' || typed.type === 'steer' || typed.type === 'operational') && typed.message) {
+      hydratedUserMessages.add(`${typed.type}:${typed.message}`)
     }
   }
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
@@ -1028,17 +1035,28 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
     if (e.seq != null) {
       return !hydratedSeqs.has(e.seq)
     }
-    // Drop no-seq chat_user/steer when hydrated already has the same message (with seq)
+    // Drop no-seq chat_user/steer/operational when hydrated already has the same message (with seq)
     const typed = e as unknown as { type?: string; message?: string }
-    if ((typed.type === 'chat_user' || typed.type === 'steer') && typed.message && hydratedUserMessages.has(typed.message)) {
-      return false
+    if ((typed.type === 'chat_user' || typed.type === 'steer' || typed.type === 'operational') && typed.message) {
+      if (hydratedUserMessages.has(`${typed.type}:${typed.message}`)) return false
     }
     return new Date(e.timestamp).getTime() > lastHydratedTime
   })
 
-  return newLiveItems.length > 0
+  const merged = newLiveItems.length > 0
     ? [...hydrated, ...newLiveItems]
     : hydrated
+
+  // Deduplicate consecutive operational events with the same message.
+  // This handles DB-persisted duplicates from the old backend bug where
+  // follow-up dispatches appended redundant "Agent runner connected" events.
+  return merged.filter((e, i) => {
+    if (i === 0) return true
+    const typed = e as unknown as { type?: string; message?: string }
+    if (typed.type !== 'operational') return true
+    const prev = merged[i - 1] as unknown as { type?: string; message?: string }
+    return !(prev.type === 'operational' && prev.message === typed.message)
+  })
 }
 
 /**
