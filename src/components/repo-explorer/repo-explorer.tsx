@@ -108,7 +108,18 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
 
     try {
       const headers = await authHeaders()
+      let clearedCount = 0
       if (sync) {
+        // Sync issues with the linked project (creates/updates/clears plan nodes)
+        const syncIssuesRes = await fetch(apiUrl(`/api/github/projects/${project.id}/sync-issues`), {
+          method: "POST",
+          headers,
+        })
+        if (syncIssuesRes.ok) {
+          const syncData = await syncIssuesRes.json() as { created: number; updated: number; cleared: number; total: number }
+          clearedCount = syncData.cleared ?? 0
+        }
+        // Also refresh the repo cache (issues + PRs from GitHub API)
         const syncRes = await fetch(apiUrl(`/api/github/projects/${project.id}/repo-cache/sync`), {
           method: "POST",
           headers,
@@ -129,6 +140,9 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
       setSnapshot(data)
       if (sync) {
         addToast({ title: `Synced ${data.issues?.length ?? 0} issues and ${data.pullRequests?.length ?? 0} PRs from GitHub`, type: "success" })
+        if (clearedCount > 0) {
+          addToast({ title: `Cleared ${clearedCount} closed/merged issue${clearedCount === 1 ? "" : "s"}`, type: "info" })
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to sync"
@@ -451,10 +465,10 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-[11px]"
-                                onClick={() => void handleIssueAction(actionKey, () => addIssueToPlan(project, issue), "Added issue to plan")}
+                                onClick={() => void handleIssueAction(actionKey, () => addIssueToPlan(project, issue), "Added issue to project")}
                                 disabled={runningAction === actionKey || issueActionsDisabled}
                               >
-                                Add to Plan
+                                Add to Project
                               </Button>
                               <button
                                 className="gh-action-btn rounded-md px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"

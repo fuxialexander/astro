@@ -9,7 +9,7 @@ import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
-import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
+import { projects, planNodes, planEdges, githubSyncLog, githubPrCache } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, isNull, inArray, notInArray, gte, desc, count } from 'drizzle-orm';
 import { marked } from 'marked';
 import {
@@ -371,21 +371,50 @@ async function syncIssuesForProject(
     clientId: planNodes.clientId,
     title: planNodes.title,
     githubIssueNumber: planNodes.githubIssueNumber,
+    prNumber: planNodes.prNumber,
   })
     .from(planNodes)
     .where(and(...staleConditions));
 
-  if (staleNodes.length > 0) {
+  // Requirement: issues completed by Astro (with an associated PR) should remain
+  // visible until both the PR is merged AND the issue is closed on GitHub.
+  // Filter out stale nodes that have an open/unmerged PR in the cache.
+  const stalePrNumbers = staleNodes
+    .filter((n) => n.prNumber != null)
+    .map((n) => n.prNumber!);
+
+  const openPrNumbers = new Set<number>();
+  if (stalePrNumbers.length > 0) {
+    const openPrs = await db.select({ prNumber: githubPrCache.prNumber })
+      .from(githubPrCache)
+      .where(and(
+        eq(githubPrCache.projectId, projectId),
+        inArray(githubPrCache.prNumber, stalePrNumbers),
+        inArray(githubPrCache.state, ['open']),
+      ));
+    for (const pr of openPrs) openPrNumbers.add(pr.prNumber);
+  }
+
+  // Only clear nodes that either have no PR or whose PR is already merged/closed
+  const nodesToClear = staleNodes.filter((n) => {
+    if (n.prNumber != null && openPrNumbers.has(n.prNumber)) {
+      console.log(`[github] Keeping node "${n.title}" — associated PR #${n.prNumber} is still open`);
+      return false;
+    }
+    return true;
+  });
+
+  if (nodesToClear.length > 0) {
     const deletionActionId = `sync-clear-${Date.now()}`;
     await db.update(planNodes).set({
       status: 'completed',
       deletedAt: new Date(),
       deletionActionId,
       updatedAt: new Date(),
-    }).where(inArray(planNodes.id, staleNodes.map(n => n.id)));
+    }).where(inArray(planNodes.id, nodesToClear.map(n => n.id)));
 
     // Also soft-delete associated edges
-    for (const node of staleNodes) {
+    for (const node of nodesToClear) {
       await db.update(planEdges).set({
         deletedAt: new Date(),
         deletionActionId,
@@ -399,8 +428,8 @@ async function syncIssuesForProject(
       ));
     }
 
-    cleared = staleNodes.length;
-    clearedTitles.push(...staleNodes.map(n => n.title));
+    cleared = nodesToClear.length;
+    clearedTitles.push(...nodesToClear.map(n => n.title));
     console.log(`[github] Cleared ${cleared} closed-issue nodes for ${owner}/${repo}: ${clearedTitles.join(', ')}`);
   }
 
