@@ -38,11 +38,28 @@ export function truncateMessagesForFallback(messages: ChatMessage[]): Truncation
     result = result.slice(-FALLBACK_MAX_MESSAGES)
   }
 
-  // Step 2: cap total character size (trim from oldest if still too large)
+  // Step 2: cap total character size (trim from oldest if still too large).
+  // Keep at least 4 messages (~2 exchanges) so the model has enough context
+  // to compact from — it will auto-compact after loading.
   let totalChars = result.reduce((sum, m) => sum + m.content.length, 0)
-  while (totalChars > FALLBACK_MAX_CHARS && result.length > 2) {
+  while (totalChars > FALLBACK_MAX_CHARS && result.length > 4) {
     totalChars -= result[0].content.length
     result = result.slice(1)
+  }
+
+  // Step 3: if still over budget with <= 4 messages (e.g. one super-long prompt),
+  // truncate individual message content. Preserve the latest message fully;
+  // trim older messages to fit within the remaining budget.
+  totalChars = result.reduce((sum, m) => sum + m.content.length, 0)
+  if (totalChars > FALLBACK_MAX_CHARS && result.length > 0) {
+    const perMessageBudget = Math.floor(FALLBACK_MAX_CHARS / result.length)
+    result = result.map((m, i) => {
+      if (i === result.length - 1) return m // preserve latest message
+      if (m.content.length > perMessageBudget) {
+        return { ...m, content: m.content.slice(-perMessageBudget) }
+      }
+      return m
+    })
   }
 
   // Track whether size-based truncation actually occurred (before role normalization)
