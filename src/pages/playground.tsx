@@ -430,9 +430,15 @@ export function Playground() {
 
   // Provider change handler — notify user when switching during a running session
   const handleProviderChange = useCallback((providerId: string) => {
+    if (providerId === activeProvider) return // no-op — same provider selected
     setActiveProvider(providerId)
     setProviderExplicitlyChanged(true)
-    if (isRunning) {
+    // Read live execution status to avoid stale closure over isRunning
+    const exec = activeProjectId
+      ? useExecutionStore.getState().executions.get(`playground-${activeProjectId}`)
+      : undefined
+    const currentlyRunning = exec?.status === 'pending' || exec?.status === 'running'
+    if (currentlyRunning) {
       const providerName = providerId
         ? (PROVIDER_NAMES[providerId] || providerId)
         : "Auto"
@@ -443,7 +449,7 @@ export function Playground() {
         duration: 5000,
       })
     }
-  }, [isRunning])
+  }, [activeProvider, activeProjectId])
 
   // Steer message handler (while running)
   // Write-first: the server persists the message as 'pending' before attempting
