@@ -45,10 +45,13 @@ export function truncateMessagesForFallback(messages: ChatMessage[]): Truncation
     result = result.slice(1)
   }
 
+  // Track whether size-based truncation actually occurred (before role normalization)
+  const truncated = result.length < originalCount
+
   // Ensure we start with a user message (assistant-first is invalid context)
   if (result.length > 0 && result[0].role === 'assistant') {
     result = result.slice(1)
   }
 
-  return { messages: result, truncated: result.length < originalCount, originalCount }
+  return { messages: result, truncated, originalCount }
 }
