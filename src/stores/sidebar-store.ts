@@ -45,7 +45,7 @@ interface SidebarStore {
 
 const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
-  { id: "active", to: "/active", icon: "Zap", label: "Active Jobs", visible: true, protected: false },
+  { id: "active", to: "/active", icon: "Zap", label: "Active Jobs", visible: true, protected: true },
   { id: "plan", to: "/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
@@ -78,6 +78,14 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
     if (!storedIds.has(defaultItem.id)) {
       merged.push(defaultItem)
     }
+  }
+
+  // Ensure "active" is always right after "dashboard" (protected position)
+  const dashIdx = merged.findIndex((i) => i.id === "dashboard")
+  const activeIdx = merged.findIndex((i) => i.id === "active")
+  if (dashIdx >= 0 && activeIdx >= 0 && activeIdx !== dashIdx + 1) {
+    const [active] = merged.splice(activeIdx, 1)
+    merged.splice(dashIdx + 1, 0, active)
   }
 
   return merged

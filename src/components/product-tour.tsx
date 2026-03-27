@@ -21,15 +21,7 @@ export function ProductTour() {
         popover: {
           title: "Environments",
           description:
-            "Your connected machines appear here. Each machine can run AI agent sessions in any working directory.",
-        },
-      },
-      {
-        element: '[data-tour-id="projects"]',
-        popover: {
-          title: "Projects",
-          description:
-            "All your projects and their plan graphs live here.",
+            "Connect your machines here. Each machine runs an agent runner that executes AI tasks in any working directory.",
         },
       },
       {
@@ -37,7 +29,7 @@ export function ProductTour() {
         popover: {
           title: "Plan & Project",
           description:
-            "Start here to create a new project with AI-assisted planning. Describe your goal and Astro will break it into a dependency graph of tasks that can be dispatched to your machines.",
+            "Start here to create a new project. Describe your goal and Astro will break it into a dependency graph of tasks that can be dispatched to your machines.",
         },
       },
       {
@@ -48,17 +40,43 @@ export function ProductTour() {
             "Run single-session jobs without creating a full project. Great for quick experiments, one-off tasks, and trying things out.",
         },
       },
+      {
+        element: '[data-tour-id="active"]',
+        popover: {
+          title: "Active Jobs Hub",
+          description:
+            "Monitor all running tasks in one place. See live LLM output, send follow-up messages, and jump into any active session.",
+        },
+      },
+      {
+        element: '[data-tour-id="projects"]',
+        popover: {
+          title: "Projects",
+          description:
+            "All your projects and their plan graphs live here.",
+        },
+      },
     ]
 
     if (!local) {
-      steps.push({
-        element: '[data-tour-id="community"]',
-        popover: {
-          title: "Community",
-          description:
-            "Browse and fork plans shared by other users.",
+      steps.push(
+        {
+          element: '[data-tour-id="github"]',
+          popover: {
+            title: "GitHub Sync",
+            description:
+              "Connect a GitHub repo to sync issues and pull requests with your project plan. Changes flow both ways — create issues from tasks, or import issues as plan nodes.",
+          },
         },
-      })
+        {
+          element: '[data-tour-id="community"]',
+          popover: {
+            title: "Community",
+            description:
+              "Browse and fork plans shared by other users.",
+          },
+        },
+      )
     }
 
     const timeout = setTimeout(() => {
