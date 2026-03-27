@@ -88,10 +88,12 @@ function JobRow({
   onSelect: () => void
 }) {
   const execution = useExecutionStore((s) => s.executions.get(task.nodeId))
-  const stream = task.executionId
-    ? useRealtimeStore.getState().taskStreams.get(task.executionId)
-    : undefined
-  const progress = stream?.progress ?? 0
+  const progress = useRealtimeStore(
+    useCallback(
+      (s) => (task.executionId ? s.taskStreams.get(task.executionId)?.progress ?? 0 : 0),
+      [task.executionId],
+    ),
+  )
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const preview = useLlmPreview(task.executionId)
 
@@ -443,7 +445,7 @@ function ChatPanel({
       [task.executionId],
     ),
   )
-  const events = stream?.activityEvents || []
+  const events = useMemo(() => stream?.activityEvents || [], [stream?.activityEvents])
   const isRunning = task.status === "running" || task.status === "generating"
 
   // Determine expand navigation target
@@ -472,50 +474,59 @@ function ChatPanel({
     if (!text) return
     setInputText("")
 
+    const store = useSessionStore.getState()
+
     if (isPlayground) {
       const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
-      // Find or create a session for this playground
-      const session = useSessionStore.getState().getOrCreateSession({
+      const session = store.getOrCreateSession({
         type: "project-chat",
         projectId,
       })
-      useSessionStore.getState().addMessage(session.id, {
-        role: "user",
-        content: text,
-      })
-      useSessionStore.getState().addMessage(session.id, {
-        role: "assistant",
-        content: "",
-      })
-      useSessionStore.getState().sendPlaygroundChat({
+      store.addMessage(session.id, { role: "user", content: text })
+      store.addMessage(session.id, { role: "assistant", content: "" })
+
+      store.sendPlaygroundChat({
         sessionId: session.id,
         projectId,
         nodeId: task.nodeId.replace("followup-playground-", "playground-").replace("playground-", ""),
         message: text,
         taskTitle: project?.name || "Playground",
         taskDescription: project?.description || "",
+        taskOutput: events
+          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' | 'tool_use' | 'tool_result' }> =>
+            e.type === 'text' || e.type === 'tool_use' || e.type === 'tool_result')
+          .map((e) => {
+            if (e.type === 'text') return e.content
+            if (e.type === 'tool_use') return `[Tool: ${e.toolName}]`
+            if (e.type === 'tool_result') return `[Result: ${e.toolName} — ${e.success ? 'success' : 'failed'}]`
+            return ''
+          })
+          .join('\n'),
       })
     } else {
-      // Project or task chat
-      const session = useSessionStore.getState().getOrCreateSession({
+      const session = store.getOrCreateSession({
         type: "project-chat",
         projectId,
       })
-      useSessionStore.getState().addMessage(session.id, {
-        role: "user",
-        content: text,
-      })
-      useSessionStore.getState().addMessage(session.id, {
-        role: "assistant",
-        content: "",
-      })
-      useSessionStore.getState().sendChatMessage({
+      store.addMessage(session.id, { role: "user", content: text })
+      store.addMessage(session.id, { role: "assistant", content: "" })
+
+      // Build conversation history for context (exclude just-added placeholder)
+      const freshSession = useSessionStore.getState().sessions.get(session.id)
+      const freshMessages = freshSession?.messages || []
+      const historyMessages = freshMessages
+        .slice(0, -2)
+        .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+      store.sendChatMessage({
         sessionId: session.id,
         projectId,
         message: text,
+        messages: historyMessages,
       })
     }
-  }, [inputText, isPlayground, projectId, task.nodeId])
+  }, [inputText, isPlayground, projectId, task.nodeId, events])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
