@@ -1241,12 +1241,13 @@ function handleRealtimeEvent(
         streams.set(execId, { ...existing, sessionId, model })
         return { taskStreams: streams }
       })
-      // Push "Agent started" system message for chat sessions
+      // Push "Agent working" operational message for chat sessions (blue status line)
       const chatSession = useSessionStore.getState().sessions.get(execId)
-      if (chatSession && (chatSession.type === 'project-chat' || chatSession.type === 'task-chat')) {
+      if (chatSession && (chatSession.type === 'project-chat' || chatSession.type === 'task-chat' || chatSession.type === 'plan-generation')) {
         useRealtimeStore.getState().pushActivityEvent(execId, {
-          type: 'system_message',
-          message: 'Agent started working on your request.',
+          type: 'operational',
+          message: `Agent runner is working${model ? ` (${model})` : ''}`,
+          source: 'astro',
           timestamp: new Date(),
         })
       }
