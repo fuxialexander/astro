@@ -32,6 +32,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'team-machines': true,
   'delivery-branches': false,
   'parallel-execution': false,
+  'inbox-home': false,
 }
 
 /**
