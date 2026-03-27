@@ -852,7 +852,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // System message: request received
     useRealtimeStore.getState().pushActivityEvent(sid, {
       type: 'system_message',
-      message: 'Astro received your request. Connecting to agent…',
+      message: 'Sending request…',
       timestamp: new Date(),
     })
 
@@ -1113,7 +1113,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // System message: request received
     useRealtimeStore.getState().pushActivityEvent(sid, {
       type: 'system_message',
-      message: 'Astro received your request. Connecting to agent…',
+      message: 'Sending request…',
       timestamp: new Date(),
     })
 

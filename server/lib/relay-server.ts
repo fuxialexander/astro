@@ -1495,6 +1495,7 @@ export class RelayServer extends EventEmitter {
       const bestMachine = machineRegistry.findBestMachine(task.preferredProvider, userId, teamSharedMachineIds)
         || (task.preferredProvider ? machineRegistry.findBestMachine(undefined, userId, teamSharedMachineIds) : null);
       if (bestMachine) {
+        console.info(`[relay] Fallback selected machine ${bestMachine.machineId} (${bestMachine.name || 'unnamed'}) for task ${task.taskId}`);
         machineId = bestMachine.machineId;
         connection = machineRegistry.getConnection(machineId);
       }
