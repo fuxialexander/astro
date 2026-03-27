@@ -213,6 +213,7 @@ export function Playground() {
     }
     if (projectIdParam && projectIdParam !== activeProjectId) {
       setActiveProvider(urlExecProviderId || "")
+      setProviderExplicitlyChanged(false)
       setActiveProjectId(projectIdParam)
     }
     if (!projectIdParam && activeProjectId) {
@@ -417,6 +418,7 @@ export function Playground() {
       )
 
       setActiveProvider("") // Forks don't specify a provider — start fresh
+      setProviderExplicitlyChanged(false)
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -620,6 +622,7 @@ export function Playground() {
       setEditingPrompt(null)
       setActiveProjectId(projectId)
       setActiveProvider(provider)
+      setProviderExplicitlyChanged(false)
       setSearchParams({ projectId })
     } catch (error) {
       console.error("[playground] Failed to start edited session:", error)
@@ -632,6 +635,7 @@ export function Playground() {
   const viewSession = useCallback((projectId: string) => {
     const exec = allExecutions.get(`playground-${projectId}`)
     setActiveProvider(exec?.providerId || "")
+    setProviderExplicitlyChanged(false)
     setActiveProjectId(projectId)
     setSearchParams({ projectId })
   }, [allExecutions, setSearchParams])
