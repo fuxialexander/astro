@@ -46,7 +46,6 @@ const INFRA_ERROR_PATTERNS = [
   /econnrefused/i,
   /econnreset/i,
   /etimedout/i,
-  /abort/i,
 ]
 
 function isInfrastructureError(error: string): boolean {
