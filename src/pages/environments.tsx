@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Server,
@@ -36,7 +36,6 @@ import { BackendDetailDialog } from "@/components/environments/backend-detail-di
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
@@ -564,20 +563,10 @@ export function Environments() {
   const isMultiTenant = isServerMode()
   const showTeamMachines = useFeatureFlag('team-machines')
 
-  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
-
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
-  const allRegisteredMachines = useMachinesStore((s) => s.machines)
+  const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const fetchTeamMachines = useMachinesStore((s) => s.fetchTeamMachines)
-
-  // Apply workspace filter to registered machines
-  const registeredMachines = useMemo(() => {
-    if (workspaceFilter === 'all') return allRegisteredMachines
-    return allRegisteredMachines.filter((m) =>
-      m.teamIds?.includes(workspaceFilter) || m.teamId === workspaceFilter
-    )
-  }, [allRegisteredMachines, workspaceFilter])
 
   // Machine instructions
   const miInstructions = useMachineInstructionStore((s) => s.instructions)
@@ -1021,7 +1010,7 @@ export function Environments() {
               <h2 className="text-lg font-semibold">Team Machines</h2>
             </div>
             <p className="text-xs text-muted-foreground">
-              Share your machines with teammates, or use machines contributed by your team.
+              Share your machines with teammates, or see machines contributed by your team. View only — dispatch uses your own machines.
             </p>
           </div>
           <TeamMachinesSection />
