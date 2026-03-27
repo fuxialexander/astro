@@ -25,6 +25,7 @@ import { useSessionStore } from "@/stores/session-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { deriveActiveTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 import type { TaskActivityEvent } from "@/types"
 
 // ─── Elapsed Timer ─────────────────────────────────────────────────
@@ -436,16 +437,8 @@ function ChatPanel({
 }) {
   const navigate = useNavigate()
   const [inputText, setInputText] = useState("")
-  const stream = useRealtimeStore(
-    useCallback(
-      (s) =>
-        task.executionId
-          ? s.taskStreams.get(task.executionId)
-          : undefined,
-      [task.executionId],
-    ),
-  )
-  const events = useMemo(() => stream?.activityEvents || [], [stream?.activityEvents])
+  const { activityEvents, isHydrating } = useStreamEvents(task.executionId)
+  const events = activityEvents
   const isRunning = task.status === "running" || task.status === "generating"
 
   // Determine expand navigation target
@@ -569,9 +562,11 @@ function ChatPanel({
         {events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
             <p className="text-sm text-muted-foreground">
-              {isRunning
-                ? "Waiting for agent output..."
-                : "No activity yet for this job."}
+              {isHydrating
+                ? "Loading activity..."
+                : isRunning
+                  ? "Waiting for agent output..."
+                  : "No activity yet for this job."}
             </p>
           </div>
         ) : (
@@ -779,7 +774,7 @@ export function ActiveTasks() {
         ) : (
           <>
             {/* Left panel: job list */}
-            <div className="w-[420px] shrink-0 border-r border-border/60 overflow-auto px-4 py-4 flex flex-col gap-3">
+            <div className="w-[420px] min-w-[320px] shrink-0 border-r border-border/60 overflow-y-auto overflow-x-hidden px-4 py-4 flex flex-col gap-3">
               {/* Playground sessions group */}
               {playgroundTasks.length > 0 && (
                 <ProjectGroup

@@ -163,19 +163,19 @@ export function PlaygroundHeader({
             )}
           </div>
         )}
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={cn("flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full font-medium", config.color)}>
+        <div className="flex items-center gap-2 mt-0.5 overflow-x-auto scrollbar-none">
+          <span className={cn("flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full font-medium shrink-0", config.color)}>
             {config.icon}
             <span className="hidden md:inline">{config.label}</span>
           </span>
           {machineName && (
-            <span className="hidden md:flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="hidden md:flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
               <Laptop className="h-3 w-3" />
               {machineName}
             </span>
           )}
           {workingDirectory && (
-            <span className="hidden md:inline text-[10px] text-muted-foreground truncate font-mono">
+            <span className="hidden md:inline text-[10px] text-muted-foreground shrink-0 max-w-[200px] truncate font-mono">
               {workingDirectory}
             </span>
           )}

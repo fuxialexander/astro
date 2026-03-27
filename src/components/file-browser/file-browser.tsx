@@ -178,10 +178,10 @@ export function FileBrowser({
   const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
     try {
       const stored = localStorage.getItem("astro-file-browser-width")
-      if (!stored) return 280
+      if (!stored) return 360
       const n = Number(stored)
-      return Number.isFinite(n) ? Math.max(200, Math.min(600, n)) : 280
-    } catch { return 280 }
+      return Number.isFinite(n) ? Math.max(200, Math.min(600, n)) : 360
+    } catch { return 360 }
   })
   const isResizing = useRef(false)
 
