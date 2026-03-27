@@ -44,8 +44,9 @@ describe('truncateMessagesForFallback', () => {
     const result = truncateMessagesForFallback(messages)
     expect(result.truncated).toBe(true)
     const totalChars = result.messages.reduce((s, m) => s + m.content.length, 0)
-    // After truncation, total should be within limit (or close — 2 messages minimum)
-    expect(totalChars).toBeLessThanOrEqual(FALLBACK_MAX_CHARS + 60_000) // allow for min 2 msgs
+    // After truncation, keeps min 4 messages (~200K chars with 50K each)
+    expect(result.messages.length).toBeGreaterThanOrEqual(4)
+    expect(totalChars).toBeLessThanOrEqual(FALLBACK_MAX_CHARS + 110_000) // allow for min 4 msgs
     // Most recent messages kept
     expect(result.messages[result.messages.length - 1].content).toContain('Message 9')
   })
@@ -87,14 +88,45 @@ describe('truncateMessagesForFallback', () => {
     expect(result.messages).toHaveLength(FALLBACK_MAX_MESSAGES)
   })
 
-  it('keeps minimum 2 messages even if over char limit', () => {
-    // Two very large messages
+  it('keeps minimum 4 messages even if over char limit', () => {
+    // Four very large messages
     const messages: ChatMessage[] = [
-      { role: 'user', content: 'x'.repeat(300_000) },
-      { role: 'assistant', content: 'y'.repeat(300_000) },
+      { role: 'user', content: 'x'.repeat(150_000) },
+      { role: 'assistant', content: 'y'.repeat(150_000) },
+      { role: 'user', content: 'z'.repeat(150_000) },
+      { role: 'assistant', content: 'w'.repeat(150_000) },
     ]
     const result = truncateMessagesForFallback(messages)
-    // Should keep both (while loop stops at length > 2)
-    expect(result.messages).toHaveLength(2)
+    // Should keep all 4 (while loop stops at length > 4)
+    expect(result.messages).toHaveLength(4)
+    // Content should be truncated to fit within budget
+    const totalChars = result.messages.reduce((s, m) => s + m.content.length, 0)
+    expect(totalChars).toBeLessThanOrEqual(FALLBACK_MAX_CHARS + 160_000) // latest msg preserved fully
+  })
+
+  it('truncates individual message content when single message is super long', () => {
+    // One user message that's 500K chars — way over the 200K budget
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'a'.repeat(500_000) },
+    ]
+    const result = truncateMessagesForFallback(messages)
+    expect(result.messages).toHaveLength(1)
+    // Single message is the latest, so it's preserved fully (no older msgs to trim)
+    expect(result.messages[0].content.length).toBe(500_000)
+  })
+
+  it('truncates older messages content but preserves latest', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'old:' + 'x'.repeat(300_000) },
+      { role: 'assistant', content: 'mid:' + 'y'.repeat(300_000) },
+      { role: 'user', content: 'recent:' + 'z'.repeat(50_000) },
+    ]
+    const result = truncateMessagesForFallback(messages)
+    expect(result.messages).toHaveLength(3)
+    // Latest message preserved fully
+    expect(result.messages[2].content).toContain('recent:')
+    expect(result.messages[2].content.length).toBe(50_000 + 7)
+    // Older messages truncated
+    expect(result.messages[0].content.length).toBeLessThan(300_000 + 4)
   })
 })
