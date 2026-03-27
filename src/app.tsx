@@ -1,4 +1,4 @@
-import { useEffect, useRef, Suspense } from "react"
+import { useEffect, useRef, Suspense, lazy } from "react"
 import { useIOSKeyboardFix } from "@/hooks/use-ios-keyboard-fix"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -63,6 +63,24 @@ import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
+
+const LazyInboxHome = lazy(() => import("@/pages/inbox-home").then((m) => ({ default: m.InboxHome })))
+
+/**
+ * HomeRouter checks the `inbox-home` feature flag and renders InboxHome or Dashboard accordingly.
+ * Keeps the /dashboard route path unchanged so existing bookmarks work.
+ */
+function HomeRouter() {
+  const enabled = useFeatureFlag("inbox-home")
+  if (enabled) {
+    return (
+      <Suspense fallback={<div className="flex items-center justify-center h-full" />}>
+        <LazyInboxHome />
+      </Suspense>
+    )
+  }
+  return <Dashboard />
+}
 
 function FeatureFlagRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
   const enabled = useFeatureFlag(flag)
@@ -379,7 +397,7 @@ export default function App() {
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="welcome" element={<ProjectNewPlan />} />
-                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="dashboard" element={<HomeRouter />} />
                 <Route path="github" element={<FeatureFlagRoute flag="github-integration"><Workspace /></FeatureFlagRoute>} />
                 <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />

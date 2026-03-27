@@ -68,6 +68,7 @@ const EMPTY_FLAGS: Record<string, boolean> = {}
 const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   'github-integration': true,
   'team-machines': true,
+  'inbox-home': false,
 }
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {

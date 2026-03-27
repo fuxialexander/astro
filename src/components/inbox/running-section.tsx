@@ -1,211 +1,107 @@
-import { useMemo } from "react"
-import { Activity, Loader2, Sparkles, Terminal, Coffee } from "lucide-react"
-import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useMemo, useState } from "react"
 import { useProjectStore } from "@/stores/project-store"
-import { useExecutionStore } from "@/stores/execution-store"
-import { useSessionStore } from "@/stores/session-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { cn } from "@/lib/utils"
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { useExecutionStore } from "@/stores/execution-store"
+import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
+import { TaskTimeline } from "@/components/dashboard/task-timeline"
 
 type TaskCategory = "generation" | "playground" | "projects"
 
-interface RunningTask {
-  id: string
-  title: string
-  projectId: string
-  projectColor?: string
-  startedAt: number
-  progress: number
-  progressMessage?: string
-  category: TaskCategory
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const CATEGORY_ORDER: TaskCategory[] = ["generation", "playground", "projects"]
-
-const CATEGORY_META: Record<TaskCategory, { label: string; icon: typeof Activity }> = {
-  generation: { label: "Plan Generation", icon: Sparkles },
-  playground: { label: "Playground", icon: Terminal },
-  projects: { label: "Projects", icon: Activity },
-}
-
-/** Approximate human-friendly elapsed time: "4 min", "~10-20 min", "1 hr" */
-function formatLiveDuration(startedAt: number): string {
-  const elapsed = Math.max(0, Date.now() - startedAt)
-  const seconds = Math.floor(elapsed / 1000)
-  if (seconds < 60) return "<1 min"
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 5) return `${minutes} min`
-  if (minutes < 15) return "~5-15 min"
-  if (minutes < 30) return "~15-30 min"
-  const hours = Math.floor(minutes / 60)
-  if (hours < 1) return "~30+ min"
-  if (hours === 1) return "~1 hr"
-  return `~${hours} hrs`
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function RunningRow({ task }: { task: RunningTask }) {
-  return (
-    <div className="flex items-center gap-2.5 py-1.5 px-1 group">
-      {/* Project color dot */}
-      <span
-        className="h-2 w-2 rounded-full shrink-0"
-        style={{ backgroundColor: task.projectColor || "var(--color-muted-foreground)" }}
-      />
-
-      {/* Title */}
-      <span className="text-[12px] truncate flex-1 min-w-0 text-muted-foreground group-hover:text-foreground transition-colors">
-        {task.title}
-      </span>
-
-      {/* Progress indicator */}
-      {task.progress > 0 && (
-        <div className="w-12 h-1 rounded-full bg-muted overflow-hidden shrink-0">
-          <div
-            className="h-full rounded-full bg-primary/40 transition-all duration-700"
-            style={{ width: `${Math.min(100, task.progress)}%` }}
-          />
-        </div>
-      )}
-      {task.progress === 0 && (
-        <Loader2 className="h-3 w-3 shrink-0 text-muted-foreground/50 animate-spin" />
-      )}
-
-      {/* Duration */}
-      <span className="text-[10px] text-muted-foreground/50 shrink-0 tabular-nums">
-        {formatLiveDuration(task.startedAt)}
-      </span>
-    </div>
-  )
-}
-
-function CategoryGroup({ category, tasks }: { category: TaskCategory; tasks: RunningTask[] }) {
-  if (tasks.length === 0) return null
-  const meta = CATEGORY_META[category]
-  const Icon = meta.icon
-
-  return (
-    <div className="space-y-0.5">
-      <div className="flex items-center gap-1.5 px-1 pb-0.5">
-        <Icon className="h-3 w-3 text-muted-foreground/60" />
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-          {meta.label}
-        </span>
-        <span className="text-[10px] text-muted-foreground/40">{tasks.length}</span>
-      </div>
-      {tasks.map((task) => (
-        <RunningRow key={task.id} task={task} />
-      ))}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export function RunningSection({ className }: { className?: string }) {
-  const nodes = usePlanStore((s) => s.nodes).filter(isLive)
+export function RunningSection() {
   const projects = useProjectStore((s) => s.projects)
-  const allExecutions = useExecutionStore((s) => s.executions)
-  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const machines = useRealtimeStore((s) => s.machines)
   const taskStreams = useRealtimeStore((s) => s.taskStreams)
+  const allExecutions = useExecutionStore((s) => s.executions)
 
-  // ---- Build unified task list (mirrors dashboard.tsx pattern) ----
+  const machineFleetData = useMemo(
+    () =>
+      Array.from(machines.values()).map((m) => ({
+        machineId: m.machineId,
+        name: m.name || m.machineId,
+        cpuPercent: m.load.cpuPercent,
+        memoryPercent: m.load.memoryPercent,
+        activeTasks: m.load.activeTasks,
+        connected: m.connectionStatus === "connected",
+      })),
+    [machines],
+  )
+
+  // Stable fallback timestamp for tasks without startedAt (avoids impure Date.now in render)
+  const [fallbackNow] = useState(() => Date.now())
+
   const activeTasksWithContext = useMemo(() => {
-    // 1. Running project tasks
-    const executionTasks: RunningTask[] = nodes
+    const now = fallbackNow
+    const executionTasks = nodes
       .filter((n) => n.status === "in_progress" || n.status === "dispatched")
       .map((node) => {
         const stream = node.executionId ? taskStreams.get(node.executionId) : undefined
         const project = projects.find((p) => p.id === node.projectId)
+        const machine = machines.get(node.machineId || "")
         return {
           id: node.id,
           title: node.title,
           projectId: node.projectId,
+          projectName: project?.name || "Unknown",
           projectColor: project?.color,
-          startedAt: node.executionStartedAt
-            ? new Date(node.executionStartedAt).getTime()
-            : Date.now() - 60000,
+          machineName: machine?.name || machine?.machineId || "local",
+          machineId: node.machineId || "local",
+          startedAt: node.executionStartedAt ? new Date(node.executionStartedAt).getTime() : now - 60000,
           progress: stream?.progress ?? 0,
           progressMessage: stream?.progressMessage,
+          costUsd: undefined as number | undefined,
           category: "projects" as TaskCategory,
         }
       })
 
-    // 2. Active plan generation sessions
-    const planGenerationTasks: RunningTask[] = [...allExecutions.values()]
-      .filter(
-        (e) =>
-          (e.status === "running" || e.status === "pending") &&
-          e.nodeId.startsWith("plan-"),
-      )
+    const planGenerationTasks = [...allExecutions.values()]
+      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("plan-"))
       .map((exec) => {
         const project = projects.find((p) => p.id === exec.projectId)
         return {
           id: exec.nodeId,
-          title: project?.name ? `${project.name} — plan` : "Plan Generation",
+          title: project?.name || "Plan Generation",
           projectId: exec.projectId,
+          projectName: project?.name || "Plan Generation",
           projectColor: project?.color,
-          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
+          machineName: "planner",
+          machineId: "planner",
+          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : now,
           progress: exec.status === "running" ? 50 : 10,
           progressMessage: exec.status === "running" ? "Generating plan..." : "Starting...",
+          costUsd: undefined as number | undefined,
           category: "generation" as TaskCategory,
         }
       })
 
-    // 3. Active playground sessions
-    const playgroundTasks: RunningTask[] = [...allExecutions.values()]
-      .filter(
-        (e) =>
-          (e.status === "running" || e.status === "pending") &&
-          e.nodeId.startsWith("playground-"),
-      )
+    const playgroundTasks = [...allExecutions.values()]
+      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-"))
       .map((exec) => {
         const project = projects.find((p) => p.id === exec.projectId)
+        const machine = machines.get(project?.defaultMachineId || "")
         return {
           id: exec.nodeId,
-          title: project?.name ? `${project.name} — playground` : "Playground",
+          title: project?.name || "Playground",
           projectId: exec.projectId,
-          projectColor: project?.color,
-          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
+          projectName: project?.name || "Playground",
+          projectColor: undefined as string | undefined,
+          machineName: machine?.name || machine?.machineId || "local",
+          machineId: project?.defaultMachineId || "local",
+          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : now,
           progress: 0,
           progressMessage: exec.status === "pending" ? "Starting..." : undefined,
+          costUsd: undefined as number | undefined,
           category: "playground" as TaskCategory,
         }
       })
 
-    // 4. Active chat sessions (streaming)
-    const chatTasks: RunningTask[] = [...streamingSessions].map((sessionId) => {
-      return {
-        id: `chat-${sessionId}`,
-        title: "Chat session",
-        projectId: "",
-        projectColor: undefined,
-        startedAt: Date.now() - 30000, // approximate
-        progress: 0,
-        progressMessage: "Streaming...",
-        category: "playground" as TaskCategory,
-      }
-    })
+    return [...planGenerationTasks, ...playgroundTasks, ...executionTasks]
+  }, [nodes, taskStreams, projects, machines, allExecutions, fallbackNow])
 
-    return [...planGenerationTasks, ...playgroundTasks, ...chatTasks, ...executionTasks]
-  }, [nodes, taskStreams, projects, allExecutions, streamingSessions])
-
-  // ---- Group by category ----
   const tasksByCategory = useMemo(() => {
-    const grouped: Record<TaskCategory, RunningTask[]> = {
+    const grouped: Record<TaskCategory, typeof activeTasksWithContext> = {
       generation: [],
       playground: [],
       projects: [],
@@ -216,25 +112,56 @@ export function RunningSection({ className }: { className?: string }) {
     return grouped
   }, [activeTasksWithContext])
 
-  const totalRunning = activeTasksWithContext.length
+  const categoryLabels: Record<TaskCategory, string> = {
+    generation: "Plan Generation",
+    playground: "Playground",
+    projects: "Projects",
+  }
 
-  // ---- Render ----
+  const timelineMachines = useMemo(() => [...new Set(activeTasksWithContext.map((t) => t.machineName))], [activeTasksWithContext])
+
+  if (machineFleetData.length === 0 && activeTasksWithContext.length === 0) {
+    return null
+  }
+
   return (
-    <div className={cn("space-y-2", className)}>
-      {totalRunning === 0 ? (
-        <div className="flex items-center gap-2 px-1 py-3">
-          <Coffee className="h-3.5 w-3.5 text-muted-foreground/40" />
-          <span className="text-[12px] text-muted-foreground/50">All quiet</span>
+    <div className="flex flex-col gap-3">
+      <h2 className="text-[13px] font-semibold tracking-wide">Running</h2>
+      <div className="flex flex-col md:flex-row gap-6">
+        {machineFleetData.length > 0 && (
+          <div className="shrink-0 md:w-[120px]">
+            <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Fleet</h3>
+            <MachineFleetPanel machines={machineFleetData} />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Tasks</h3>
+          <div className="rounded-xl glass-panel p-3 max-h-[min(50vh,400px)] overflow-y-auto">
+            {activeTasksWithContext.length === 0 ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground/40 text-sm">All quiet</div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {(["generation", "playground", "projects"] as TaskCategory[]).map((cat) => {
+                  const tasks = tasksByCategory[cat]
+                  if (tasks.length === 0) return null
+                  return (
+                    <div key={cat}>
+                      <div className="flex items-center gap-2 mb-1.5 px-1">
+                        <span className="text-[10px] font-semibold tracking-wider text-muted-foreground/50 uppercase">
+                          {categoryLabels[cat]}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/30">{tasks.length}</span>
+                      </div>
+                      <TaskTimeline tasks={tasks} machines={timelineMachines} />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      ) : (
-        CATEGORY_ORDER.map((cat) => (
-          <CategoryGroup
-            key={cat}
-            category={cat}
-            tasks={tasksByCategory[cat]}
-          />
-        ))
-      )}
+      </div>
     </div>
   )
 }
