@@ -1,173 +1,114 @@
-import { useState, useMemo } from "react"
+import { useMemo } from "react"
 import { Link } from "react-router"
-import { ChevronRight, CheckCircle2, Eye } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { CheckCircle2, XCircle } from "lucide-react"
+import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useProjectStore } from "@/stores/project-store"
-import { getColorForName } from "@/lib/color-icon-utils"
 import { formatRelativeTime } from "@/lib/date-utils"
-import type { PlanNode } from "@/types"
 
-interface DoneTodaySectionProps {
-  className?: string
-}
-
-interface CompletedItem {
-  nodeId: string
-  projectId: string
-  projectName: string
-  projectColor: string
-  title: string
-  completedAt: Date
-  status: "completed" | "auto_verified"
-}
-
-/** Returns true if the given date is today (local timezone). */
-function isToday(date: Date): boolean {
-  const now = new Date()
-  const d = new Date(date)
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  )
-}
-
-/** Derive the completion timestamp from a plan node. */
-function getCompletionDate(node: PlanNode): Date | null {
-  if (node.executionCompletedAt && isToday(new Date(node.executionCompletedAt))) {
-    return new Date(node.executionCompletedAt)
-  }
-  if (node.updatedAt && isToday(new Date(node.updatedAt))) {
-    return new Date(node.updatedAt)
-  }
-  return null
-}
-
-export function DoneTodaySection({ className }: DoneTodaySectionProps) {
-  const [expanded, setExpanded] = useState(false)
-
-  const nodes = usePlanStore((s) => s.nodes)
-  const executions = useExecutionStore((s) => s.executions)
+export function DoneTodaySection() {
   const projects = useProjectStore((s) => s.projects)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const allExecutions = useExecutionStore((s) => s.executions)
 
-  const completedItems = useMemo(() => {
-    const projectMap = new Map(projects.map((p) => [p.id, p]))
-    const items: CompletedItem[] = []
+  const todayStart = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }, [])
 
-    // 1. Plan nodes completed today
-    const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified"]
-    for (const node of nodes.filter(isLive)) {
-      if (!completedStatuses.includes(node.status)) continue
-      const completedAt = getCompletionDate(node)
-      if (!completedAt) continue
-
-      const project = projectMap.get(node.projectId)
-      items.push({
-        nodeId: node.id,
-        projectId: node.projectId,
-        projectName: project?.name ?? "Unknown",
-        projectColor: project?.color ?? getColorForName(project?.name ?? node.projectId),
-        title: node.title,
-        completedAt,
-        status: node.status as "completed" | "auto_verified",
+  const completedToday = useMemo(() => {
+    return nodes
+      .filter((n) => {
+        if (!["completed", "auto_verified"].includes(n.status)) return false
+        const completedAt = n.executionCompletedAt ?? n.updatedAt
+        if (!completedAt) return false
+        return new Date(completedAt).getTime() >= todayStart
       })
-    }
-
-    // 2. Playground executions completed today (not already covered by plan nodes)
-    const nodeIds = new Set(items.map((i) => i.nodeId))
-    executions.forEach((exec, nodeId) => {
-      if (nodeIds.has(nodeId)) return
-      if (!nodeId.startsWith("playground-")) return
-      if (exec.status !== "success") return
-      if (!exec.completedAt || !isToday(new Date(exec.completedAt))) return
-
-      const project = projectMap.get(exec.projectId)
-      items.push({
-        nodeId,
-        projectId: exec.projectId,
-        projectName: project?.name ?? "Playground",
-        projectColor: project?.color ?? getColorForName(project?.name ?? exec.projectId),
-        title: exec.summary?.workCompleted ?? "Playground session",
-        completedAt: new Date(exec.completedAt),
-        status: "auto_verified",
+      .sort((a, b) => {
+        const aTime = new Date(a.executionCompletedAt ?? a.updatedAt).getTime()
+        const bTime = new Date(b.executionCompletedAt ?? b.updatedAt).getTime()
+        return bTime - aTime
       })
+      .slice(0, 20)
+  }, [nodes, todayStart])
+
+  const failedToday = useMemo(() => {
+    return nodes
+      .filter((n) => {
+        if (n.status !== "pruned") return false
+        const execution = allExecutions.get(n.id)
+        if (!execution || execution.status !== "failure") return false
+        const completedAt = n.executionCompletedAt ?? n.updatedAt
+        if (!completedAt) return false
+        return new Date(completedAt).getTime() >= todayStart
+      })
+      .slice(0, 10)
+  }, [nodes, allExecutions, todayStart])
+
+  const items = useMemo(() => {
+    const all = [
+      ...completedToday.map((n) => ({ ...n, outcome: "success" as const })),
+      ...failedToday.map((n) => ({ ...n, outcome: "failure" as const })),
+    ]
+    return all.sort((a, b) => {
+      const aTime = new Date(a.executionCompletedAt ?? a.updatedAt).getTime()
+      const bTime = new Date(b.executionCompletedAt ?? b.updatedAt).getTime()
+      return bTime - aTime
     })
+  }, [completedToday, failedToday])
 
-    // Sort most recent first
-    items.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime())
-    return items
-  }, [nodes, executions, projects])
-
-  const count = completedItems.length
+  if (items.length === 0) {
+    return null
+  }
 
   return (
-    <section className={cn("", className)}>
-      {/* Disclosure header */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronRight
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
-            expanded && "rotate-90"
-          )}
-        />
-        <span className="font-medium">Done Today</span>
-        {count > 0 && (
-          <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-xs tabular-nums">
-            {count}
-          </span>
-        )}
-      </button>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold tracking-wide">
+          Done Today
+          <span className="ml-2 text-[11px] text-muted-foreground/50">({items.length})</span>
+        </h2>
+        <Link to="/tasks?status=completed" className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-2">
+          View All
+        </Link>
+      </div>
 
-      {/* Collapsible list */}
-      {expanded && (
-        <div className="pb-1">
-          {count === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground/60 italic">
-              No tasks completed today
-            </p>
-          ) : (
-            <ul className="space-y-0.5">
-              {completedItems.map((item) => (
-                <li key={item.nodeId}>
-                  <Link
-                    to={`/project/${item.projectId}/task/${item.nodeId}`}
-                    className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors group"
-                  >
-                    {/* Project color dot */}
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.projectColor }}
-                    />
-
-                    {/* Task title */}
-                    <span className="truncate flex-1 text-muted-foreground group-hover:text-foreground transition-colors">
-                      {item.title}
-                    </span>
-
-                    {/* Completion time */}
-                    <span className="shrink-0 text-xs text-muted-foreground/60 tabular-nums">
-                      {formatRelativeTime(item.completedAt)}
-                    </span>
-
-                    {/* Status icon */}
-                    {item.status === "auto_verified" ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success/60" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5 shrink-0 text-success/60" />
-                    )}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div className="rounded-xl glass-panel-subtle p-3">
+        <div className="flex flex-col divide-y divide-border/20">
+          {items.map((item) => {
+            const project = projects.find((p) => p.id === item.projectId)
+            const completedAt = item.executionCompletedAt ?? item.updatedAt
+            return (
+              <Link
+                key={item.id}
+                to={`/project/${item.projectId}/task/${item.id}`}
+                className="flex items-center gap-3 py-2.5 px-1 group hover:bg-accent/30 rounded-md transition-colors -mx-1"
+              >
+                {item.outcome === "success" ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success/70 shrink-0" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5 text-error/70 shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-medium truncate group-hover:text-primary transition-colors">
+                    {item.title}
+                  </p>
+                  {project && (
+                    <p className="text-[10px] text-muted-foreground/50 truncate">{project.name}</p>
+                  )}
+                </div>
+                {completedAt && (
+                  <span className="text-[10px] text-muted-foreground/40 shrink-0">
+                    {formatRelativeTime(new Date(completedAt))}
+                  </span>
+                )}
+              </Link>
+            )
+          })}
         </div>
-      )}
-    </section>
+      </div>
+    </div>
   )
 }
