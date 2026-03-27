@@ -278,10 +278,13 @@ async function streamChatViaRelay(
   // Persist "agent working" operational event so the frontend shows a blue status
   // line in the activity feed. This fires after successful dispatch (agent runner
   // is connected and accepted the task). Persisted to DB for catch-up hydration.
-  await streamingEventLog.append(persistId, 'operational', {
-    message: 'Agent runner connected — processing your request',
-    source: 'astro',
-  })
+  // Skip for follow-up dispatches (resumeSessionId set) to avoid duplicate banners.
+  if (!opts.resumeSessionId) {
+    await streamingEventLog.append(persistId, 'operational', {
+      message: 'Agent runner connected — processing your request',
+      source: 'astro',
+    })
+  }
 
   return c.json({ success: true, taskId: opts.taskId, streamId: opts.streamId || opts.taskId })
 }
