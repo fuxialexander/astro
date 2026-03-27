@@ -39,7 +39,7 @@ interface PlaygroundHeaderProps {
   startedAt?: Date
   /** Number of tool calls executed so far */
   toolCallCount?: number
-  /** Model name being used */
+  /** Model name being used (from stream or selected provider) */
   modelName?: string
 }
 

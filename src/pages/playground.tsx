@@ -96,6 +96,8 @@ export function Playground() {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
   const [activeProvider, setActiveProvider] = useState("")
+  // Track whether user explicitly switched providers (for model name display)
+  const [providerExplicitlyChanged, setProviderExplicitlyChanged] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -211,6 +213,7 @@ export function Playground() {
     }
     if (projectIdParam && projectIdParam !== activeProjectId) {
       setActiveProvider(urlExecProviderId || "")
+      setProviderExplicitlyChanged(false)
       setActiveProjectId(projectIdParam)
     }
     if (!projectIdParam && activeProjectId) {
@@ -415,6 +418,7 @@ export function Playground() {
       )
 
       setActiveProvider("") // Forks don't specify a provider — start fresh
+      setProviderExplicitlyChanged(false)
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -423,6 +427,29 @@ export function Playground() {
       setIsSubmitting(false)
     }
   }, [isSubmitting, allMachines, startPlaygroundSession, setSearchParams])
+
+  // Provider change handler — notify user when switching during a running session
+  const handleProviderChange = useCallback((providerId: string) => {
+    if (providerId === activeProvider) return // no-op — same provider selected
+    setActiveProvider(providerId)
+    setProviderExplicitlyChanged(true)
+    // Read live execution status to avoid stale closure over isRunning
+    const exec = activeProjectId
+      ? useExecutionStore.getState().executions.get(`playground-${activeProjectId}`)
+      : undefined
+    const currentlyRunning = exec?.status === 'pending' || exec?.status === 'running'
+    if (currentlyRunning) {
+      const providerName = providerId
+        ? (PROVIDER_NAMES[providerId] || providerId)
+        : "Auto"
+      useToastStore.getState().add({
+        type: 'info',
+        title: `Switched to ${providerName}`,
+        description: 'The current execution continues with its original provider. Your next follow-up message will use the new provider.',
+        duration: 5000,
+      })
+    }
+  }, [activeProvider, activeProjectId])
 
   // Steer message handler (while running)
   // Write-first: the server persists the message as 'pending' before attempting
@@ -562,6 +589,7 @@ export function Playground() {
     backingRef.current = true
     setActiveProjectId(null)
     setActiveProvider("")
+    setProviderExplicitlyChanged(false)
     setDescription("")
     setWorkingDir("")
     setSelectedMachine(null)
@@ -600,6 +628,7 @@ export function Playground() {
       setEditingPrompt(null)
       setActiveProjectId(projectId)
       setActiveProvider(provider)
+      setProviderExplicitlyChanged(false)
       setSearchParams({ projectId })
     } catch (error) {
       console.error("[playground] Failed to start edited session:", error)
@@ -612,6 +641,7 @@ export function Playground() {
   const viewSession = useCallback((projectId: string) => {
     const exec = allExecutions.get(`playground-${projectId}`)
     setActiveProvider(exec?.providerId || "")
+    setProviderExplicitlyChanged(false)
     setActiveProjectId(projectId)
     setSearchParams({ projectId })
   }, [allExecutions, setSearchParams])
@@ -680,7 +710,7 @@ export function Playground() {
             fileSidebarOpen={fileSidebarOpen}
             activeProvider={activeProvider}
             availableProviders={activeSessionProviders}
-            onProviderChange={setActiveProvider}
+            onProviderChange={handleProviderChange}
             onBack={handleBack}
             onAbort={() => {
               if (isChatStreaming && chatSession) abortChatStream(chatSession.id)
@@ -691,7 +721,7 @@ export function Playground() {
             onRename={(newTitle) => updateProject(activeProjectId, { name: newTitle })}
             startedAt={execution.startedAt ? new Date(execution.startedAt) : undefined}
             toolCallCount={taskStreamToolCount}
-            modelName={taskStreamModel}
+            modelName={taskStreamModel || (providerExplicitlyChanged && activeProvider ? (PROVIDER_NAMES[activeProvider] || activeProvider) : undefined)}
           />
 
           {/* Activity Timeline — always visible (playground IS the activity view) */}
