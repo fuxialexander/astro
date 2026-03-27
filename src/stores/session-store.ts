@@ -33,6 +33,26 @@ import type {
   UsageMetrics,
 } from "@/types"
 
+// ─── Infrastructure Error Detection ─────────────────────────────────
+// Infrastructure/connection errors (network failures, timeouts) are shown
+// as blue operational messages rather than alarming red error blocks.
+const INFRA_ERROR_PATTERNS = [
+  /failed to fetch/i,
+  /load failed/i,             // Safari's version of "Failed to fetch"
+  /request timed out/i,
+  /connection (failed|refused|reset|closed)/i,
+  /network(error| request failed| error)/i,
+  /fetch failed/i,
+  /econnrefused/i,
+  /econnreset/i,
+  /etimedout/i,
+  /abort/i,
+]
+
+function isInfrastructureError(error: string): boolean {
+  return INFRA_ERROR_PATTERNS.some((p) => p.test(error))
+}
+
 // ─── Module-Level Streaming Infrastructure ──────────────────────────
 // AbortControllers and streaming state live outside React so they
 // survive component unmounts (same pattern as execution-store.ts).
@@ -943,12 +963,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         drainChatQueue(sid, get, set)
       },
       onError: (error) => {
-        get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
-        useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'error',
-          error,
-          timestamp: new Date(),
-        })
+        if (isInfrastructureError(error)) {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'operational',
+            message: error,
+            source: 'astro',
+            timestamp: new Date(),
+          })
+        } else {
+          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'error',
+            error,
+            timestamp: new Date(),
+          })
+        }
         useExecutionStore.getState().setChatMutationActive(projectId, false)
         setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
@@ -982,17 +1011,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       abortController.signal,
     ).catch((err) => {
       unwatchStream()
-      // Fetch-level error — surface error so the user sees it.
+      // Fetch-level error — surface as blue operational message (not alarming red).
       // Guard: if this controller was replaced by a newer stream, skip cleanup
       // to avoid clearing the newer stream's state (race on rapid re-send).
       const isAbort = err?.name === 'AbortError'
       const isStale = chatAbortControllers.get(sid) !== abortController
       if (!isAbort && !isStale) {
         const errorMsg = err?.message || 'Connection failed'
-        get().appendToLastAssistantMessage(sid, `\nError: ${errorMsg}`)
         useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'error',
-          error: errorMsg,
+          type: 'operational',
+          message: errorMsg,
+          source: 'astro',
           timestamp: new Date(),
         })
       }
@@ -1150,12 +1179,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         drainChatQueue(sid, get, set)
       },
       onError: (error) => {
-        get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
-        useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'error',
-          error,
-          timestamp: new Date(),
-        })
+        if (isInfrastructureError(error)) {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'operational',
+            message: error,
+            source: 'astro',
+            timestamp: new Date(),
+          })
+        } else {
+          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'error',
+            error,
+            timestamp: new Date(),
+          })
+        }
         setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
         set((state) => {
@@ -1195,10 +1233,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const isStale = chatAbortControllers.get(sid) !== abortController
       if (!isAbort && !isStale) {
         const errorMsg = err?.message || 'Connection failed'
-        get().appendToLastAssistantMessage(sid, `\nError: ${errorMsg}`)
         useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'error',
-          error: errorMsg,
+          type: 'operational',
+          message: errorMsg,
+          source: 'astro',
           timestamp: new Date(),
         })
       }
