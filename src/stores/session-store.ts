@@ -922,6 +922,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         get().updateLastAssistantMessage(sid, rawAssistantText)
 
+        // Push "completed" operational event (blue status line)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'operational',
+          message: 'Agent runner finished processing',
+          source: 'astro',
+          timestamp: new Date(),
+        })
+
         // Clear chat mutation flag and streaming state
         useExecutionStore.getState().setChatMutationActive(projectId, false)
         setChatStreamStatus(sid, 'completed')
@@ -1148,6 +1156,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         } else if (rawAssistantText.length > 0) {
           get().addMessage(sid, { role: "assistant", content: rawAssistantText })
         }
+
+        // Push "completed" operational event (blue status line)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'operational',
+          message: 'Agent runner finished processing',
+          source: 'astro',
+          timestamp: new Date(),
+        })
 
         setChatStreamStatus(sid, 'completed')
         chatAbortControllers.delete(sid)

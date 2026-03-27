@@ -233,6 +233,14 @@ async function streamChatViaRelay(
     return c.json({ success: false, error: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>' }, 503)
   }
 
+  // Persist "agent working" operational event so the frontend shows a blue status
+  // line in the activity feed. This fires after successful dispatch (agent runner
+  // is connected and accepted the task). Persisted to DB for catch-up hydration.
+  await streamingEventLog.append(persistId, 'operational', {
+    message: 'Agent runner connected — processing your request',
+    source: 'astro',
+  })
+
   return c.json({ success: true, taskId: opts.taskId, streamId: opts.streamId || opts.taskId })
 }
 
