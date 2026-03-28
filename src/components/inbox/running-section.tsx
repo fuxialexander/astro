@@ -126,20 +126,32 @@ export function RunningSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-[13px] font-semibold tracking-wide">Running</h2>
+      <div className="flex items-center gap-2.5">
+        <h2 className="text-[13px] font-semibold tracking-wide text-muted-foreground/70 uppercase">Running</h2>
+        {activeTasksWithContext.length > 0 && (
+          <span className="relative flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-info/60 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-info/80" />
+            </span>
+            <span className="text-[11px] text-info/70 font-medium tabular-nums">{activeTasksWithContext.length}</span>
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-col md:flex-row gap-6">
         {machineFleetData.length > 0 && (
           <div className="shrink-0 md:w-[120px]">
-            <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Fleet</h3>
+            <h3 className="text-[10px] font-semibold tracking-wider text-muted-foreground/40 uppercase mb-3">Fleet</h3>
             <MachineFleetPanel machines={machineFleetData} />
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Tasks</h3>
+          <h3 className="text-[10px] font-semibold tracking-wider text-muted-foreground/40 uppercase mb-3">Tasks</h3>
           <div className="rounded-xl glass-panel p-3 max-h-[min(50vh,400px)] overflow-y-auto">
             {activeTasksWithContext.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-muted-foreground/40 text-sm">All quiet</div>
+              <div className="flex items-center justify-center py-8 text-muted-foreground/30 text-[13px]">All quiet</div>
             ) : (
               <div className="flex flex-col gap-3">
                 {(["generation", "playground", "projects"] as TaskCategory[]).map((cat) => {
@@ -148,10 +160,10 @@ export function RunningSection() {
                   return (
                     <div key={cat}>
                       <div className="flex items-center gap-2 mb-1.5 px-1">
-                        <span className="text-[10px] font-semibold tracking-wider text-muted-foreground/50 uppercase">
+                        <span className="text-[10px] font-semibold tracking-wider text-muted-foreground/40 uppercase">
                           {categoryLabels[cat]}
                         </span>
-                        <span className="text-[10px] text-muted-foreground/30">{tasks.length}</span>
+                        <span className="text-[10px] text-muted-foreground/25 tabular-nums">{tasks.length}</span>
                       </div>
                       <TaskTimeline tasks={tasks} machines={timelineMachines} />
                     </div>

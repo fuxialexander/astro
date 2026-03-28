@@ -12,6 +12,9 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { dataClient } from "@/lib/data-client"
 import { useState } from "react"
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
 export function InboxHome() {
   const projects = useProjectStore((s) => s.projects)
   const rawNodes = usePlanStore((s) => s.nodes)
@@ -73,13 +76,19 @@ export function InboxHome() {
     return "Good evening"
   }, [])
 
+  const dateString = useMemo(() => {
+    const now = new Date()
+    return `${DAY_NAMES[now.getDay()]}, ${MONTH_NAMES[now.getMonth()]} ${now.getDate()}`
+  }, [])
+
   return (
-    <div className="flex flex-col gap-6 p-6 md:px-10 md:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
+    <div className="flex flex-col gap-8 p-6 md:px-10 md:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
       {/* Greeting */}
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-1">
         <h1 className="text-2xl md:text-[28px] font-secondary font-light tracking-wide leading-tight">
           {greeting}{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
         </h1>
+        <p className="text-[13px] text-muted-foreground/40 tracking-wide">{dateString}</p>
       </div>
 
       {/* Notifications */}
@@ -98,7 +107,7 @@ export function InboxHome() {
       {recentProjects.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold tracking-wide">Projects</h2>
+            <h2 className="text-[13px] font-semibold tracking-wide text-muted-foreground/70 uppercase">Projects</h2>
             {activeProjects.length > 6 && (
               <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
                 <Link to="/projects">All {activeProjects.length}</Link>

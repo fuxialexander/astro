@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { Link } from "react-router"
-import { CheckCircle2, XCircle } from "lucide-react"
+import { CheckCircle2, XCircle, ChevronRight } from "lucide-react"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -63,44 +63,67 @@ export function DoneTodaySection() {
     return null
   }
 
+  const successCount = completedToday.length
+  const failCount = failedToday.length
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-semibold tracking-wide">
-          Done Today
-          <span className="ml-2 text-[11px] text-muted-foreground/50">({items.length})</span>
-        </h2>
-        <Link to="/tasks?status=completed" className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-2">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-[13px] font-semibold tracking-wide text-muted-foreground/70 uppercase">Done Today</h2>
+          <span className="flex items-center gap-1.5">
+            {successCount > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-success/60 font-medium tabular-nums">
+                <CheckCircle2 className="h-3 w-3" />
+                {successCount}
+              </span>
+            )}
+            {failCount > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-error/60 font-medium tabular-nums">
+                <XCircle className="h-3 w-3" />
+                {failCount}
+              </span>
+            )}
+          </span>
+        </div>
+        <Link
+          to="/tasks?status=completed"
+          className="flex items-center gap-0.5 text-[11px] text-muted-foreground/50 hover:text-foreground/70 transition-colors px-2"
+        >
           View All
+          <ChevronRight className="h-3 w-3" />
         </Link>
       </div>
 
-      <div className="rounded-xl glass-panel-subtle p-3">
-        <div className="flex flex-col divide-y divide-border/20">
-          {items.map((item) => {
+      <div className="rounded-xl glass-panel-subtle p-1">
+        <div className="flex flex-col">
+          {items.map((item, idx) => {
             const project = projects.find((p) => p.id === item.projectId)
             const completedAt = item.executionCompletedAt ?? item.updatedAt
             return (
               <Link
                 key={item.id}
                 to={`/project/${item.projectId}/task/${item.id}`}
-                className="flex items-center gap-3 py-2.5 px-1 group hover:bg-accent/30 rounded-md transition-colors -mx-1"
+                className={
+                  "flex items-center gap-3 py-2.5 px-3 group hover:bg-accent/40 rounded-lg transition-colors " +
+                  (idx > 0 ? "border-t border-border/10" : "")
+                }
               >
                 {item.outcome === "success" ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-success/70 shrink-0" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success/60 shrink-0" />
                 ) : (
-                  <XCircle className="h-3.5 w-3.5 text-error/70 shrink-0" />
+                  <XCircle className="h-3.5 w-3.5 text-error/60 shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-medium truncate group-hover:text-primary transition-colors">
                     {item.title}
                   </p>
                   {project && (
-                    <p className="text-[10px] text-muted-foreground/50 truncate">{project.name}</p>
+                    <p className="text-[10px] text-muted-foreground/40 truncate">{project.name}</p>
                   )}
                 </div>
                 {completedAt && (
-                  <span className="text-[10px] text-muted-foreground/40 shrink-0">
+                  <span className="text-[10px] text-muted-foreground/35 shrink-0 tabular-nums">
                     {formatRelativeTime(new Date(completedAt))}
                   </span>
                 )}
