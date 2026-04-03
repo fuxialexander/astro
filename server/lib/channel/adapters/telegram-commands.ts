@@ -27,6 +27,7 @@ import { eq, and, inArray, isNull, or } from 'drizzle-orm'
 import { dispatchEngine } from '../../dispatch/index.js'
 import { serverSideDispatch } from '../../server-side-dispatch.js'
 import { formatForChannel } from '../channel-formatter.js'
+import { setDefaultProject, clearChatSession } from './telegram-chat.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -859,6 +860,10 @@ async function handleTopics(ctx: CommandContext): Promise<string> {
 async function handleHelp(_ctx: CommandContext): Promise<string> {
   return (
     '<b>🤖 Astro Bot Commands</b>\n\n'
+    + '<b>Chat</b>\n'
+    + '/bind &lt;project-id&gt; — Link a project for chat\n'
+    + '/new — Start a fresh chat session\n'
+    + '\n<b>Projects &amp; Tasks</b>\n'
     + '/projects — List your active projects\n'
     + '/plan &lt;id&gt; — Show plan tree for a project\n'
     + '/task &lt;id&gt; — Show task details\n'
@@ -871,8 +876,67 @@ async function handleHelp(_ctx: CommandContext): Promise<string> {
     + '/bind &lt;project-id&gt; — Bind this topic to a project\n'
     + '/unbind — Remove the binding for this topic\n'
     + '/topics — List all topic bindings in this group\n'
-    + '\nTip: Use short IDs or task numbers (e.g., /task 42)'
+    + '\nTip: Use short IDs or task numbers (e.g., /task 42)\n'
+    + '\n<i>Once bound to a project, just send any message to chat with the AI!</i>'
   )
+}
+
+async function handleBind(ctx: CommandContext): Promise<string> {
+  const projectIdOrPrefix = ctx.args.trim()
+  if (!projectIdOrPrefix) {
+    return (
+      'Usage: /bind &lt;project-id&gt;\n\n'
+      + 'Use /projects to list your projects and get their IDs.\n'
+      + 'Example: /bind abc12345'
+    )
+  }
+
+  const teamIds = await getUserTeamIds(ctx.userId)
+  if (teamIds.length === 0) {
+    return 'You are not a member of any team.'
+  }
+
+  // Find matching project
+  const allProjects = await db
+    .select({ id: projects.id, name: projects.name, icon: projects.icon })
+    .from(projects)
+    .where(
+      and(
+        inArray(projects.teamId, teamIds),
+        eq(projects.status, 'active'),
+      ),
+    )
+    .limit(100)
+
+  const match = allProjects.find(
+    (p) => p.id === projectIdOrPrefix || p.id.startsWith(projectIdOrPrefix),
+  )
+
+  if (!match) {
+    return (
+      `Project not found: <code>${escapeHtml(projectIdOrPrefix)}</code>\n\n`
+      + 'Use /projects to list available projects.'
+    )
+  }
+
+  const ok = await setDefaultProject(ctx.chatId, match.id)
+  if (!ok) {
+    return 'Failed to update project binding. Make sure your Telegram is connected (use /status).'
+  }
+
+  return (
+    `${match.icon ?? '📋'} Bound to <b>${escapeHtml(match.name)}</b>\n\n`
+    + 'Now just send any message to chat with your AI assistant about this project.\n'
+    + 'Use /new to start a fresh conversation.'
+  )
+}
+
+async function handleNew(ctx: CommandContext): Promise<string> {
+  const cleared = await clearChatSession(ctx.chatId)
+  if (!cleared) {
+    return 'No active session to clear, or your Telegram is not connected.'
+  }
+  return '🔄 Chat session cleared. Your next message will start a fresh conversation.'
 }
 
 // ---------------------------------------------------------------------------
@@ -894,6 +958,8 @@ function escapeHtml(text: string): string {
 export const commandRegistry = new CommandRegistry()
 
 // Register all commands
+commandRegistry.register('bind', 'Link a project for AI chat', handleBind)
+commandRegistry.register('new', 'Start a fresh chat session', handleNew)
 commandRegistry.register('projects', 'List your active projects', handleProjects)
 commandRegistry.register('plan', 'Show plan tree for a project', handlePlan)
 commandRegistry.register('task', 'Show task details', handleTask)
