@@ -530,6 +530,9 @@ dispatchRoute.post('/task', async (c) => {
   let loopConfig: import('../../packages/core/src/types.js').LoopConfig | undefined
   let loopStatus: string | null | undefined
   let loopCurrentIteration: number | null | undefined
+  // Fields extracted from dbNode for dispatchViaRelay (dbNode is scoped to the try block)
+  let deliveryBranchId: string | null | undefined
+  let nodeMetadata: Record<string, unknown> | null | undefined
   // Parallel execution: set to true when another user's execution is already running on this node.
   // When true, we skip plan_nodes status/executionId updates (keep pointing to the first execution).
   let isParallelDispatch = false
@@ -594,6 +597,8 @@ dispatchRoute.post('/task', async (c) => {
       loopConfig = dbNode.loopConfig as typeof loopConfig
       loopStatus = dbNode.loopStatus
       loopCurrentIteration = dbNode.loopCurrentIteration
+      deliveryBranchId = dbNode.deliveryBranchId
+      nodeMetadata = dbNode.metadata as Record<string, unknown> | null
 
       // For follow-up execution: resolve previous execution's sessionId, output, and branch
       if (isFollowUp && dbNode.executionId) {
@@ -901,6 +906,8 @@ dispatchRoute.post('/task', async (c) => {
     followUpPrUrl,
     followUpBranchName,
     isParallelDispatch,
+    deliveryBranchId,
+    nodeMetadata,
   })
 })
 
@@ -959,6 +966,8 @@ async function dispatchViaRelay(
     followUpPrUrl?: string
     followUpBranchName?: string
     isParallelDispatch?: boolean
+    deliveryBranchId?: string | null
+    nodeMetadata?: Record<string, unknown> | null
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -1014,6 +1023,8 @@ async function dispatchViaRelay(
     followUpPrUrl,
     followUpBranchName,
     isParallelDispatch = false,
+    deliveryBranchId,
+    nodeMetadata,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1172,12 +1183,12 @@ async function dispatchViaRelay(
   // Uses the node's deliveryBranchId FK — no extra team-flag check needed here;
   // the authoritative lookup (with feature-flag guard) still runs later before dispatch.
   let earlyProjectBranch = `astro/${shortProjectId}`
-  if (dbNode?.deliveryBranchId) {
+  if (deliveryBranchId) {
     try {
       const [dbBranch] = await db
         .select({ branchName: deliveryBranches.branchName })
         .from(deliveryBranches)
-        .where(eq(deliveryBranches.id, dbNode.deliveryBranchId))
+        .where(eq(deliveryBranches.id, deliveryBranchId))
         .limit(1)
       if (dbBranch?.branchName) earlyProjectBranch = dbBranch.branchName
     } catch (err) {
@@ -1195,7 +1206,7 @@ async function dispatchViaRelay(
   // Fallback: regex on title for backward compatibility with existing/legacy nodes that predate the flag.
   const PUSH_TO_GITHUB_TITLE_RE = /push\s+to\s+github|publish\s+to\s+github|create\s+pr\s+and\s+run\s+(code\s+review|shepherd)/i
   const isPushToGithub = !isInteractivePlan && (
-    (dbNode?.metadata as Record<string, unknown> | null)?.pushToGithub === true
+    nodeMetadata?.pushToGithub === true
     || PUSH_TO_GITHUB_TITLE_RE.test(title)
   )
 
