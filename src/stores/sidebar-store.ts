@@ -61,7 +61,7 @@ const defaultItems: SidebarItem[] = [
   { id: "active", to: "/active", icon: "Activity", label: "Active", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "Folder", label: "Projects", visible: true, protected: true },
   { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
-  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: false, protected: false, featureFlag: "github-integration" },
+  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false },
   { id: "community", to: "/community", icon: "Globe", label: "Community", visible: false, protected: false },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
