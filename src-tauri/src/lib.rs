@@ -1,4 +1,5 @@
 mod fs_commands;
+mod pdf_commands;
 mod sidecar;
 mod terminal;
 mod watcher;
@@ -42,6 +43,12 @@ pub fn run() {
             sidecar::sidecar_status,
             sidecar::start_sidecar,
             sidecar::stop_sidecar,
+            // PDF download & reference commands
+            pdf_commands::download_pdf,
+            pdf_commands::resolve_doi_pdf,
+            pdf_commands::get_references_dir,
+            pdf_commands::list_downloaded_pdfs,
+            pdf_commands::delete_downloaded_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
