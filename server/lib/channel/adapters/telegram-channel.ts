@@ -17,6 +17,7 @@ import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 import { formatForChannel } from '../channel-formatter.js'
 import type { ChannelNotification } from '../channel-types.js'
+import { commandRegistry, handleCommand } from './telegram-commands.js'
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API helpers (inlined from deleted plugin)
@@ -136,6 +137,9 @@ class TelegramChannelAdapter {
       await this.sendNotificationToProjectMembers(notification)
     })
 
+    // Register slash commands with Telegram Bot API
+    await commandRegistry.registerWithTelegram(token)
+
     this._started = true
     console.log(`[telegram] Adapter started — bot @${this.botUsername}`)
   }
@@ -233,7 +237,7 @@ class TelegramChannelAdapter {
       return
     }
 
-    // Handle /status command
+    // Handle /status command (connection status, not execution status)
     if (text === '/status') {
       await this.handleStatusCommand(chatId)
       return
@@ -245,11 +249,20 @@ class TelegramChannelAdapter {
       return
     }
 
+    // Route slash commands through the command registry
+    if (text.startsWith('/')) {
+      const response = await handleCommand(text, chatId, this.botToken)
+      if (response) {
+        await sendMessage(this.botToken, chatId, response)
+        return
+      }
+    }
+
     // For any other message, let them know this is a notification bot
     await sendMessage(
       this.botToken,
       chatId,
-      'I send Astro notifications here. Use /status to check your connection or /disconnect to unlink.',
+      'I send Astro notifications here. Use /help for available commands or /disconnect to unlink.',
     )
   }
 
