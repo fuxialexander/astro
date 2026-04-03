@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Sparkles, Paperclip, X } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { NotificationCards } from "@/components/dashboard/notification-card"
 import { NeedsYouSection } from "@/components/inbox/needs-you-section"
@@ -54,6 +56,10 @@ export function InboxHome() {
   const [examplesOpen, setExamplesOpen] = useState(false)
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  // skill.md state
+  const [visionDoc, setVisionDoc] = useState("")
+  const [skillsOpen, setSkillsOpen] = useState(false)
 
   // Attachment state
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; url: string; mimeType: string; size: number }>>([])
@@ -168,15 +174,17 @@ export function InboxHome() {
       const attachmentSection = attachments.length > 0
         ? `\n\n## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
         : ''
+      const combinedVisionDoc = [visionDoc.trim(), attachmentSection].filter(Boolean).join('\n\n') || undefined
 
       const { projectId } = await startSession(
-        planGoal.trim() + attachmentSection,
+        planGoal.trim(),
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
         {
           targetMachineId: selectedMachine.machineId,
           workingDirectory: workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
+          visionDoc: combinedVisionDoc,
           ...(github?.owner && { githubOwner: github.owner }),
           ...(github?.repo && { githubRepo: github.repo }),
           ...(source && { source }),
@@ -189,7 +197,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -382,21 +390,35 @@ export function InboxHome() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
                 title="Attach files (images, documents, code — max 5MB)"
               >
                 <Paperclip className="h-3.5 w-3.5" />
-                Attach
+                <span className="hidden md:inline">Attach</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSkillsOpen(true)}
+                className={cn(
+                  "flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border text-[11px] transition-colors cursor-pointer",
+                  visionDoc.trim()
+                    ? "border-primary/30 bg-primary/5 text-primary"
+                    : "border-border hover:bg-muted text-muted-foreground"
+                )}
+                title="Edit skill.md — context injected into every agent session"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">skill.md</span>
               </button>
               {curatedExamples.length > 0 && (
                 <Popover open={examplesOpen} onOpenChange={setExamplesOpen}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
                     >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Examples
+                      <LayoutTemplate className="h-3.5 w-3.5" />
+                      <span className="hidden md:inline">Examples</span>
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -468,7 +490,7 @@ export function InboxHome() {
                       }`}
                     >
                       <Zap className={`h-3.5 w-3.5 ${playgroundYolo ? "fill-warning" : ""}`} />
-                      YOLO
+                      <span className="hidden md:inline">YOLO</span>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -487,8 +509,8 @@ export function InboxHome() {
                 ) : (
                   <Play className="h-3.5 w-3.5 fill-current" />
                 )}
-                {isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}
-                {!isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans">↵</kbd>}
+                <span className="hidden md:inline">{isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}</span>
+                {!isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans hidden md:inline">↵</kbd>}
               </Button>
             </div>
           </div>
@@ -583,6 +605,106 @@ export function InboxHome() {
         initialTemplateId={selectedTemplateId}
         skipBrowse={!!selectedTemplateId}
       />
+
+      {/* skill.md Editor Dialog */}
+      <SkillsEditorDialog
+        open={skillsOpen}
+        onOpenChange={setSkillsOpen}
+        value={visionDoc}
+        onChange={setVisionDoc}
+      />
     </div>
+  )
+}
+
+/** Inline skill.md editor dialog with edit/preview toggle (no project required) */
+function SkillsEditorDialog({
+  open,
+  onOpenChange,
+  value,
+  onChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [mode, setMode] = useState<"edit" | "preview">(value ? "preview" : "edit")
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (mode === "edit" && open) {
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    }
+  }, [mode, open])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            skill.md
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Define skill context for agents. This is injected into every agent session as persistent context.
+          </p>
+        </DialogHeader>
+        <div className="flex-1 flex flex-col gap-2 min-h-0">
+          {/* Toolbar */}
+          <div className="flex items-center">
+            <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode("preview")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors",
+                  mode === "preview"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Eye className="h-3 w-3" />
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("edit")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors",
+                  mode === "edit"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          {mode === "preview" ? (
+            <div className="flex-1 min-h-[300px] overflow-auto rounded-md border border-input bg-background p-4">
+              {value ? (
+                <MarkdownRenderer content={value} className="text-sm" />
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  No content yet. Click Edit to add skill context.
+                </p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              ref={textareaRef}
+              className="flex-1 min-h-[300px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+              placeholder="Define the skill context, product vision, research question, or project context here. This will be provided to all agents working on this session..."
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
