@@ -45,7 +45,7 @@ export function ProviderDropdown({
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           className={cn(
-            "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer",
+            "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer outline-none focus-visible:ring-0",
             compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
             selectedProvider
               ? "border-primary bg-primary/10 text-primary"
@@ -63,7 +63,7 @@ export function ProviderDropdown({
           type="button"
           onClick={() => { onSelect(""); setOpen(false) }}
           className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer",
+            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer outline-none focus-visible:ring-0",
             !selectedProvider ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground",
           )}
         >
@@ -79,7 +79,7 @@ export function ProviderDropdown({
               type="button"
               onClick={() => { onSelect(isSelected ? "" : p.id); setOpen(false) }}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer",
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer outline-none focus-visible:ring-0",
                 isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground",
               )}
             >

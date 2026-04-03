@@ -206,7 +206,7 @@ export function MachineWorkdirSelector({
               onMouseEnter={handleMachineMouseEnter}
               onMouseLeave={handleMachineMouseLeave}
               className={cn(
-                "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-0",
                 compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
                 "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
               )}
@@ -230,7 +230,7 @@ export function MachineWorkdirSelector({
                       setMachineOpen(false)
                     }}
                     className={cn(
-                      "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer min-w-0",
+                      "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer min-w-0 outline-none focus-visible:ring-0",
                       isSelected
                         ? "bg-primary/10 text-primary"
                         : "hover:bg-muted text-foreground",
