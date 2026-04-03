@@ -173,6 +173,24 @@ export interface ProjectSource {
   isGit: boolean
 }
 
+/** A bibliographic reference (paper, article, book, etc.) stored per-project. */
+export interface Reference {
+  id: string
+  title: string
+  authors: string[]
+  year: number
+  venue?: string
+  doi?: string
+  url?: string
+  abstract?: string
+  entryType?: string
+  volume?: string
+  issue?: string
+  pages?: string
+  publisher?: string
+  tags?: string[]
+}
+
 export interface Project {
   id: string;
   number?: number;
@@ -213,6 +231,7 @@ export interface Project {
   projectBranch?: string
   projectPrUrl?: string
   projectPrNumber?: number
+  references?: Reference[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -225,23 +244,11 @@ export interface Reference {
   /** Paper/article title */
   title: string;
   /** Author list */
-  authors: string[];
+  authors?: string[];
   /** Publication year */
-  year: number;
+  year?: number;
   /** Journal or publication venue */
   journal?: string;
-  /** Publication venue (alias for journal, used in BibTeX imports) */
-  venue?: string;
-  /** Volume number */
-  volume?: string;
-  /** Issue number */
-  issue?: string;
-  /** Page range */
-  pages?: string;
-  /** Publisher name */
-  publisher?: string;
-  /** BibTeX entry type (article, inproceedings, book, etc.) */
-  entryType?: string;
   /** Digital Object Identifier */
   doi?: string;
   /** PubMed ID */

@@ -139,7 +139,7 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
     const q = query.toLowerCase()
     return refs.filter(ref =>
       ref.title.toLowerCase().includes(q) ||
-      ref.authors?.some(a => a.toLowerCase().includes(q)) ||
+      ref.authors.some(a => a.toLowerCase().includes(q)) ||
       String(ref.year).includes(q) ||
       ref.id.toLowerCase().includes(q) ||
       (ref.venue?.toLowerCase().includes(q)) ||
