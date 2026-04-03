@@ -6,6 +6,7 @@ import { useState, useRef } from "react"
 import { Bot, ChevronDown, Check } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PROVIDER_NAMES } from "./provider-utils"
+import { getProviderIcon } from "./provider-icons"
 import { cn } from "@/lib/utils"
 import type { ProviderStatus } from "@/types"
 
@@ -37,6 +38,8 @@ export function ProviderDropdown({
     hoverTimeout.current = setTimeout(() => setOpen(false), 200)
   }
 
+  const iconSize = compact ? "h-3 w-3" : "h-3.5 w-3.5"
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -52,9 +55,9 @@ export function ProviderDropdown({
               : "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
           )}
         >
-          <Bot className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5", "shrink-0")} />
-          <span className="truncate max-w-[140px]">{selectedName}</span>
-          <ChevronDown className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5", "shrink-0 opacity-50")} />
+          {getProviderIcon(selectedProvider || "", cn(iconSize, "shrink-0"))}
+          <span className="truncate max-w-[140px] hidden md:inline">{selectedName}</span>
+          <ChevronDown className={cn(iconSize, "shrink-0 opacity-50")} />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-48 p-1" align="start" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
@@ -83,7 +86,7 @@ export function ProviderDropdown({
                 isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground",
               )}
             >
-              <Bot className="h-3.5 w-3.5 shrink-0" />
+              {getProviderIcon(p.id, "h-3.5 w-3.5 shrink-0")}
               <span className="truncate">{PROVIDER_NAMES[p.id] || p.name || p.id}</span>
               {isSelected && <Check className="h-3.5 w-3.5 ml-auto shrink-0" />}
             </button>
