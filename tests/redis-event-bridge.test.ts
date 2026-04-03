@@ -42,7 +42,7 @@ function createIoredisMock() {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       constructor(..._args: unknown[]) {
         super()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         mockRedisInstances.push(this as any)
       }
     },
@@ -483,7 +483,7 @@ describe('Graceful degradation', () => {
     const received: unknown[] = []
     pubsub.on('task:state', (msg) => received.push(msg))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     await pubsub.publishTaskState({ taskId: 't1', status: 'running' } as any)
     expect(received).toHaveLength(1)
     expect(received[0]).toEqual({ taskId: 't1', status: 'running' })
