@@ -7,6 +7,7 @@ import Fuse from "fuse.js"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useUIStore } from "@/stores/ui-store"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useTheme } from "@/components/theme-provider"
 import { getStaticCommands, getRecentCommands } from "@/lib/commands"
 import type { CommandItem as CommandItemType, CommandCategory } from "@/types"
@@ -33,9 +34,12 @@ export function CommandPalette() {
   const clearCommandSelection = useUIStore((s) => s.clearCommandSelection)
 
   const allProjects = useProjectStore((s) => s.projects)
-  // Separate planning projects from playground sessions
-  const projects = useMemo(() => allProjects.filter((p) => p.projectType !== 'playground'), [allProjects])
-  const playgroundProjects = useMemo(() => allProjects.filter((p) => p.projectType === 'playground'), [allProjects])
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  // Node-based split: projects with plan nodes vs recent sessions
+  const projectIdsWithNodes = useMemo(() => new Set(planNodes.map((n) => n.projectId)), [planNodes])
+  const projects = useMemo(() => allProjects.filter((p) => projectIdsWithNodes.has(p.id)), [allProjects, projectIdsWithNodes])
+  const playgroundProjects = useMemo(() => allProjects.filter((p) => p.status === 'active' && !projectIdsWithNodes.has(p.id)), [allProjects, projectIdsWithNodes])
   // Recent machine:workdir combinations from playground history
   const recentWorkdirs = useRecentWorkdirs()
   const { theme, setTheme, availableThemes } = useTheme()
@@ -179,7 +183,7 @@ export function CommandPalette() {
         const playgroundChildren: CommandItemType[] = playgroundProjects
           .filter((p) => p.status === "active")
           .map((project) => ({
-            id: `project-chat-${project.id}`,
+            id: `playground-chat-${project.id}`,
             label: project.name,
             description: `Open playground session: ${project.name}`,
             icon: undefined,

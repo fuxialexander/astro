@@ -58,6 +58,8 @@ export function useRecentWorkdirs(machineId?: string): RecentWorkdir[] {
     for (const project of projects) {
       if (!project.defaultMachineId || !project.workingDirectory) continue
       if (machineId && project.defaultMachineId !== machineId) continue
+      // Skip temporary workspace dirs (auto-created by astro agent)
+      if (project.workingDirectory.includes('.astro/workspace/')) continue
 
       const key = `${project.defaultMachineId}|${project.workingDirectory}`
       const updatedAt = new Date(project.updatedAt)

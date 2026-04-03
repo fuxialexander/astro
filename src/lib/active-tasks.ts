@@ -17,7 +17,7 @@ export interface ActiveTaskEntry {
   nodeId: string
   projectId: string
   title: string
-  status: "running" | "pending" | "generating" | "idle"
+  status: "running" | "pending" | "generating" | "idle" | "completed"
   startedAt?: Date
   executionId?: string
   nodeType?: string
@@ -44,9 +44,9 @@ function chatSessionEntry(
   const isTaskChat = session.type === "task-chat"
   if (!isTaskChat && session.type !== "project-chat") return null
 
-  // Playground follow-up chats (task-chat with nodeId = playground-{projectId})
-  // collapse into the same playground entry to avoid duplicate Active Jobs rows.
-  const isPlaygroundFollowup = isTaskChat && session.nodeId?.startsWith('playground-')
+  // Playground/session follow-up chats (task-chat with nodeId = playground-{projectId} or session-{projectId})
+  // collapse into the same entry to avoid duplicate Active Jobs rows.
+  const isPlaygroundFollowup = isTaskChat && (session.nodeId?.startsWith('playground-') || session.nodeId?.startsWith('session-'))
   const stableNodeId = isPlaygroundFollowup
     ? session.nodeId!
     : isTaskChat
@@ -60,10 +60,10 @@ function chatSessionEntry(
   const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
   const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
   const displayTitle = isPlaygroundFollowup
-    ? `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
+    ? `Session Chat${shortTitle ? `: ${shortTitle}` : ''}`
     : isTaskChat
       ? (isFollowUp ? `Follow-up: ${taskNode?.title || shortTitle || "Task"}` : (shortTitle || "Task Chat"))
-      : `Playground Chat${shortTitle ? `: ${shortTitle}` : ''}`
+      : `Session Chat${shortTitle ? `: ${shortTitle}` : ''}`
 
   return { stableNodeId, displayTitle }
 }
@@ -127,22 +127,24 @@ export function deriveActiveTasks(params: {
 
     const isPlanSession = nodeId.startsWith("plan-")
     const isPlayground = nodeId.startsWith("playground-")
-    const node = (isPlanSession || isPlayground) ? undefined : rawNodesById.get(nodeId)
+    const isSession = nodeId.startsWith("session-")
+    const isVirtualNode = isPlanSession || isPlayground || isSession
+    const node = isVirtualNode ? undefined : rawNodesById.get(nodeId)
 
     if (node && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(node.status)) continue
-    if (!isPlanSession && !isPlayground && !node && nodesLoaded) continue
+    if (!isVirtualNode && !node && nodesLoaded) continue
 
     const projectId = exec.projectId || node?.projectId
     if (!projectId) continue
 
-    if ((isPlanSession || isPlayground) && projectsLoaded && !projectIds.has(projectId)) continue
+    if (isVirtualNode && projectsLoaded && !projectIds.has(projectId)) continue
 
     const task: ActiveTaskEntry = {
       nodeId,
       projectId,
       title: (() => {
         if (isPlanSession) return "Interactive Planning"
-        if (isPlayground) return "Playground Chat"
+        if (isPlayground || isSession) return "Session"
         return node?.title || (nodesLoaded ? `Task ${nodeId.slice(0, 8)}` : "Loading…")
       })(),
       status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
@@ -231,6 +233,45 @@ export function deriveActiveTasks(params: {
   for (const tasks of groupedTasks.values()) activeCount += tasks.length
 
   return { groupedTasks, activeCount, projectsWithRunning }
+}
+
+/**
+ * Derive recently completed / auto_verified tasks that aren't in the active list.
+ * Used when the user toggles the "show completed" filter.
+ */
+export function deriveCompletedTasks(params: {
+  rawNodes: PlanNode[]
+  projects: Project[]
+  workspaceFilter?: "all" | (string & {})
+}): Map<string, ActiveTaskEntry[]> {
+  const { rawNodes, projects, workspaceFilter = "all" } = params
+  const projectById = new Map(projects.map((p) => [p.id, p]))
+  const grouped = new Map<string, ActiveTaskEntry[]>()
+
+  const includeProject = (projectId: string) => {
+    if (workspaceFilter === "all") return true
+    return projectById.get(projectId)?.teamId === workspaceFilter
+  }
+
+  for (const node of rawNodes) {
+    if (node.status !== "auto_verified" && node.status !== "completed") continue
+    if (!includeProject(node.projectId)) continue
+
+    const list = grouped.get(node.projectId) || []
+    list.push({
+      nodeId: node.id,
+      projectId: node.projectId,
+      title: node.title,
+      status: "completed",
+      startedAt: node.executionStartedAt ? new Date(node.executionStartedAt) : undefined,
+      executionId: node.executionId ?? undefined,
+      nodeType: node.type,
+      nodeStatus: node.status,
+    })
+    grouped.set(node.projectId, list)
+  }
+
+  return grouped
 }
 
 export function getActiveTasksContentState(

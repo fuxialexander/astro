@@ -557,6 +557,65 @@ app.get('/plan', async (c) => {
   return c.json({ nodes, edges })
 })
 
+// GET /plan/nodes/:nodeId — Single node fetch (DB-authoritative).
+// Frontend re-reads from this endpoint on node:status_changed notifications.
+// NOTE: Must be registered BEFORE /plan/:projectId to avoid "nodes" matching as a projectId.
+app.get('/plan/nodes/:nodeId', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  const [row] = await db.select().from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt)))
+    .limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+
+  // Verify project access via team scope
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, row.projectId), allTeamsScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  return c.json({
+    id: row.clientId,
+    projectId: row.projectId,
+    number: row.number,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    parentId: row.parentId,
+    dependencies: [],
+    environment: row.environment,
+    verification: row.verification,
+    position: { x: row.positionX, y: row.positionY },
+    startDate: row.startDate,
+    endDate: row.endDate,
+    priority: row.priority,
+    estimate: row.estimate,
+    dueDate: row.dueDate,
+    milestoneId: row.milestoneId,
+    labelIds: row.labelIds,
+    executionId: row.executionId,
+    executionOutput: row.executionOutput,
+    executionError: row.executionError,
+    executionStartedAt: row.executionStartedAt,
+    executionCompletedAt: row.executionCompletedAt,
+    actualStartDate: row.actualStartDate,
+    actualEndDate: row.actualEndDate,
+    branchName: row.branchName,
+    prUrl: row.prUrl,
+    prNumber: row.prNumber,
+    content: row.content,
+    attachments: row.attachments,
+    links: row.links,
+    mergeQueueStatus: row.mergeQueueStatus,
+    autoPr: row.autoPr,
+    acceptanceCriteria: row.acceptanceCriteria,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  })
+})
+
 app.get('/plan/:projectId', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
@@ -620,64 +679,6 @@ app.get('/plan/:projectId', async (c) => {
   }))
 
   return c.json({ nodes, edges })
-})
-
-// GET /plan/nodes/:nodeId — Single node fetch (DB-authoritative).
-// Frontend re-reads from this endpoint on node:status_changed notifications.
-app.get('/plan/nodes/:nodeId', async (c) => {
-  const user = c.get('user')! as AuthUser
-  const nodeId = c.req.param('nodeId')
-
-  const [row] = await db.select().from(planNodes)
-    .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt)))
-    .limit(1)
-  if (!row) return c.json({ error: 'Not found' }, 404)
-
-  // Verify project access via team scope
-  const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, row.projectId), allTeamsScopeFilter(projects, user))
-  )
-  if (!project) return c.json({ error: 'Not found' }, 404)
-
-  return c.json({
-    id: row.clientId,
-    projectId: row.projectId,
-    number: row.number,
-    type: row.type,
-    title: row.title,
-    description: row.description,
-    status: row.status,
-    parentId: row.parentId,
-    dependencies: [],
-    environment: row.environment,
-    verification: row.verification,
-    position: { x: row.positionX, y: row.positionY },
-    startDate: row.startDate,
-    endDate: row.endDate,
-    priority: row.priority,
-    estimate: row.estimate,
-    dueDate: row.dueDate,
-    milestoneId: row.milestoneId,
-    labelIds: row.labelIds,
-    executionId: row.executionId,
-    executionOutput: row.executionOutput,
-    executionError: row.executionError,
-    executionStartedAt: row.executionStartedAt,
-    executionCompletedAt: row.executionCompletedAt,
-    actualStartDate: row.actualStartDate,
-    actualEndDate: row.actualEndDate,
-    branchName: row.branchName,
-    prUrl: row.prUrl,
-    prNumber: row.prNumber,
-    content: row.content,
-    attachments: row.attachments,
-    links: row.links,
-    mergeQueueStatus: row.mergeQueueStatus,
-    autoPr: row.autoPr,
-    acceptanceCriteria: row.acceptanceCriteria,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  })
 })
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -847,6 +848,7 @@ app.put('/plan/:projectId', async (c) => {
         target: e.target as string,
       })),
       projectName: (body as Record<string, unknown>).projectName as string | undefined,
+      projectId,
     }
     streamingEventLog.append(executionId, 'plan_result', planResultData).then((seq) => {
       // Broadcast via Redis pub/sub for cross-instance real-time delivery.
@@ -2382,9 +2384,24 @@ app.delete('/activities/:projectId', async (c) => {
 
 const MAX_BLOB_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_BLOB_MIME_TYPES = new Set([
+  // Images
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
   'image/bmp', 'image/tiff', 'image/svg+xml',
+  // Documents
   'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/msword', // .doc
+  'application/vnd.ms-powerpoint', // .ppt
+  'application/vnd.ms-excel', // .xls
+  // Text / code
+  'text/plain', 'text/markdown', 'text/html', 'text/css', 'text/csv',
+  'text/x-python', 'text/x-r', 'text/x-java', 'text/x-c', 'text/x-c++',
+  'text/javascript', 'text/typescript', 'text/x-yaml', 'text/x-toml',
+  'application/json', 'application/xml',
+  'application/x-yaml', 'application/toml',
+  'application/octet-stream', // fallback for code files with no specific MIME
 ])
 
 app.post('/blobs', async (c) => {

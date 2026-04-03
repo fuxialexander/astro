@@ -15,18 +15,22 @@ import {
   Maximize2,
   User,
   Wrench,
+  ListFilter,
+  CheckCircle2,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
-import { statusBadgeVariants } from "@/lib/status-config"
-import { deriveActiveTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
+import { deriveActiveTasks, deriveCompletedTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
 import { useStreamEvents } from "@/hooks/use-stream-events"
 import type { TaskActivityEvent } from "@/types"
+import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
+import type { Spec } from "@json-render/core"
 
 // ─── Elapsed Timer ─────────────────────────────────────────────────
 
@@ -122,6 +126,8 @@ function JobRow({
         {/* Status indicator */}
         {hasPendingApproval ? (
           <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
+        ) : task.status === "completed" ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
         ) : task.status === "generating" ? (
           <Sparkles className="h-3.5 w-3.5 text-info animate-pulse shrink-0" />
         ) : task.status === "running" ? (
@@ -134,30 +140,10 @@ function JobRow({
           <Clock className="h-3.5 w-3.5 text-warning shrink-0" />
         )}
 
-        {/* Task info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-foreground truncate">
-              {task.title}
-            </span>
-            {hasPendingApproval && (
-              <Badge
-                variant="outline"
-                className="text-[10px] shrink-0 border-warning/50 text-warning"
-              >
-                Awaiting input
-              </Badge>
-            )}
-            {!hasPendingApproval && task.nodeStatus && (
-              <Badge
-                variant={statusBadgeVariants[task.nodeStatus]}
-                className="text-[10px] shrink-0"
-              >
-                {task.nodeStatus.replace(/_/g, " ")}
-              </Badge>
-            )}
-          </div>
-        </div>
+        {/* Title */}
+        <span className="text-sm text-foreground truncate flex-1 min-w-0">
+          {task.title}
+        </span>
 
         {/* Elapsed time */}
         <ElapsedTimer startedAt={task.startedAt} />
@@ -185,18 +171,9 @@ function JobRow({
         </div>
       )}
 
-      {/* Execution metadata */}
-      {execution &&
-        (execution.machineId || execution.providerId) && (
+      {/* Execution metadata — only show provider, not machine UUID */}
+      {execution?.providerId && (
           <div className="flex items-center gap-3 ml-6 text-[10px] text-muted-foreground">
-            {execution.machineId && (
-              <div className="flex items-center gap-1">
-                <div className="h-1.5 w-1.5 rounded-full bg-success" />
-                <span className="font-mono">
-                  {execution.machineId.slice(0, 16)}
-                </span>
-              </div>
-            )}
             {execution.providerId && (
               <div className="flex items-center gap-1">
                 <Cpu className="h-2.5 w-2.5" />
@@ -229,9 +206,10 @@ function ProjectGroup({
   isPlaygroundGroup?: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const borderColor = isPlaygroundGroup ? "#A855F7" : (projectColor || "#3B82F6")
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.1)] transition-shadow duration-200">
+    <div>
       {/* Group header */}
       <div
         role="button"
@@ -243,34 +221,37 @@ function ProjectGroup({
             setExpanded(!expanded)
           }
         }}
-        className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted/30 transition-colors text-left cursor-pointer"
+        className="flex items-center gap-3 w-full px-4 py-2.5 hover:bg-muted/30 transition-colors text-left cursor-pointer border-b border-border/40"
       >
         <div className="shrink-0 p-0.5 -m-0.5">
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           )}
         </div>
         {isPlaygroundGroup ? (
-          <Terminal className="h-4 w-4 text-purple-500 shrink-0" />
+          <Terminal className="h-3.5 w-3.5 text-purple-500 shrink-0" />
         ) : (
           <div
             className="h-2.5 w-2.5 rounded-full shrink-0"
             style={{ backgroundColor: projectColor || "#3B82F6" }}
           />
         )}
-        <span className="text-sm font-semibold text-foreground flex-1 truncate">
+        <span className="text-xs font-semibold text-foreground flex-1 truncate uppercase tracking-wide">
           {projectName}
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {tasks.length} active
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {tasks.length}
         </span>
       </div>
 
-      {/* Task list */}
+      {/* Task list with colored left border */}
       {expanded && (
-        <div className="border-t border-border">
+        <div
+          className="border-l-[3px]"
+          style={{ borderColor }}
+        >
           {tasks.map((task) => (
             <JobRow
               key={task.nodeId}
@@ -375,15 +356,24 @@ function ChatMessages({ events, isRunning }: { events: TaskActivityEvent[]; isRu
         j++
       }
       if (content.trim()) {
+        const hasSpec = content.includes('```yaml-spec') || content.includes('```component')
         rendered.push(
           <div key={`assistant-${i}`} className="flex gap-3 py-2">
             <div className="shrink-0 h-6 w-6 rounded-full bg-info/10 flex items-center justify-center">
               <Sparkles className="h-3.5 w-3.5 text-info" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                {content}
-              </p>
+              {hasSpec ? (
+                parseYamlSpecFromText(content).map((seg, si) =>
+                  seg.type === 'text' ? (
+                    <StreamingMarkdown key={si} content={seg.content} />
+                  ) : (
+                    <JsonRenderView key={si} spec={seg.spec as unknown as Spec} componentDefs={seg.componentDefs} />
+                  )
+                )
+              ) : (
+                <StreamingMarkdown content={content} />
+              )}
             </div>
           </div>,
         )
@@ -447,7 +437,8 @@ function ChatPanel({
       return `/welcome?projectId=${projectId}`
     if (
       task.nodeId.startsWith("playground-") ||
-      task.nodeId.startsWith("followup-playground-")
+      task.nodeId.startsWith("followup-playground-") ||
+      task.nodeId.startsWith("session-")
     )
       return `/playground?projectId=${projectId}`
     if (task.nodeId.startsWith("followup-"))
@@ -457,10 +448,11 @@ function ChatPanel({
     return `/project/${projectId}/task/${task.nodeId}`
   }, [task.nodeId, task.status, projectId])
 
-  // Determine if this is a playground session
+  // Determine if this is a playground/session
   const isPlayground =
     task.nodeId.startsWith("playground-") ||
-    task.nodeId.startsWith("followup-playground-")
+    task.nodeId.startsWith("followup-playground-") ||
+    task.nodeId.startsWith("session-")
 
   const handleSend = useCallback(() => {
     const text = inputText.trim()
@@ -481,7 +473,7 @@ function ChatPanel({
       store.sendPlaygroundChat({
         sessionId: session.id,
         projectId,
-        nodeId: task.nodeId.replace("followup-playground-", "playground-").replace("playground-", ""),
+        nodeId: task.nodeId.replace("followup-playground-", "playground-").replace("playground-", "").replace("session-", ""),
         message: text,
         taskTitle: project?.name || "Playground",
         taskDescription: project?.description || "",
@@ -616,6 +608,7 @@ export function ActiveTasks() {
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [showCompleted, setShowCompleted] = useState(false)
 
   const { groupedTasks, activeCount: filteredCount } = useMemo(
     () =>
@@ -643,6 +636,35 @@ export function ActiveTasks() {
     ],
   )
 
+  // Completed/auto_verified tasks (shown when filter is on)
+  const completedGrouped = useMemo(
+    () =>
+      showCompleted
+        ? deriveCompletedTasks({
+            rawNodes,
+            projects,
+            workspaceFilter,
+          })
+        : new Map<string, ActiveTaskEntry[]>(),
+    [showCompleted, rawNodes, projects, projectsLoaded, workspaceFilter],
+  )
+
+  // Merge active + completed tasks
+  const mergedGroupedTasks = useMemo(() => {
+    if (!showCompleted) return groupedTasks
+    const merged = new Map(groupedTasks)
+    for (const [projectId, tasks] of completedGrouped) {
+      const existing = merged.get(projectId) || []
+      // Add completed tasks that aren't already in active list
+      const activeIds = new Set(existing.map((t) => t.nodeId))
+      const newTasks = tasks.filter((t) => !activeIds.has(t.nodeId))
+      if (newTasks.length > 0) {
+        merged.set(projectId, [...existing, ...newTasks])
+      }
+    }
+    return merged
+  }, [groupedTasks, completedGrouped, showCompleted])
+
   // Separate playground and project groups
   const { playgroundTasks, projectGroups } = useMemo(() => {
     const playground: ActiveTaskEntry[] = []
@@ -653,11 +675,12 @@ export function ActiveTasks() {
       tasks: ActiveTaskEntry[]
     }> = []
 
-    for (const [projectId, tasks] of groupedTasks.entries()) {
+    for (const [projectId, tasks] of mergedGroupedTasks.entries()) {
       const project = projects.find((p) => p.id === projectId)
-      const isPlaygroundProject = project?.projectType === "playground"
+      // Projects without plan nodes are grouped as "session" tasks (formerly "playground")
+      const hasPlanNodes = nodes.some((n) => n.projectId === projectId)
 
-      if (isPlaygroundProject) {
+      if (!hasPlanNodes) {
         // Group all playground tasks into a single block
         for (const task of tasks) {
           playground.push(task)
@@ -680,7 +703,7 @@ export function ActiveTasks() {
     projectMap.sort((a, b) => b.tasks.length - a.tasks.length)
 
     return { playgroundTasks: playground, projectGroups: projectMap }
-  }, [groupedTasks, projects, projectsLoaded])
+  }, [mergedGroupedTasks, projects, projectsLoaded, nodes])
 
   // Flatten all tasks for selection tracking
   const allTasks = useMemo(() => {
@@ -723,7 +746,7 @@ export function ActiveTasks() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-border/60 shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-8 h-14 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-primary font-semibold text-foreground">
             {t("active", "Active Jobs")}
@@ -774,7 +797,24 @@ export function ActiveTasks() {
         ) : (
           <>
             {/* Left panel: job list */}
-            <div className="w-[420px] min-w-[320px] shrink-0 border-r border-border/60 overflow-y-auto overflow-x-hidden px-4 py-4 flex flex-col gap-3">
+            <div className="w-[420px] min-w-[320px] shrink-0 border-r border-border/60 overflow-y-auto overflow-x-hidden">
+              {/* Filter row */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-muted/20">
+                <span className="text-xs text-muted-foreground">{filteredCount} active</span>
+                <button
+                  type="button"
+                  onClick={() => setShowCompleted(!showCompleted)}
+                  className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors ${
+                    showCompleted
+                      ? "bg-info/10 text-info"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <ListFilter className="h-3 w-3" />
+                  {showCompleted ? "Showing completed" : "Show completed"}
+                </button>
+              </div>
+
               {/* Playground sessions group */}
               {playgroundTasks.length > 0 && (
                 <ProjectGroup

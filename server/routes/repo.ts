@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono'
-import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult, type BranchListRelayResult } from '../lib/relay-server.js'
+import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult, type BranchListRelayResult, type GitCheckoutRelayResult, type GitCreateBranchRelayResult } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -184,6 +184,75 @@ async function requestRemoteBranchList(
 }
 
 /**
+ * Request git checkout from a remote machine via relay WebSocket.
+ */
+async function requestRemoteGitCheckout(
+  machineId: string,
+  path: string,
+  branch: string,
+  stash?: boolean,
+): Promise<GitCheckoutRelayResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<GitCheckoutRelayResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('git_checkout:response', handler)
+      resolve({ success: false, error: 'Remote git checkout timed out' })
+    }, 15_000)
+
+    function handler(data: { correlationId: string; result: GitCheckoutRelayResult }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('git_checkout:response', handler)
+      resolve(data.result)
+    }
+
+    relayServer.on('git_checkout:response', handler)
+
+    const sent = relayServer.requestGitCheckout(machineId, path, branch, correlationId, stash)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('git_checkout:response', handler)
+      resolve({ success: false, error: `Machine ${machineId} is not connected` })
+    }
+  })
+}
+
+/**
+ * Request git create-branch from a remote machine via relay WebSocket.
+ */
+async function requestRemoteGitCreateBranch(
+  machineId: string,
+  path: string,
+  branch: string,
+): Promise<GitCreateBranchRelayResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<GitCreateBranchRelayResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('git_create_branch:response', handler)
+      resolve({ success: false, error: 'Remote git create-branch timed out' })
+    }, 15_000)
+
+    function handler(data: { correlationId: string; result: GitCreateBranchRelayResult }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('git_create_branch:response', handler)
+      resolve(data.result)
+    }
+
+    relayServer.on('git_create_branch:response', handler)
+
+    const sent = relayServer.requestGitCreateBranch(machineId, path, branch, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('git_create_branch:response', handler)
+      resolve({ success: false, error: `Machine ${machineId} is not connected` })
+    }
+  })
+}
+
+/**
  * Request git init from a remote machine via relay WebSocket.
  */
 async function requestRemoteGitInit(
@@ -243,6 +312,10 @@ repoRoute.get('/detect', async (c) => {
     return c.json({ error: 'path query parameter is required' }, 400)
   }
 
+  if (dirPath.includes('..')) {
+    return c.json({ error: 'path must not contain ".."' }, 400)
+  }
+
   if (!machineId) {
     return c.json({ error: 'machineId query parameter is required. Connect a machine to detect directories.' }, 400)
   }
@@ -290,6 +363,10 @@ repoRoute.get('/branches', async (c) => {
     return c.json({ error: 'path query parameter is required' }, 400)
   }
 
+  if (dirPath.includes('..')) {
+    return c.json({ error: 'path must not contain ".."' }, 400)
+  }
+
   if (!machineId) {
     return c.json({ error: 'machineId query parameter is required. Connect a machine to list branches.' }, 400)
   }
@@ -297,13 +374,84 @@ repoRoute.get('/branches', async (c) => {
   try {
     const result = await requestRemoteBranchList(machineId, dirPath)
     if (result.error) {
-      return c.json({ error: result.error }, 500)
+      return c.json({ error: result.error }, 502)
     }
     return c.json(result)
   } catch (error) {
     const message = errorMessage(error)
     console.error('[repo] Branch list failed:', message)
-    return c.json({ error: `Branch list failed: ${message}` }, 500)
+    return c.json({ error: `Branch list failed: ${message}` }, 502)
+  }
+})
+
+/**
+ * POST /api/repo/checkout
+ *
+ * Checkout an existing branch on the remote machine.
+ * Invalidates the detect cache so subsequent calls get fresh state.
+ *
+ * Input: { path, machineId, branch }
+ * Response: { success, branch?, error? }
+ */
+repoRoute.post('/checkout', async (c) => {
+  const { path, machineId, branch, stash } = await c.req.json<{ path: string; machineId: string; branch: string; stash?: boolean }>()
+
+  if (!path || !machineId || !branch) {
+    return c.json({ error: 'path, machineId, and branch are required' }, 400)
+  }
+
+  if (path.includes('..')) {
+    return c.json({ error: 'path must not contain ".."' }, 400)
+  }
+
+  try {
+    const result = await requestRemoteGitCheckout(machineId, path, branch, stash)
+    // Invalidate detect cache so next detection picks up the new branch
+    const cacheKey = detectCacheKey(machineId, path)
+    detectCache.delete(cacheKey)
+    if (result.error) {
+      return c.json(result, 500)
+    }
+    return c.json(result)
+  } catch (error) {
+    const message = errorMessage(error)
+    console.error('[repo] Git checkout failed:', message)
+    return c.json({ success: false, error: `Git checkout failed: ${message}` }, 500)
+  }
+})
+
+/**
+ * POST /api/repo/create-branch
+ *
+ * Create and checkout a new branch on the remote machine.
+ * Invalidates the detect cache so subsequent calls get fresh state.
+ *
+ * Input: { path, machineId, branch }
+ * Response: { success, branch?, error? }
+ */
+repoRoute.post('/create-branch', async (c) => {
+  const { path, machineId, branch } = await c.req.json<{ path: string; machineId: string; branch: string }>()
+
+  if (!path || !machineId || !branch) {
+    return c.json({ error: 'path, machineId, and branch are required' }, 400)
+  }
+
+  if (path.includes('..')) {
+    return c.json({ error: 'path must not contain ".."' }, 400)
+  }
+
+  try {
+    const result = await requestRemoteGitCreateBranch(machineId, path, branch)
+    const cacheKey = detectCacheKey(machineId, path)
+    detectCache.delete(cacheKey)
+    if (result.error) {
+      return c.json(result, 500)
+    }
+    return c.json(result)
+  } catch (error) {
+    const message = errorMessage(error)
+    console.error('[repo] Git create-branch failed:', message)
+    return c.json({ success: false, error: `Git create-branch failed: ${message}` }, 500)
   }
 })
 
@@ -332,6 +480,10 @@ repoRoute.post('/setup', async (c) => {
 
   if (!projectId || !projectName) {
     return c.json({ error: 'projectId and projectName are required' }, 400)
+  }
+
+  if (workingDirectory?.includes('..')) {
+    return c.json({ error: 'workingDirectory must not contain ".."' }, 400)
   }
 
   // Determine target machine: use provided or auto-select best

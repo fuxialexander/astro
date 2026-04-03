@@ -15,7 +15,7 @@ export async function isYoloMode(userId: string | undefined, taskId?: string): P
     const [profile] = await db.select({ settings: userProfiles.settings })
       .from(userProfiles).where(eq(userProfiles.id, userId)).limit(1)
     const settings = profile?.settings as Record<string, string> | null
-    if (taskId?.startsWith('playground-')) {
+    if (taskId?.startsWith('playground-') || taskId?.startsWith('session-')) {
       return settings?.playgroundYoloMode === 'true'
     }
     // Default ON when unset (matches frontend default for new users)

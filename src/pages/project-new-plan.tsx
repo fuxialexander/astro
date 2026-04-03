@@ -9,7 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle, RefreshCw } from "lucide-react"
+import { Sparkles, Loader2, GitBranch, Info, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -39,7 +39,6 @@ import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useToastStore } from "@/stores/toast-store"
-import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable } from "@/components/execution/provider-utils"
@@ -49,6 +48,8 @@ import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskAttachment, ProjectSource } from "@/types"
 import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 export function ProjectNewPlan() {
   const { t } = useTranslation('plan')
@@ -63,6 +64,7 @@ export function ProjectNewPlan() {
     templateLaunchResult?: LaunchExampleResult
     templatePrefill?: ExamplePrefillData
     openExamplePicker?: boolean
+    initialGoal?: string
   } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
@@ -71,7 +73,7 @@ export function ProjectNewPlan() {
   const openExamplePickerFromState = locationState?.openExamplePicker
 
   // Input phase state
-  const [description, setDescription] = useState("")
+  const [description, setDescription] = useState(locationState?.initialGoal ?? "")
   const [workingDir, setWorkingDir] = useState("")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -89,6 +91,8 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const goalFileInputRef = useRef<HTMLInputElement>(null)
   const [directMode, setDirectMode] = useState(false)
   const [directConfirmed, setDirectConfirmed] = useState(false)
   const autoExecute = useSettingsStore((s) => s.yoloMode)
@@ -157,13 +161,14 @@ export function ProjectNewPlan() {
 
 
   // Stores
-  const startPlanGeneration = useExecutionStore((s) => s.startPlanGeneration)
-  const startPlanGenerationForProject = useExecutionStore((s) => s.startPlanGenerationForProject)
+  const startSession = useExecutionStore((s) => s.startSession)
+  const startSessionForProject = useExecutionStore((s) => s.startSessionForProject)
   const setStoreAutoExecute = useExecutionStore((s) => s.setAutoExecute)
-  const allExecutions = useExecutionStore((s) => s.executions)
-  const execution = useExecutionStore((s) =>
-    activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
-  )
+  const execution = useExecutionStore((s) => {
+    if (!activeProjectId) return undefined
+    // Try session- first, then plan- for backward compat with existing sessions
+    return s.executions.get(`session-${activeProjectId}`) || s.executions.get(`plan-${activeProjectId}`)
+  })
   const allProjects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const project = useProjectStore((s) =>
@@ -189,21 +194,23 @@ export function ProjectNewPlan() {
     fromPlaygroundId ? s.executions.get(`playground-${fromPlaygroundId}`) : undefined
   )
 
-  // Recent project chat sessions (projectType === 'plan')
+  // Recent project sessions with plan nodes (node-based, replaces projectType === 'plan')
   const planHistory = useMemo(() => {
+    const idsWithNodes = new Set(planNodes.filter(isLive).map((n) => n.projectId))
     return allProjects
-      .filter((p) => p.projectType === 'plan')
+      .filter((p) => idsWithNodes.has(p.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20)
-  }, [allProjects])
+  }, [allProjects, planNodes])
 
-  // Playground sessions (for the session picker)
+  // Recent sessions without plan nodes (node-based, replaces projectType === 'playground')
   const playgroundHistory = useMemo(() => {
+    const idsWithNodes = new Set(planNodes.filter(isLive).map((n) => n.projectId))
     return allProjects
-      .filter((p) => p.projectType === 'playground')
+      .filter((p) => p.status === 'active' && !idsWithNodes.has(p.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20)
-  }, [allProjects])
+  }, [allProjects, planNodes])
 
   // Sessions store (Claude Code sessions from connected machines)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
@@ -495,84 +502,54 @@ export function ProjectNewPlan() {
     setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
   }, [])
 
-  // Handle paste in goal textarea (image paste support)
-  // Uploads pasted images to persistent blob storage so URLs survive page refresh.
-  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = e.clipboardData?.files
-    if (!files || files.length === 0) return
-
-    // Check if any pasted items are files (images)
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'))
-    if (imageFiles.length === 0) return
-
-    e.preventDefault() // Prevent pasting file name as text
-
-    // Auto-expand context section to show pasted images
-    setContextOpen(true)
-
-    // Client-side size limit: 10MB per file to prevent slow uploads and backend quota issues
-    const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
-
-    // Upload each image to persistent blob storage, tracking pending count
-    for (const file of imageFiles) {
-      // Check file size before attempting upload
-      if (file.size > MAX_IMAGE_SIZE) {
+  // Upload files to blob storage (images, documents, code files)
+  const uploadGoalFiles = useCallback((fileList: File[]) => {
+    if (fileList.length === 0) return
+    for (const file of fileList) {
+      if (file.size > MAX_FILE_SIZE) {
         const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-        useToastStore.getState().add({
-          type: 'error',
-          title: 'Image too large',
-          description: `${file.name || 'Image'} is ${sizeMB}MB (max 10MB)`,
-        })
-        continue // Skip this file but process others
+        useToastStore.getState().add({ type: 'error', title: 'File too large', description: `${file.name} is ${sizeMB}MB (max 5MB)` })
+        continue
       }
-
       setPendingUploads((prev) => prev + 1)
       const reader = new FileReader()
-      const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
+      const filename = file.name || `attachment-${crypto.randomUUID()}`
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1]
-          const blobId = await dataClient.uploadBlob(
-            base64,
-            file.type || 'image/png',
-            file.size,
-            filename,
-          )
+          const mimeType = file.type || 'application/octet-stream'
+          const blobId = await dataClient.uploadBlob(base64, mimeType, file.size, filename)
           const persistentUrl = dataClient.getBlobUrl(blobId)
           const attachment: TaskAttachment = {
             id: blobId,
             name: filename,
             url: persistentUrl,
-            mimeType: file.type || 'image/png',
+            mimeType,
             size: file.size,
             uploadedAt: new Date(),
-            thumbnailUrl: persistentUrl,
+            thumbnailUrl: mimeType.startsWith('image/') ? persistentUrl : undefined,
           }
           setAttachments((prev) => [...prev, attachment])
-        } catch (err) {
-          console.error('[plan-generation] Failed to upload pasted image:', err)
-          useToastStore.getState().add({
-            type: 'error',
-            title: 'Upload failed',
-            description: 'Could not upload pasted image. Check your connection.',
-          })
+        } catch {
+          useToastStore.getState().add({ type: 'error', title: 'Upload failed', description: `Could not upload ${filename}.` })
         } finally {
           setPendingUploads((prev) => Math.max(0, prev - 1))
         }
       }
-      // Handle FileReader errors (e.g., file access denied, read failure)
       reader.onerror = () => {
-        console.error('[plan-generation] FileReader error for:', filename)
         setPendingUploads((prev) => Math.max(0, prev - 1))
-        useToastStore.getState().add({
-          type: 'error',
-          title: 'Read failed',
-          description: `Could not read file: ${filename}`,
-        })
       }
       reader.readAsDataURL(file)
     }
   }, [])
+
+  // Handle paste in goal textarea
+  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (!files || files.length === 0) return
+    e.preventDefault()
+    uploadGoalFiles(Array.from(files))
+  }, [uploadGoalFiles])
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
@@ -598,7 +575,7 @@ export function ProjectNewPlan() {
           return wf !== 'all' ? wf : (useTeamStore.getState().getPersonalTeamId() ?? '')
         })(),
         status: "active",
-        projectType: "plan",
+        projectType: "default",
         color: getColorForName(project.name),
         icon: getProjectIconForName(project.name),
         workingDirectory: planGenerationRequest.workingDirectory || undefined,
@@ -607,7 +584,7 @@ export function ProjectNewPlan() {
       })
 
       // Start plan generation SSE using the existing project
-      await startPlanGenerationForProject(
+      await startSessionForProject(
         project.id,
         planGenerationRequest.description,
         {
@@ -644,7 +621,7 @@ export function ProjectNewPlan() {
     } finally {
       setTemplateLaunching(false)
     }
-  }, [startPlanGenerationForProject, setSearchParams, autoExecute, setStoreAutoExecute])
+  }, [startSessionForProject, setSearchParams, autoExecute, setStoreAutoExecute])
 
   // Auto-launch from Examples page (templateLaunchResult passed via location state)
   const templateLaunchHandled = useRef(false)
@@ -710,7 +687,7 @@ export function ProjectNewPlan() {
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
 
-        const result = await startPlanGenerationForProject(
+        const result = await startSessionForProject(
           existingProject.id,
           description.trim(),
           {
@@ -737,11 +714,11 @@ export function ProjectNewPlan() {
               ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
             }
           : undefined
-        const result = await startPlanGeneration(
+        const result = await startSession(
           description.trim(),
           firstLine,
           {
-            targetMachineId: selectedMachine?.machineId,
+            targetMachineId: selectedMachine?.machineId || '',
             workingDirectory: workingDir || undefined,
             preferredProvider: selectedProvider || undefined,
             model: effectiveModel,
@@ -860,20 +837,14 @@ export function ProjectNewPlan() {
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
             {isRegeneration ? t('regenerate') : t('generatePlan', { defaultValue: 'Plan' })}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            {isRegeneration
-              ? t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })
-              : t('planDesc', { defaultValue: 'Describe your goal in detail. Agent will build a plan with you collaboratively.' })}
-          </p>
+          {isRegeneration && (
+            <p className="text-sm text-muted-foreground">
+              {t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">
-          {/* Onboarding hint about machine setup */}
-          {allMachines.length > 0 && !selectedMachine && (
-            <OnboardingHint hintId="plan-machine-setup" icon={Monitor}>
-              Select a <strong>machine</strong> and <strong>working directory</strong> below so the plan can be executed on your environment.
-            </OnboardingHint>
-          )}
 
           {/* Playground context card */}
           {fromPlaygroundId && playgroundProject && (
@@ -897,24 +868,82 @@ export function ProjectNewPlan() {
           )}
 
           {/* Goal textarea + session resume */}
-          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200">
+          <div
+            className={cn(
+              "flex flex-col rounded-lg border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200",
+              isDragOver ? "border-primary ring-1 ring-primary/50" : "border-border"
+            )}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); uploadGoalFiles(Array.from(e.dataTransfer?.files || [])) }}
+          >
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault()
                   handleSubmit()
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?" })}
+              placeholder={t('goalPlaceholder', { defaultValue: "Describe what you want to do, or say 'help me plan to ...' to generate a structured plan" })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
-            <div className="flex justify-end px-4 pb-1">
-              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: '⌘+Enter to start planning' })}</span>
+            {/* Attachment thumbnails */}
+            {(attachments.length > 0 || pendingUploads > 0) && (
+              <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+                {attachments.map((a) => (
+                  <div key={a.id} className="group relative h-12 w-12 rounded-md border border-border overflow-hidden bg-muted shrink-0">
+                    {a.mimeType.startsWith('image/') ? (
+                      <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex flex-col items-center justify-center gap-0.5">
+                        <span className="text-[9px] text-muted-foreground font-medium uppercase">{a.name.split('.').pop()}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((prev) => prev.filter((att) => att.id !== a.id))}
+                      className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {pendingUploads > 0 && (
+                  <div className="h-12 w-12 rounded-md border border-dashed border-border flex items-center justify-center bg-muted shrink-0">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Hidden file input */}
+            <input
+              ref={goalFileInputRef}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.html,.css,.csv,.py,.r,.R,.java,.c,.cpp,.js,.ts,.yaml,.yml,.toml,.json,.xml"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || [])
+                if (files.length) uploadGoalFiles(files)
+                e.target.value = ''
+              }}
+            />
+            <div className="flex items-center justify-between px-4 pb-1">
+              <button
+                type="button"
+                onClick={() => goalFileInputRef.current?.click()}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Attach files (images, documents, code — max 5MB)"
+              >
+                <Paperclip className="h-3 w-3" />
+                Attach
+              </button>
+              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: 'Enter to start planning' })}</span>
             </div>
 
             {/* OR divider + options */}
@@ -1150,111 +1179,6 @@ export function ProjectNewPlan() {
             </Button>
           </div>
         </div>
-
-        {/* Recent Plan Sessions */}
-        {planHistory.length > 0 && (
-          <div id="plan-history" className="mt-10">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              Recent Sessions
-            </h2>
-            <div className="flex flex-col gap-1">
-              {planHistory.map((p) => {
-                const exec = allExecutions.get(`plan-${p.id}`)
-                const statusLabel = exec?.status === 'running' ? 'Running'
-                  : exec?.status === 'success' ? 'Completed'
-                  : exec?.status === 'failure' ? 'Failed'
-                  : exec?.status === 'cancelled' ? 'Stopped'
-                  : 'Pending'
-                const statusColor = exec?.status === 'running' ? 'bg-primary'
-                  : exec?.status === 'success' ? 'bg-success'
-                  : exec?.status === 'failure' ? 'bg-destructive'
-                  : 'bg-muted-foreground'
-                const isFailed = exec?.status === 'failure'
-                const timestamp = p.updatedAt || p.createdAt
-
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => viewSession(p.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') viewSession(p.id) }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group cursor-pointer"
-                  >
-                    <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{p.name}</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-[10px] text-muted-foreground truncate font-mono">
-                          {p.workingDirectory || "—"}
-                        </p>
-                        {timestamp && (
-                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                            {new Date(timestamp).toLocaleString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {statusLabel && (
-                        <Badge variant="outline" className={cn("text-[10px] hidden md:inline-flex", isFailed && "border-destructive/40 text-destructive")}>
-                          {statusLabel}
-                        </Badge>
-                      )}
-                      {isFailed && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hidden md:inline-flex"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRegenerate(p.id)
-                          }}
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          Retry
-                        </Button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (activeProjectId === p.id) {
-                            setActiveProjectId(null)
-                            setSearchParams({})
-                          }
-                          // Cancel any running generation, then remove execution entry.
-                          // IMPORTANT: Do NOT call cleanupPlanGeneration or deleteProject —
-                          // the user is clearing plan session history, not deleting the project.
-                          const execStore = useExecutionStore.getState()
-                          const exec = execStore.executions.get(`plan-${p.id}`)
-                          if (exec?.status === 'pending' || exec?.status === 'running') {
-                            execStore.cancelPlanGeneration(p.id)
-                          }
-                          // Remove execution entry via proper Zustand set() (new Map reference)
-                          useExecutionStore.setState((state) => {
-                            const next = new Map(state.executions)
-                            next.delete(`plan-${p.id}`)
-                            return { executions: next }
-                          })
-                        }}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
-                        title="Delete session"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         {/* YOLO + no working directory warning dialog */}
         <Dialog open={showYoloWarning} onOpenChange={setShowYoloWarning}>

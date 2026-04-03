@@ -480,7 +480,7 @@ eventsRoute.get('/stream', async (c) => {
               // Route playground approvals to playground page (no plan node exists)
               const astroUrl = ctx.nodeId?.startsWith('plan-')
                 ? ASTRO_BASE_URL
-                : ctx.nodeId?.startsWith('playground-')
+                : (ctx.nodeId?.startsWith('playground-') || ctx.nodeId?.startsWith('session-'))
                   ? `${ASTRO_BASE_URL}/playground?projectId=${ctx.projectId}`
                   : `${ASTRO_BASE_URL}/project/${ctx.projectId}/task/${ctx.nodeId}`
               channelRouter.sendNotification({

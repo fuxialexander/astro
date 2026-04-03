@@ -456,19 +456,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [preprocessNodeRefs])
 
   return (
-    <div className="flex h-full flex-col border-l border-border/60 bg-card relative">
+    <div className="flex h-full flex-col bg-card relative">
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">Project Chat</span>
-          <Link
-            to={`/welcome?projectId=${projectId}`}
-            className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
-            title="Open planning session"
-          >
-            <Sparkles className="h-3 w-3" />
-            <span>Plan</span>
-          </Link>
           {/* Session metadata */}
           {isStreaming ? (
             <span className="flex items-center gap-1.5 text-[10px] text-info">
@@ -482,20 +474,30 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               {messages.length} msgs
             </span>
           ) : null}
-          {/* Session Switcher */}
-          {projectChatSessions.length > 0 && (
-            <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
-              <DropdownMenuTrigger asChild>
-                <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                  <History className="h-3 w-3" />
-                  <span>{projectChatSessions.length}</span>
-                  <ChevronDown className="h-2.5 w-2.5 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[240px]">
-                <div className="flex items-center justify-between px-2 py-1.5">
-                  <span className="text-xs font-semibold">Sessions</span>
-                  <div className="flex items-center gap-1">
+          {/* Unified Session Switcher with Plan link */}
+          <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                <History className="h-3 w-3" />
+                <span>{projectChatSessions.length + 1}</span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[240px]">
+              {/* Plan session link — always on top */}
+              <Link
+                to={`/welcome?projectId=${projectId}`}
+                onClick={() => setSessionDropdownOpen(false)}
+                className="flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
+              >
+                <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                <span className="text-xs font-medium flex-1">Plan Session</span>
+              </Link>
+              <DropdownMenuSeparator />
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-xs font-semibold">Chat Sessions</span>
+                <div className="flex items-center gap-1">
+                  {projectChatSessions.length > 0 && (
                     <button
                       onClick={() => { handleClearAllSessions(); setSessionDropdownOpen(false) }}
                       className="flex items-center gap-1 text-[10px] text-destructive hover:text-destructive/80 font-normal px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-colors"
@@ -504,83 +506,83 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       <Trash2 className="h-3 w-3" />
                       Clear All
                     </button>
-                    <button
-                      onClick={() => { handleNewSession(); setSessionDropdownOpen(false) }}
-                      className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal px-1.5 py-0.5 rounded hover:bg-primary/10 transition-colors"
-                      title="New session"
-                    >
-                      <Plus className="h-3 w-3" />
-                      New
-                    </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={() => { handleNewSession(); setSessionDropdownOpen(false) }}
+                    className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal px-1.5 py-0.5 rounded hover:bg-primary/10 transition-colors"
+                    title="New session"
+                  >
+                    <Plus className="h-3 w-3" />
+                    New
+                  </button>
                 </div>
-                <DropdownMenuSeparator />
-                {projectChatSessions.map((session) => {
-                  const messageCount = session.messageCount ?? session.messages.length
-                  const sessionTitle = getSessionTitle(session)
-                  const isActive = currentSession?.id === session.id
-                  return (
-                    <div
-                      key={session.id}
-                      onClick={() => { if (renamingSessionId !== session.id) { handleSessionSwitch(session.id); setSessionDropdownOpen(false) } }}
-                      className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
-                    >
-                      <div className="flex items-center gap-2 w-full">
-                        <MessageSquare className="h-3 w-3 shrink-0" />
-                        {renamingSessionId === session.id ? (
-                          <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
-                            <InlineRenameInput
-                              value={sessionTitle}
-                              onSave={(newTitle) => {
-                                renameSession(session.id, newTitle)
-                                setRenamingSessionId(null)
-                              }}
-                              onCancel={() => setRenamingSessionId(null)}
-                              validate={(v) => v.trim().length === 0 ? "Title cannot be empty" : null}
-                              className="text-xs"
-                            />
-                          </div>
-                        ) : (
-                          <span
-                            className="text-xs truncate flex-1"
-                            title={sessionTitle}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation()
-                              setRenamingSessionId(session.id)
+              </div>
+              {projectChatSessions.length > 0 && <DropdownMenuSeparator />}
+              {projectChatSessions.map((session) => {
+                const messageCount = session.messageCount ?? session.messages.length
+                const sessionTitle = getSessionTitle(session)
+                const isActive = currentSession?.id === session.id
+                return (
+                  <div
+                    key={session.id}
+                    onClick={() => { if (renamingSessionId !== session.id) { handleSessionSwitch(session.id); setSessionDropdownOpen(false) } }}
+                    className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <MessageSquare className="h-3 w-3 shrink-0" />
+                      {renamingSessionId === session.id ? (
+                        <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                          <InlineRenameInput
+                            value={sessionTitle}
+                            onSave={(newTitle) => {
+                              renameSession(session.id, newTitle)
+                              setRenamingSessionId(null)
                             }}
-                          >
-                            {sessionTitle}
-                          </span>
-                        )}
-                        {isActive && renamingSessionId !== session.id && (
-                          <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
-                        )}
-                        {renamingSessionId !== session.id && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setRenamingSessionId(session.id) }}
-                            className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
-                            title="Rename session"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
-                          className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
-                          title="Delete session"
+                            onCancel={() => setRenamingSessionId(null)}
+                            validate={(v) => v.trim().length === 0 ? "Title cannot be empty" : null}
+                            className="text-xs"
+                          />
+                        </div>
+                      ) : (
+                        <span
+                          className="text-xs truncate flex-1"
+                          title={sessionTitle}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation()
+                            setRenamingSessionId(session.id)
+                          }}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {sessionTitle}
+                        </span>
+                      )}
+                      {isActive && renamingSessionId !== session.id && (
+                        <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
+                      )}
+                      {renamingSessionId !== session.id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRenamingSessionId(session.id) }}
+                          className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
+                          title="Rename session"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </button>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
-                        {`${messageCount} messages`}
-                      </span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
+                        className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
+                        title="Delete session"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                  )
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                    <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
+                      {`${messageCount} messages`}
+                    </span>
+                  </div>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex items-center gap-2">
@@ -737,9 +739,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             value={input}
             onChange={setInput}
             placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
-            rows={2}
+            rows={3}
             onSubmit={handleSend}
-            className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
+            className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
             images={chatImages}
             onImagesChange={setChatImages}
             filePickerRef={filePickerRef}

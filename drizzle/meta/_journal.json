@@ -246,6 +246,13 @@
       "when": 1774139630872,
       "tag": "0034_stale_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1774759588519,
+      "tag": "0035_pretty_gargoyle",
+      "breakpoints": true
     }
   ]
 }

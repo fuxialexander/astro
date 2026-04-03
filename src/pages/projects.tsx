@@ -15,7 +15,6 @@ import { ItemTimelineView, type TimelineRow } from "@/components/views/item-time
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectStore } from "@/stores/project-store"
-import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -109,6 +108,7 @@ function getProjectColumns(
   progressMap: Record<string, number>,
   teams?: { id: string; name: string }[],
   onTeamChange?: (projectId: string, teamId: string) => void,
+  fastEdit?: boolean,
 ): ListColumn<Project>[] {
   return [
     {
@@ -131,6 +131,16 @@ function getProjectColumns(
               validate={validateName}
               className="flex-1"
             />
+          ) : fastEdit ? (
+            <span
+              className="text-sm truncate min-w-0 flex-1 cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation()
+                setRenamingProjectId(p.id)
+              }}
+            >
+              {p.name}
+            </span>
           ) : (
             <Link
               to={`/project/${p.id}`}
@@ -270,11 +280,10 @@ type ViewTab = "all" | "timeline" | "board"
 export function Projects() {
   const { t } = useTranslation('projects')
   const allProjectsRaw = useProjectStore((s) => s.projects)
-  const executions = useExecutionStore((s) => s.executions)
-  // Filter out playground sessions from the project list
+  // Show all active projects (node-based categorization replaces projectType filter)
   const projects = useMemo(
-    () => allProjectsRaw.filter((p) => p.projectType !== 'playground' && !executions.has(`playground-${p.id}`)),
-    [allProjectsRaw, executions]
+    () => allProjectsRaw.filter((p) => p.status === 'active'),
+    [allProjectsRaw]
   )
   const loadAllTeams = useProjectStore((s) => s.loadAllTeams)
   const loadAllTeamsPlans = usePlanStore((s) => s.loadAllTeams)
@@ -376,7 +385,7 @@ export function Projects() {
       updatedAt: new Date(),
     } as Project)
     setCreating(false)
-    navigate(`/project/${id}/graph`)
+    navigate(`/project/${id}`)
   }, [addProject, navigate, workspaceFilter])
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -771,8 +780,8 @@ export function Projects() {
   }, [updateProject])
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, teams, handleTeamChange),
-    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, teams, handleTeamChange]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, teams, handleTeamChange, fastEditSetting),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, teams, handleTeamChange, fastEditSetting]
   )
 
   return (
@@ -958,7 +967,7 @@ export function Projects() {
                 if (fastEditSetting) {
                   setRenamingProjectId(p.id)
                 } else {
-                  navigate(`/project/${p.id}/graph`)
+                  navigate(`/project/${p.id}`)
                 }
               }}
               getItemId={(p) => p.id}
@@ -1009,7 +1018,7 @@ export function Projects() {
                 const pct = progressMap[p.id] ?? 0
                 return (
                   <button
-                    onClick={() => navigate(`/project/${p.id}/graph`)}
+                    onClick={() => navigate(`/project/${p.id}`)}
                     className="w-full flex items-center gap-3.5 rounded-2xl bg-card p-4 transition-all shadow-sm hover:shadow-md border border-border text-left"
                   >
                     <ColorIconBadge color={p.color} icon={p.icon} type="project" />
@@ -1091,7 +1100,7 @@ export function Projects() {
                   </Link>
                 )
               }}
-              onItemClick={(proj) => navigate(`/project/${proj.id}/graph`)}
+              onItemClick={(proj) => navigate(`/project/${proj.id}`)}
               onDateChange={(id, startDate, endDate) => updateProject(id, { startDate, targetDate: endDate })}
             />
           ) : (

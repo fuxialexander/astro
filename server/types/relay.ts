@@ -731,6 +731,41 @@ export interface BranchListResponseMessage extends BaseMessage {
   error?: string;
 }
 
+/** Git checkout request (relay → agent) */
+export interface GitCheckoutRequestMessage extends BaseMessage {
+  type: 'git_checkout.request';
+  correlationId: string;
+  path: string;
+  branch: string;
+  stash?: boolean;
+}
+
+/** Git checkout response (agent → relay) */
+export interface GitCheckoutResponseMessage extends BaseMessage {
+  type: 'git_checkout.response';
+  correlationId: string;
+  success: boolean;
+  branch?: string;
+  error?: string;
+}
+
+/** Git create-branch request (relay → agent) */
+export interface GitCreateBranchRequestMessage extends BaseMessage {
+  type: 'git_create_branch.request';
+  correlationId: string;
+  path: string;
+  branch: string;
+}
+
+/** Git create-branch response (agent → relay) */
+export interface GitCreateBranchResponseMessage extends BaseMessage {
+  type: 'git_create_branch.response';
+  correlationId: string;
+  success: boolean;
+  branch?: string;
+  error?: string;
+}
+
 /** Git init request (relay → agent) */
 export interface GitInitRequestMessage extends BaseMessage {
   type: 'git_init.request';

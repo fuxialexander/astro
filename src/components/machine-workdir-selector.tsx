@@ -47,6 +47,8 @@ export interface MachineWorkdirSelectorProps {
   compact?: boolean
   /** Optional extra content rendered after the path input (e.g. InstructionPicker) */
   renderMachineExtra?: (machine: MachineInfo) => React.ReactNode
+  /** Optional content rendered at the end of the path row (e.g. BranchSelector) */
+  renderAfterPath?: React.ReactNode
   /** Label for the machine section */
   machineLabel?: string
   /** Label for the directory section */
@@ -67,15 +69,24 @@ export function MachineWorkdirSelector({
   disabled,
   compact,
   renderMachineExtra,
-  machineLabel = "Machine",
-  dirLabel = "Working directory",
-  dirRequired,
+  // machineLabel, dirLabel, dirRequired — accepted but unused after compact-only layout
   dirPlaceholder = "/path/to/project",
+  renderAfterPath,
 }: MachineWorkdirSelectorProps) {
   const [recentOpen, setRecentOpen] = useState(false)
   const [machineOpen, setMachineOpen] = useState(false)
   const [recentFilter, setRecentFilter] = useState("")
   const pathRef = useRef<HTMLDivElement>(null)
+  const machineHoverRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  const handleMachineMouseEnter = () => {
+    if (machineHoverRef.current) clearTimeout(machineHoverRef.current)
+    machineHoverRef.current = setTimeout(() => setMachineOpen(true), 150)
+  }
+  const handleMachineMouseLeave = () => {
+    if (machineHoverRef.current) clearTimeout(machineHoverRef.current)
+    machineHoverRef.current = setTimeout(() => setMachineOpen(false), 200)
+  }
 
   // Recent workdirs (no machine filter — shows all combos)
   const recentWorkdirs = useRecentWorkdirs()
@@ -103,12 +114,7 @@ export function MachineWorkdirSelector({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {!compact && (
-        <span className="text-xs text-muted-foreground">
-          {machineLabel} &amp; {dirLabel}
-          {dirRequired && <span className="text-destructive ml-0.5">*</span>}
-        </span>
-      )}
+      {/* Label removed — kept compact */}
 
       <div className="flex items-center gap-1.5">
         {/* ── Recent button ─────────────────────────────── */}
@@ -197,12 +203,12 @@ export function MachineWorkdirSelector({
             <button
               type="button"
               disabled={disabled || machines.length === 0}
+              onMouseEnter={handleMachineMouseEnter}
+              onMouseLeave={handleMachineMouseLeave}
               className={cn(
-                "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-0",
                 compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
-                selectedMachine
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
+                "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
               )}
             >
               <Laptop className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5", "shrink-0")} />
@@ -212,7 +218,7 @@ export function MachineWorkdirSelector({
               <ChevronDown className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5", "shrink-0 opacity-50")} />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-1" align="start">
+          <PopoverContent className="w-56 p-1" align="start" onMouseEnter={handleMachineMouseEnter} onMouseLeave={handleMachineMouseLeave}>
             {machines.map((m) => {
               const isSelected = selectedMachine?.machineId === m.machineId
               return (
@@ -224,7 +230,7 @@ export function MachineWorkdirSelector({
                       setMachineOpen(false)
                     }}
                     className={cn(
-                      "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer min-w-0",
+                      "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors cursor-pointer min-w-0 outline-none focus-visible:ring-0",
                       isSelected
                         ? "bg-primary/10 text-primary"
                         : "hover:bg-muted text-foreground",
@@ -284,6 +290,7 @@ export function MachineWorkdirSelector({
               compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
             )}
           />
+          {renderAfterPath}
         </div>
       </div>
     </div>

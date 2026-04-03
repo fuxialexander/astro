@@ -30,7 +30,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
-import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
@@ -575,7 +575,7 @@ dispatchRoute.post('/task', async (c) => {
         return c.json({ success: false, error: 'You already have an active execution for this task' }, 409)
       }
       // Different user — allow parallel dispatch
-      isParallelDispatch = true // eslint-disable-line @typescript-eslint/no-unused-vars -- used in onResult and dispatch-start blocks below
+      isParallelDispatch = true
     }
 
     if (dbNode) {
@@ -1032,7 +1032,7 @@ async function dispatchViaRelay(
       const [profile] = await db.select({ settings: userProfiles.settings })
         .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
       const settings = profile?.settings as Record<string, string> | null
-      const isPlayground = nodeId.startsWith('playground-')
+      const isPlayground = nodeId.startsWith('playground-') || nodeId.startsWith('session-')
       yoloEnabled = isPlayground
         ? settings?.playgroundYoloMode === 'true'
         : settings?.yoloMode !== 'false'  // Default ON when unset (matches frontend default)
@@ -1209,6 +1209,14 @@ async function dispatchViaRelay(
     // The user prompt is just the description
     promptParts.push(description)
   } else {
+
+    // Playground and unified session nodes get the unified prompt with planning + execution capabilities
+    if (nodeId.startsWith('playground-') || nodeId.startsWith('session-')) {
+      relaySystemPrompt = buildUnifiedPlaygroundPrompt({
+        projectId,
+        githubContext,
+      })
+    }
 
     if (visionDoc) {
       promptParts.push(`## Project Vision\n\n${visionDoc}`)
@@ -1507,7 +1515,7 @@ If all checks pass, the task will be auto-approved. If any check fails, a human 
       ? AUTONOMOUS_PROMPT
       : ASK_USER_PROMPT
 
-    const isPlayground = nodeId.startsWith('playground-')
+    const isPlayground = nodeId.startsWith('playground-') || nodeId.startsWith('session-')
     const executiveSummarySection = isPlayground ? '' : `
 
 ### Executive Summary
@@ -1678,10 +1686,10 @@ ${verificationSection}${executiveSummarySection}`)
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
+    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && (nodeId.startsWith('playground-') || nodeId.startsWith('session-'))) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
     ...(isFollowUp ? { type: 'follow-up' as const } : {}),
     ...(isInteractivePlan ? { useWorktree: false, deliveryMode: 'direct' as const, type: 'plan' as const } : {}),
-    ...(nodeId.startsWith('playground-') && !isInteractivePlan && !isFollowUp ? { type: 'playground' as const } : {}),
+    ...((nodeId.startsWith('playground-') || nodeId.startsWith('session-')) && !isFollowUp ? { type: 'playground' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),
@@ -1966,7 +1974,7 @@ ${verificationSection}${executiveSummarySection}`)
           }).catch((err) => {
             console.error('[dispatch] Loop advance failed:', err)
           })
-        } else if (isInteractivePlan && isSuccess && yoloEnabled) {
+        } else if ((isInteractivePlan /* replan */ || nodeId.startsWith('session-')) && isSuccess && yoloEnabled) {
           const readyTaskCount = await autoDispatchReadyPlanTasks(projectId)
           if (readyTaskCount === 0) {
             console.log(`[dispatch] Interactive plan YOLO: no ready tasks to auto-dispatch for project ${projectId}`)
@@ -2292,9 +2300,37 @@ ${verificationSection}${executiveSummarySection}`)
       cleanupResult()
     }
 
-    const onTaskError = (msg: { taskId: string; error: string }) => {
+    const onTaskError = async (msg: { taskId: string; error: string }) => {
       if (msg.taskId !== executionId || resultSent) return
-      // relay-server persists task errors; DB is updated by onResult/onMachineDisconnected.
+
+      // Update DB so node doesn't stay stuck in in_progress
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'awaiting_judgment',
+            executionError: msg.error,
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'awaiting_judgment', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on task error:', err)
+      }
+
+      db.update(taskExecutions)
+        .set({ status: 'failure', error: msg.error, completedAt: errorTime })
+        .where(eq(taskExecutions.executionId, executionId))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Error updating taskExecution on task error:', err)
+        })
+
       cleanupResult()
     }
 
@@ -2573,7 +2609,7 @@ ${verificationSection}${executiveSummarySection}`)
     // onResult/onMachineDisconnected/onTaskDead call cleanupResult() which removes result listeners,
     // but the watchdog interval must also be stopped to avoid firing after cleanup.
     const stopWatchdog = () => clearInterval(watchdog)
-    relayServer.once('task:result', () => stopWatchdog())
+    relayServer.once('task:result', (msg: { result: { taskId: string } }) => { if (msg.result.taskId === executionId) stopWatchdog() })
     relayServer.once('task:dead', (d: { taskId: string }) => { if (d.taskId === executionId) stopWatchdog() })
     relayServer.once('task:error', (m: { taskId: string }) => { if (m.taskId === executionId) stopWatchdog() })
     relayServer.once('machine:disconnected', (id: string) => { if (id === machineId) stopWatchdog() })

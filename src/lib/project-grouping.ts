@@ -22,8 +22,13 @@ export function getProjectGroupSeedProjects<TProject extends Pick<Project, "id" 
   return projects.filter((project) => allowedIds.has(project.id))
 }
 
-export function getProjectGroupDescriptor(project: Pick<Project, "id" | "name" | "projectType">): ProjectGroupDescriptor {
-  if (project.projectType === "playground") {
+export function getProjectGroupDescriptor(
+  project: Pick<Project, "id" | "name" | "projectType">,
+  hasPlanNodes?: boolean,
+): ProjectGroupDescriptor {
+  // Node-based categorization: projects without plan nodes are "sessions" (like old playground)
+  const isSession = hasPlanNodes === false || (hasPlanNodes === undefined && project.projectType === "playground")
+  if (isSession) {
     return {
       key: PLAYGROUND_PROJECT_GROUP_KEY,
       label: PLAYGROUND_PROJECT_GROUP_LABEL,

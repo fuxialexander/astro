@@ -118,7 +118,7 @@ export function Dashboard() {
     (n) => n.status === "in_progress" || n.status === "dispatched"
   ).length
   const activePlaygroundTasks = [...allExecutions.values()].filter(
-    (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-")
+    (e) => (e.status === "running" || e.status === "pending") && (e.nodeId.startsWith("playground-") || e.nodeId.startsWith("session-"))
   ).length
   const activePlanSessions = [...allExecutions.values()].filter(
     (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("plan-")
@@ -131,8 +131,14 @@ export function Dashboard() {
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = useMemo(() => projects.filter((p) => p.status === "active"), [projects])
-  const regularProjects = useMemo(() => activeProjects.filter((p) => p.projectType !== "playground"), [activeProjects])
-  const playgroundProjects = useMemo(() => activeProjects.filter((p) => p.projectType === "playground"), [activeProjects])
+  // Node-based split: projects with plan nodes vs recent sessions
+  const projectIdsWithNodes = useMemo(() => {
+    const ids = new Set<string>()
+    for (const n of nodes) ids.add(n.projectId)
+    return ids
+  }, [nodes])
+  const regularProjects = useMemo(() => activeProjects.filter((p) => projectIdsWithNodes.has(p.id)), [activeProjects, projectIdsWithNodes])
+  const playgroundProjects = useMemo(() => activeProjects.filter((p) => !projectIdsWithNodes.has(p.id)), [activeProjects, projectIdsWithNodes])
 
   const [projectCosts, setProjectCosts] = useState<Record<string, number>>({})
   useEffect(() => {
@@ -228,7 +234,7 @@ export function Dashboard() {
 
     // Active playground sessions
     const playgroundTasks = [...allExecutions.values()]
-      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-"))
+      .filter((e) => (e.status === "running" || e.status === "pending") && (e.nodeId.startsWith("playground-") || e.nodeId.startsWith("session-")))
       .map((exec) => {
         const project = projects.find((p) => p.id === exec.projectId)
         const machine = machines.get(project?.defaultMachineId || "")

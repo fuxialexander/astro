@@ -10,6 +10,7 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'team-machines': true,
   'delivery-branches': false,
   'parallel-execution': false,
+  'inbox-home': true,
 }
 
 /**
@@ -17,7 +18,9 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
  * Priority: team override > global default > false.
  */
 export function useFeatureFlag(flag: string): boolean {
-  const team = useTeamStore((s) => s.teams[0])
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const teams = useTeamStore((s) => s.teams)
+  const team = teams.find((t) => t.id === activeTeamId) ?? teams[0]
   const teamFlags = team?.featureFlags ?? {}
   return teamFlags[flag] ?? GLOBAL_DEFAULTS[flag] ?? false
 }

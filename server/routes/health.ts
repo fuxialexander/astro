@@ -16,6 +16,7 @@ const healthRoute = new Hono()
 healthRoute.get('/health', async (c) => {
   try {
     const machines = machineRegistry.getAll()
+      .filter(m => m.connectionStatus !== 'reconnecting')
 
     return c.json({
       status: 'ok',

@@ -46,9 +46,9 @@ const maturityConfig: Record<string, { label: string; className: string }> = {
 
 // Parameter count to difficulty mapping
 function getDifficultyFromParams(count: number): { label: string; className: string } {
-  if (count <= 2) return { label: 'Easy', className: 'text-success' }
-  if (count <= 5) return { label: 'Medium', className: 'text-warning' }
-  return { label: 'Advanced', className: 'text-error' }
+  if (count <= 2) return { label: 'Easy', className: 'bg-success/15 text-success border-success/30' }
+  if (count <= 5) return { label: 'Medium', className: 'bg-warning/15 text-warning border-warning/30' }
+  return { label: 'Advanced', className: 'bg-destructive/15 text-destructive border-destructive/30' }
 }
 
 export function ExampleCard({ template, onClick, onEdit, onDelete }: ExampleCardProps) {
@@ -148,10 +148,8 @@ export function ExampleCard({ template, onClick, onEdit, onDelete }: ExampleCard
         <Badge variant="outline" className="text-[10px] px-1.5 py-0">
           {categoryLabel}
         </Badge>
-        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-          <span className={cn("font-medium", difficulty.className)}>
-            {difficulty.label}
-          </span>
+        <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", difficulty.className)}>
+          {difficulty.label}
         </Badge>
         <span className="text-[10px] text-muted-foreground">
           {template.parameterCount} {template.parameterCount === 1 ? 'param' : 'params'}

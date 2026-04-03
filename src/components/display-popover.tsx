@@ -3,6 +3,7 @@ import { SlidersHorizontal, ChevronDown, ArrowUp, ArrowDown } from "lucide-react
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
 import { useDisplaySettingsStore, type ViewKey, type DisplaySettings } from "@/stores/display-settings-store"
 import { cn } from "@/lib/utils"
@@ -108,7 +109,7 @@ function ToggleRow({
   )
 }
 
-export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
+export function DisplayPopover({ config, iconOnly = false }: { config: DisplayPopoverConfig; iconOnly?: boolean }) {
   const { t } = useTranslation('plan')
   const settings = useDisplaySettingsStore((s) => s.get(config.viewKey))
   const update = useDisplaySettingsStore((s) => s.update)
@@ -128,40 +129,27 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">{t('display.title')}</span>
-        </Button>
-      </PopoverTrigger>
+      {iconOnly ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Display Options</TooltipContent>
+        </Tooltip>
+      ) : (
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm">
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">{t('display.title')}</span>
+          </Button>
+        </PopoverTrigger>
+      )}
       <PopoverContent className="w-72">
         <div className="flex flex-col gap-3">
-          {/* View as (layout variants) */}
-          {config.viewAsOptions && config.viewAsOptions.length > 0 && (
-            <>
-              <div>
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">{t('display.viewAs', 'View as')}</span>
-                <div className="mt-1.5 flex items-center gap-1">
-                  {config.viewAsOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => config.onViewAsChange?.(opt.value)}
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
-                        config.activeViewAs === opt.value
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <Separator />
-            </>
-          )}
-
           {/* Grouping (board views) */}
           {config.columnByOptions && (
             <InlineSelect

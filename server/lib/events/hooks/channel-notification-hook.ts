@@ -106,7 +106,7 @@ export const channelNotificationHook: EventHook = async (event) => {
 
   switch (event.type) {
     case 'task.completed': {
-      const completedUrl = event.nodeId?.startsWith('playground-')
+      const completedUrl = (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
         ? `${BASE_URL}/playground?projectId=${event.projectId}`
         : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
@@ -123,7 +123,7 @@ export const channelNotificationHook: EventHook = async (event) => {
     }
 
     case 'task.failed': {
-      const failedUrl = event.nodeId?.startsWith('playground-')
+      const failedUrl = (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
         ? `${BASE_URL}/playground?projectId=${event.projectId}`
         : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
@@ -143,7 +143,7 @@ export const channelNotificationHook: EventHook = async (event) => {
     case 'approval.requested': {
       const approvalUrl = event.nodeId?.startsWith('plan-')
         ? BASE_URL
-        : event.nodeId?.startsWith('playground-')
+        : (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
           ? `${BASE_URL}/playground?projectId=${event.projectId}`
           : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {

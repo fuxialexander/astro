@@ -44,7 +44,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     visibleProperties: [],
   },
   "plan-list": {
-    groupBy: "none",
+    groupBy: "milestone",
     orderBy: "number",
     orderDirection: "asc",
     showCompleted: true,

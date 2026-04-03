@@ -89,6 +89,12 @@ fsRoute.get('/files', async (c) => {
     return c.json({ files: [] })
   }
 
+  // Fast-fail for ghost machines
+  const reachable = await relayServer.isMachineReachable(machineId)
+  if (!reachable) {
+    return c.json({ files: [] })
+  }
+
   try {
     const files = await requestRemoteFileList(machineId, workingDirectory, query)
     return c.json({ files })

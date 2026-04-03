@@ -4,7 +4,6 @@ import { secureHeaders } from 'hono/secure-headers'
 import { serve } from '@hono/node-server'
 import { rateLimiter } from 'hono-rate-limiter'
 import { readFileSync } from 'fs'
-import { execSync } from 'node:child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { healthRoute } from './routes/health.js'
@@ -287,34 +286,15 @@ export function createApp() {
   return app
 }
 
-const port = 3001
+const port = parseInt(process.env.PORT || '3001', 10)
 const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
 let challengeCleanup: ReturnType<typeof setInterval> | null = null
 let deviceCodeCleanup: ReturnType<typeof setInterval> | null = null
 
-/**
- * Kill any stale processes listening on a port.
- * This handles orphaned Node processes from tsx watch restarts
- * or unclean Ctrl+C shutdowns where signal propagation failed.
- */
-function killStalePortProcess(targetPort: number): void {
-  try {
-    execSync(`fuser -k ${targetPort}/tcp 2>/dev/null || true`, {
-      stdio: 'ignore',
-      timeout: 3000,
-    })
-  } catch {
-    // Ignore errors — no stale process to kill, or fuser not available
-  }
-}
-
 // Initialize providers and relay server before starting
 async function start() {
-  // Kill any stale processes on our ports (handles tsx watch orphans)
-  killStalePortProcess(port)
-  killStalePortProcess(relayPort)
 
   // Run database migrations (initializes DB connection + runs PGlite migrations in local mode)
   try {
@@ -757,24 +737,8 @@ async function start() {
   })
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[backend] Port ${port} already in use. Killing stale process...`)
-      import('child_process').then(({ execSync }) => {
-        try {
-          const pids = execSync(`lsof -ti :${port}`, { encoding: 'utf-8' }).trim()
-          if (pids) {
-            execSync(`kill ${pids}`)
-            console.log(`[backend] Killed stale process(es): ${pids.replace(/\n/g, ', ')}`)
-            // Retry after a short delay
-            setTimeout(() => {
-              httpServer = serve({ fetch: app.fetch, port })
-              console.log(`[backend] listening on http://localhost:${port}`)
-            }, 1000)
-          }
-        } catch {
-          console.error(`[backend] Could not kill stale process on port ${port}. Run: kill $(lsof -ti :${port})`)
-          process.exit(1)
-        }
-      })
+      console.error(`[backend] Port ${port} already in use. Use PORT env var to pick a different port, or kill the existing process: kill $(lsof -ti :${port})`)
+      process.exit(1)
     } else {
       console.error('[backend] Server error:', err)
       process.exit(1)
