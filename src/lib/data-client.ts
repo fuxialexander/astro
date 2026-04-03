@@ -236,6 +236,39 @@ function mapSkillRow(row: Record<string, unknown>): SkillRow {
   }
 }
 
+function mapReferenceRow(row: Record<string, unknown>): import('@/stores/reference-store').ReferenceRow {
+  const r = snakeToCamel(row)
+  return {
+    id: String(r.id ?? ''),
+    teamId: String(r.teamId ?? ''),
+    projectId: typeof r.projectId === 'string' ? r.projectId : null,
+    cslType: String(r.cslType ?? ''),
+    title: String(r.title ?? ''),
+    doi: typeof r.doi === 'string' ? r.doi : null,
+    pmid: typeof r.pmid === 'string' ? r.pmid : null,
+    arxivId: typeof r.arxivId === 'string' ? r.arxivId : null,
+    pdfPath: typeof r.pdfPath === 'string' ? r.pdfPath : null,
+    pdfUrl: typeof r.pdfUrl === 'string' ? r.pdfUrl : null,
+    source: String(r.source ?? 'manual'),
+    zoteroKey: typeof r.zoteroKey === 'string' ? r.zoteroKey : null,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
+    cslJson: r.cslJson !== undefined ? r.cslJson as import('@/stores/reference-store').CslJson : undefined,
+  }
+}
+
+function mapReferenceCollection(row: Record<string, unknown>): import('@/stores/reference-store').ReferenceCollection {
+  const r = snakeToCamel(row)
+  return {
+    id: String(r.id ?? ''),
+    teamId: String(r.teamId ?? ''),
+    name: String(r.name ?? ''),
+    parentId: typeof r.parentId === 'string' ? r.parentId : null,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
+  }
+}
+
 export const dataClient = {
   // ── Projects ────────────────────────────────────────────────────────
   async listProjects(): Promise<Project[]> {
@@ -850,5 +883,66 @@ export const dataClient = {
 
   async toggleCollection(collectionId: string): Promise<{ collectionId: string; enabled: boolean; skillCount: number }> {
     return put(`/api/skills/collections/${collectionId}/toggle`, {}) as Promise<{ collectionId: string; enabled: boolean; skillCount: number }>
+  },
+
+  // ── References (uses /api/references) ────────────────────────────────────────
+
+  async listReferences(projectId?: string): Promise<import('@/stores/reference-store').ReferenceRow[]> {
+    const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const data = await json<{ references: Record<string, unknown>[] }>(`/api/references${params}`)
+    return (data.references ?? []).map(mapReferenceRow)
+  },
+
+  async getReference(id: string): Promise<import('@/stores/reference-store').ReferenceRow> {
+    const row = await json<Record<string, unknown>>(`/api/references/${id}`)
+    return mapReferenceRow(row)
+  },
+
+  async createReference(input: Record<string, unknown>): Promise<import('@/stores/reference-store').ReferenceRow> {
+    const row = await post('/api/references', input) as Record<string, unknown>
+    return mapReferenceRow(row)
+  },
+
+  async updateReference(id: string, updates: Record<string, unknown>): Promise<import('@/stores/reference-store').ReferenceRow> {
+    const row = await put(`/api/references/${id}`, updates) as Record<string, unknown>
+    return mapReferenceRow(row)
+  },
+
+  async deleteReference(id: string): Promise<void> {
+    await del(`/api/references/${id}`)
+  },
+
+  async searchReferences(query: string): Promise<import('@/stores/reference-store').ReferenceRow[]> {
+    const data = await json<{ references: Record<string, unknown>[] }>(`/api/references/search?q=${encodeURIComponent(query)}`)
+    return (data.references ?? []).map(mapReferenceRow)
+  },
+
+  // ── Reference Collections ─────────────────────────────────────────────────
+
+  async listReferenceCollections(): Promise<import('@/stores/reference-store').ReferenceCollection[]> {
+    const data = await json<{ collections: Record<string, unknown>[] }>('/api/references/collections')
+    return (data.collections ?? []).map(mapReferenceCollection)
+  },
+
+  async createReferenceCollection(input: Record<string, unknown>): Promise<import('@/stores/reference-store').ReferenceCollection> {
+    const row = await post('/api/references/collections', input) as Record<string, unknown>
+    return mapReferenceCollection(row)
+  },
+
+  async updateReferenceCollection(id: string, updates: Record<string, unknown>): Promise<import('@/stores/reference-store').ReferenceCollection> {
+    const row = await put(`/api/references/collections/${id}`, updates) as Record<string, unknown>
+    return mapReferenceCollection(row)
+  },
+
+  async deleteReferenceCollection(id: string): Promise<void> {
+    await del(`/api/references/collections/${id}`)
+  },
+
+  async addReferenceToCollection(collectionId: string, referenceId: string): Promise<void> {
+    await post(`/api/references/collections/${collectionId}/items`, { referenceId })
+  },
+
+  async removeReferenceFromCollection(collectionId: string, referenceId: string): Promise<void> {
+    await del(`/api/references/collections/${collectionId}/items/${referenceId}`)
   },
 }

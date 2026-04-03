@@ -36,6 +36,7 @@ import { telegramChannel } from './lib/channel/adapters/telegram-channel.js'
 import { telegramRoute } from './routes/telegram.js'
 import { teamsRoute } from './routes/teams.js'
 import { communityRoute } from './routes/community.js'
+import { referencesRoute } from './routes/references.js'
 import { executionsRoute } from './routes/executions.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
@@ -208,6 +209,7 @@ export function createApp() {
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
+  app.route('/api/references', referencesRoute)
   app.route('/api/machine-instructions', machineInstructionsRoute)
   app.route('/api/schedules', schedulesRoute)
   app.route('/api/examples', examplesRoute)
