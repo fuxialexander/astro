@@ -42,6 +42,10 @@ export interface CommandContext {
   args: string
   /** Telegram Bot API token (for sending messages) */
   botToken: string
+  /** Telegram message_thread_id — present when command is sent inside a forum topic */
+  threadId?: string
+  /** Set when command is in a group/supergroup chat (chatId is the group ID) */
+  groupChatId?: string
 }
 
 /** A command handler function */
@@ -141,6 +145,17 @@ export async function resolveUserFromChat(chatId: string): Promise<string | null
     .limit(1)
 
   return row?.userId ?? null
+}
+
+/**
+ * Resolve an Astro user ID from a Telegram user's numeric ID.
+ * In personal (DM) chats the Telegram user ID equals the chat ID,
+ * so this is equivalent to resolveUserFromChat for those chats.
+ * For group messages we pass `from.id` (the sender's Telegram user ID)
+ * to find the Astro user who connected that Telegram account.
+ */
+export async function resolveUserFromTelegramId(telegramUserId: string): Promise<string | null> {
+  return resolveUserFromChat(telegramUserId)
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +605,252 @@ async function handleApprove(ctx: CommandContext): Promise<string> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Forum topic helpers
+// ---------------------------------------------------------------------------
+
+/** Call createForumTopic on the Telegram Bot API. Returns the new thread ID or null on failure. */
+async function createForumTopic(
+  token: string,
+  chatId: string,
+  name: string,
+): Promise<number | null> {
+  const result = await telegramApi(token, 'createForumTopic', {
+    chat_id: chatId,
+    name: name.slice(0, 128), // Telegram limit
+  })
+  if (!result.ok || !result.result) return null
+  const topic = result.result as { message_thread_id?: number }
+  return topic.message_thread_id ?? null
+}
+
+/** Build the mapping key used in connected_accounts.mappings for a group topic. */
+function topicMappingKey(groupChatId: string, threadId: string): string {
+  return `${groupChatId}:topic:${threadId}`
+}
+
+// ---------------------------------------------------------------------------
+// /bind — bind a forum topic to an Astro project
+// ---------------------------------------------------------------------------
+
+async function handleBind(ctx: CommandContext): Promise<string> {
+  const { args, userId, botToken, threadId, groupChatId } = ctx
+
+  const projectIdOrName = args.trim()
+
+  if (!projectIdOrName) {
+    return (
+      '<b>/bind &lt;project-id&gt;</b>\n\n'
+      + 'Binds the current forum topic to an Astro project.\n'
+      + 'Messages sent in this topic will be routed to that project\'s chat session.\n\n'
+      + 'Run /projects to find a project ID.'
+    )
+  }
+
+  // Must be used in a group
+  if (!groupChatId) {
+    return (
+      '❌ /bind must be used inside a Telegram group with Topics enabled.\n\n'
+      + 'Add this bot to a supergroup, enable <b>Topics</b> in Group Settings, '
+      + 'then run /bind inside a topic.'
+    )
+  }
+
+  const teamIds = await getUserTeamIds(userId)
+  if (teamIds.length === 0) {
+    return 'You are not a member of any team.'
+  }
+
+  // Find the project
+  const projectRows = await db
+    .select({ id: projects.id, name: projects.name, icon: projects.icon })
+    .from(projects)
+    .where(
+      and(
+        inArray(projects.teamId, teamIds),
+        eq(projects.status, 'active'),
+      ),
+    )
+    .limit(100)
+
+  const project = projectRows.find(
+    (p) =>
+      p.id === projectIdOrName ||
+      p.id.startsWith(projectIdOrName) ||
+      p.name.toLowerCase() === projectIdOrName.toLowerCase(),
+  )
+
+  if (!project) {
+    return (
+      `Project not found: <code>${escapeHtml(projectIdOrName)}</code>\n\n`
+      + 'Use /projects to list available projects.'
+    )
+  }
+
+  // Get the user's connected account
+  const [account] = await db
+    .select({ id: connectedAccounts.id, mappings: connectedAccounts.mappings })
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.channel, 'telegram'),
+        eq(connectedAccounts.enabled, true),
+      ),
+    )
+    .limit(1)
+
+  if (!account) {
+    return 'Your Telegram is not connected to Astro. Please connect via Astro Settings first.'
+  }
+
+  // Determine the thread ID — either current topic or auto-create a new one
+  let resolvedThreadId = threadId
+
+  if (!resolvedThreadId) {
+    // Not inside a topic: auto-create one named after the project
+    const newThreadId = await createForumTopic(botToken, groupChatId, project.name)
+    if (newThreadId === null) {
+      return (
+        '❌ Could not auto-create a topic (the group may not have Topics enabled, '
+        + 'or the bot lacks admin rights).\n\n'
+        + 'Please create a forum topic manually and run /bind inside it.'
+      )
+    }
+    resolvedThreadId = String(newThreadId)
+  }
+
+  const mappingKey = topicMappingKey(groupChatId, resolvedThreadId)
+  const currentMappings = ((account.mappings ?? {}) as Record<string, string>)
+  const updatedMappings = { ...currentMappings, [mappingKey]: project.id }
+
+  await db
+    .update(connectedAccounts)
+    .set({ mappings: updatedMappings, updatedAt: new Date() })
+    .where(eq(connectedAccounts.id, account.id))
+
+  const created = !threadId ? ' (new topic created)' : ''
+  return (
+    `✅ <b>Topic bound to project${created}!</b>\n\n`
+    + `${project.icon ?? '📋'} <b>${escapeHtml(project.name)}</b>\n\n`
+    + "Messages in this topic will be routed to this project's chat session.\n"
+    + `Use /unbind to remove this binding.`
+  )
+}
+
+// ---------------------------------------------------------------------------
+// /unbind — remove a topic → project binding
+// ---------------------------------------------------------------------------
+
+async function handleUnbind(ctx: CommandContext): Promise<string> {
+  const { userId, groupChatId, threadId } = ctx
+
+  if (!groupChatId || !threadId) {
+    return '❌ /unbind must be used inside a Telegram forum topic.'
+  }
+
+  const [account] = await db
+    .select({ id: connectedAccounts.id, mappings: connectedAccounts.mappings })
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.channel, 'telegram'),
+        eq(connectedAccounts.enabled, true),
+      ),
+    )
+    .limit(1)
+
+  if (!account) {
+    return 'Your Telegram is not connected to Astro.'
+  }
+
+  const mappingKey = topicMappingKey(groupChatId, threadId)
+  const currentMappings = ((account.mappings ?? {}) as Record<string, string>)
+
+  if (!currentMappings[mappingKey]) {
+    return 'This topic is not bound to any Astro project.'
+  }
+
+  const projectId = currentMappings[mappingKey]
+  const updatedMappings = Object.fromEntries(
+    Object.entries(currentMappings).filter(([k]) => k !== mappingKey),
+  )
+
+  await db
+    .update(connectedAccounts)
+    .set({ mappings: updatedMappings, updatedAt: new Date() })
+    .where(eq(connectedAccounts.id, account.id))
+
+  // Fetch project name for the confirmation message
+  const [project] = await db
+    .select({ name: projects.name, icon: projects.icon })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
+  const projectLabel = project
+    ? `${project.icon ?? '📋'} <b>${escapeHtml(project.name)}</b>`
+    : `project <code>${projectId.slice(0, 8)}</code>`
+
+  return `✅ Unbound from ${projectLabel}. Messages here will no longer be routed to Astro.`
+}
+
+// ---------------------------------------------------------------------------
+// /topics — list topic bindings for the current group
+// ---------------------------------------------------------------------------
+
+async function handleTopics(ctx: CommandContext): Promise<string> {
+  const { userId, groupChatId } = ctx
+
+  if (!groupChatId) {
+    return '❌ /topics must be used inside a Telegram group.'
+  }
+
+  const [account] = await db
+    .select({ mappings: connectedAccounts.mappings })
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.channel, 'telegram'),
+        eq(connectedAccounts.enabled, true),
+      ),
+    )
+    .limit(1)
+
+  const mappings = ((account?.mappings ?? {}) as Record<string, string>)
+  const prefix = `${groupChatId}:topic:`
+  const groupMappings = Object.entries(mappings).filter(([k]) => k.startsWith(prefix))
+
+  if (groupMappings.length === 0) {
+    return (
+      'No topic bindings for this group.\n\n'
+      + 'Use /bind &lt;project-id&gt; inside a topic to create one.'
+    )
+  }
+
+  // Fetch project names
+  const projectIds = [...new Set(groupMappings.map(([, v]) => v))]
+  const projectRows = await db
+    .select({ id: projects.id, name: projects.name, icon: projects.icon })
+    .from(projects)
+    .where(inArray(projects.id, projectIds))
+
+  const projectMap = new Map(projectRows.map((p) => [p.id, p]))
+
+  const lines = groupMappings.map(([key, projectId]) => {
+    const threadId = key.slice(prefix.length)
+    const p = projectMap.get(projectId)
+    const label = p
+      ? `${p.icon ?? '📋'} ${escapeHtml(p.name)}`
+      : `Unknown (${projectId.slice(0, 8)})`
+    return `• Topic <code>${threadId}</code> → ${label}`
+  })
+
+  return `<b>📌 Topic Bindings</b>\n\n${lines.join('\n')}\n\nUse /bind or /unbind to manage bindings.`
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleHelp(_ctx: CommandContext): Promise<string> {
   return (
@@ -602,6 +863,10 @@ async function handleHelp(_ctx: CommandContext): Promise<string> {
     + '/stop &lt;id&gt; — Cancel an execution\n'
     + '/approve &lt;id&gt; — Approve a pending request\n'
     + '/help — Show this help message\n'
+    + '\n<b>📌 Forum Topic Commands (group chats)</b>\n'
+    + '/bind &lt;project-id&gt; — Bind this topic to a project\n'
+    + '/unbind — Remove the binding for this topic\n'
+    + '/topics — List all topic bindings in this group\n'
     + '\nTip: Use short IDs or task numbers (e.g., /task 42)'
   )
 }
@@ -632,6 +897,9 @@ commandRegistry.register('dispatch', 'Trigger execution of a task', handleDispat
 commandRegistry.register('status', 'Show active executions', handleStatus)
 commandRegistry.register('stop', 'Cancel an execution', handleStop)
 commandRegistry.register('approve', 'Approve a pending request', handleApprove)
+commandRegistry.register('bind', 'Bind this topic to an Astro project', handleBind)
+commandRegistry.register('unbind', 'Remove this topic\'s project binding', handleUnbind)
+commandRegistry.register('topics', 'List topic bindings in this group', handleTopics)
 commandRegistry.register('help', 'Show available commands', handleHelp)
 
 // ---------------------------------------------------------------------------
@@ -641,11 +909,19 @@ commandRegistry.register('help', 'Show available commands', handleHelp)
 /**
  * Try to handle a message as a slash command.
  * Returns the response text if it was a command, null otherwise.
+ *
+ * @param text        Raw message text starting with /
+ * @param chatId      Telegram chat ID (personal chat or group ID)
+ * @param botToken    Bot API token
+ * @param options.fromId      Sender's Telegram user ID — used in group chats to look up the Astro user
+ * @param options.threadId    Telegram message_thread_id — present inside a forum topic
+ * @param options.isGroupChat Whether the message came from a group/supergroup
  */
 export async function handleCommand(
   text: string,
   chatId: string,
   botToken: string,
+  options?: { fromId?: string; threadId?: string; isGroupChat?: boolean },
 ): Promise<string | null> {
   // Must start with /
   if (!text.startsWith('/')) return null
@@ -659,9 +935,16 @@ export async function handleCommand(
   // Skip built-in commands handled by telegram-channel.ts
   if (command === 'start' || command === 'disconnect') return null
 
-  // Resolve user from chat ID
-  const userId = await resolveUserFromChat(chatId)
+  // In group chats, use `fromId` (the Telegram user's numeric ID) to look up the Astro user.
+  // In private chats, chatId === the Telegram user ID, so fromId is the same as chatId.
+  const lookupId = options?.fromId ?? chatId
+  const userId = await resolveUserFromChat(lookupId)
+
   if (!userId) {
+    if (options?.isGroupChat) {
+      // In group chats, silently ignore commands from users who haven't connected Astro.
+      return null
+    }
     return 'You need to connect your Telegram first. Use the link from Astro Settings.'
   }
 
@@ -675,5 +958,7 @@ export async function handleCommand(
     userId,
     args: args.trim(),
     botToken,
+    threadId: options?.threadId,
+    groupChatId: options?.isGroupChat ? chatId : undefined,
   })
 }
