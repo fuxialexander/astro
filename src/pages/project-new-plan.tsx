@@ -905,7 +905,7 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?" })}
+              placeholder={t('goalPlaceholder', { defaultValue: "Describe what you want to do, or say 'help me plan to ...' to generate a structured plan" })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
