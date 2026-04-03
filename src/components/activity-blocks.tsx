@@ -624,6 +624,18 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
 
   if (toolPairs.length === 0) return null
 
+  // Build a compact summary for collapsed view: show first few tools with their input summaries
+  const collapsedSummary = (() => {
+    const MAX_SHOWN = 3
+    const summaries: string[] = []
+    for (const pair of toolPairs.slice(0, MAX_SHOWN)) {
+      const inputSummary = getToolInputSummary(pair.toolUse.toolName, pair.toolUse.toolInput)
+      summaries.push(inputSummary ? `${pair.toolUse.toolName} ${inputSummary}` : pair.toolUse.toolName)
+    }
+    const remaining = toolPairs.length - MAX_SHOWN
+    return { summaries, remaining }
+  })()
+
   return (
     <div className="mx-4 my-0.5">
       <button
@@ -645,8 +657,11 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
               </div>
             )
           })}
-          <span className="text-[11px] font-mono text-muted-foreground ml-1">
+          <span className="text-[11px] font-mono text-muted-foreground ml-1 shrink-0">
             {toolPairs.length} tools
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground/50 truncate ml-1">
+            {collapsedSummary.summaries.join(', ')}{collapsedSummary.remaining > 0 ? `, +${collapsedSummary.remaining} more` : ''}
           </span>
         </div>
 
