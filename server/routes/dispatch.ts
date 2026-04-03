@@ -2141,7 +2141,7 @@ ${verificationSection}${executiveSummarySection}`)
     const onMachineDisconnected = async (disconnectedId: string) => {
       if (disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
-      const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
+      const errorData = { error: 'Remote machine disconnected during task execution', synthetic: true, recoverable: false }
       notifyCritical({
         title: 'Machine Disconnected During Task',
         project: projectRecord?.name || projectId,

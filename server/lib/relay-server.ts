@@ -1490,7 +1490,7 @@ export class RelayServer extends EventEmitter {
         .where(eq(taskExecutions.executionId, executionId))
 
       // Update plan_nodes — set to awaiting_judgment so the user reviews the late result
-      const nodeStatus = isSuccess ? 'awaiting_judgment' : 'awaiting_judgment'
+      const nodeStatus = 'awaiting_judgment' as const
       await db.update(planNodes)
         .set({
           status: nodeStatus,
