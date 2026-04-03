@@ -7,9 +7,10 @@ import { ActiveTasks } from '@desktop/pages/ActiveTasks'
 import { Environments } from '@desktop/pages/Environments'
 import { setBaseUrl } from '@desktop/lib/api-client'
 
-// Connect to the configured backend — localStorage override or production default.
+// Connect to the configured backend — localStorage override or local dev default.
+// Local dev runs on port 4001 (PORT env in npm run dev:local).
 const savedUrl = localStorage.getItem('astro-desktop-api-url')
-setBaseUrl(savedUrl ?? 'http://localhost:3001')
+setBaseUrl(savedUrl ?? 'http://localhost:4001')
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
