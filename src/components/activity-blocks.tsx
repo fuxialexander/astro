@@ -427,8 +427,22 @@ export function getToolInputSummary(toolName: string, toolInput: unknown): strin
       const url = input.url
       return typeof url === 'string' ? url : null
     }
-    default:
+    default: {
+      // Fallback for non-Claude-Code providers (Codex, Pi, OpenClaw):
+      // probe common input fields to extract something useful.
+      const cmd = input.command
+      if (typeof cmd === 'string') return cmd.slice(0, 60)
+      const fp = input.file_path ?? input.path ?? input.filePath
+      if (typeof fp === 'string') {
+        const segments = (fp as string).split('/')
+        return segments.slice(-2).join('/')
+      }
+      const pat = input.pattern
+      if (typeof pat === 'string') return pat
+      const url = input.url
+      if (typeof url === 'string') return url
       return null
+    }
   }
 }
 
@@ -624,6 +638,18 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
 
   if (toolPairs.length === 0) return null
 
+  // Build a compact summary for collapsed view: show first few tools with their input summaries
+  const collapsedSummary = (() => {
+    const MAX_SHOWN = 3
+    const summaries: string[] = []
+    for (const pair of toolPairs.slice(0, MAX_SHOWN)) {
+      const inputSummary = getToolInputSummary(pair.toolUse.toolName, pair.toolUse.toolInput)
+      summaries.push(inputSummary ? `${pair.toolUse.toolName} ${inputSummary}` : pair.toolUse.toolName)
+    }
+    const remaining = toolPairs.length - MAX_SHOWN
+    return { summaries, remaining }
+  })()
+
   return (
     <div className="mx-4 my-0.5">
       <button
@@ -645,8 +671,11 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
               </div>
             )
           })}
-          <span className="text-[11px] font-mono text-muted-foreground ml-1">
+          <span className="text-[11px] font-mono text-muted-foreground ml-1 shrink-0">
             {toolPairs.length} tools
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground/50 truncate ml-1">
+            {collapsedSummary.summaries.join(', ')}{collapsedSummary.remaining > 0 ? `, +${collapsedSummary.remaining} more` : ''}
           </span>
         </div>
 
