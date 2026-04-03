@@ -7,12 +7,20 @@ import rehypeKatex from "rehype-katex"
 import "katex/dist/katex.min.css"
 import { cn } from "@/lib/utils"
 import { Copy, Check } from "lucide-react"
+import type { Reference, CitationStyle } from "@/lib/citation/types"
+import { hasCitations } from "@/lib/citation/parser"
+import { CitationReferences } from "@/components/ui/citation-references"
+import { renderInlineCitations } from "@/lib/citation/formatter"
 
 interface MarkdownRendererProps {
   content: string
   className?: string
   /** Custom handler for link clicks. Return true to prevent default navigation. */
   onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void
+  /** References for inline citation rendering ([@key] markers) */
+  references?: Reference[]
+  /** Citation formatting style */
+  citationStyle?: CitationStyle
 }
 
 type ElProps = HTMLAttributes<HTMLElement> & ExtraProps & { children?: ReactNode }
@@ -49,8 +57,17 @@ function extractText(node: ReactNode): string {
   return ""
 }
 
-export const MarkdownRenderer = memo(({ content, className, onLinkClick }: MarkdownRendererProps) => {
-  const memoizedContent = useMemo(() => content, [content])
+export const MarkdownRenderer = memo(({ content, className, onLinkClick, references, citationStyle = 'apa' }: MarkdownRendererProps) => {
+  // Transform [@key] citation markers into inline formatted citations
+  const processedContent = useMemo(() => {
+    if (!references || references.length === 0 || !hasCitations(content)) return content
+    return renderInlineCitations(content, references, citationStyle)
+  }, [content, references, citationStyle])
+
+  const showReferences = useMemo(
+    () => !!(references && references.length > 0 && hasCitations(content)),
+    [content, references]
+  )
 
   const components = useMemo(() => ({
     code: ({ className, children, ...props }: ElProps) => {
@@ -136,8 +153,15 @@ export const MarkdownRenderer = memo(({ content, className, onLinkClick }: Markd
         rehypePlugins={[rehypeHighlight, rehypeKatex]}
         components={components}
       >
-        {memoizedContent}
+        {processedContent}
       </ReactMarkdown>
+      {showReferences && (
+        <CitationReferences
+          text={content}
+          references={references!}
+          style={citationStyle}
+        />
+      )}
     </div>
   )
 })

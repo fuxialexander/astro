@@ -17,6 +17,7 @@ import { marked } from "marked"
 import { MarkdownRenderer } from "./markdown-renderer"
 import { VisualWidget } from "./visual-widget"
 import { cn } from "@/lib/utils"
+import type { Reference, CitationStyle } from "@/lib/citation/types"
 
 interface StreamingMarkdownProps {
   content: string
@@ -26,6 +27,10 @@ interface StreamingMarkdownProps {
   onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void
   /** Callback when a VisualWidget iframe sends a sendPrompt message. */
   onSendPrompt?: (text: string) => void
+  /** References for inline citation rendering */
+  references?: Reference[]
+  /** Citation formatting style */
+  citationStyle?: CitationStyle
 }
 
 type ParsedBlock =
@@ -43,14 +48,16 @@ function parseMarkdownIntoBlocks(markdown: string): ParsedBlock[] {
 }
 
 const MemoizedBlock = memo(
-  ({ content, className, onLinkClick }: {
+  ({ content, className, onLinkClick, references, citationStyle }: {
     content: string
     className?: string
     onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void
+    references?: Reference[]
+    citationStyle?: CitationStyle
   }) => (
-    <MarkdownRenderer content={content} className={className} onLinkClick={onLinkClick} />
+    <MarkdownRenderer content={content} className={className} onLinkClick={onLinkClick} references={references} citationStyle={citationStyle} />
   ),
-  (prev, next) => prev.content === next.content && prev.onLinkClick === next.onLinkClick
+  (prev, next) => prev.content === next.content && prev.onLinkClick === next.onLinkClick && prev.references === next.references && prev.citationStyle === next.citationStyle
 )
 MemoizedBlock.displayName = "MemoizedBlock"
 
@@ -69,7 +76,7 @@ const MemoizedVisualizer = memo(
 )
 MemoizedVisualizer.displayName = "MemoizedVisualizer"
 
-export function StreamingMarkdown({ content, isStreaming, className, onLinkClick, onSendPrompt }: StreamingMarkdownProps) {
+export function StreamingMarkdown({ content, isStreaming, className, onLinkClick, onSendPrompt, references, citationStyle }: StreamingMarkdownProps) {
   const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
 
   return (
@@ -83,7 +90,7 @@ export function StreamingMarkdown({ content, isStreaming, className, onLinkClick
             onSendPrompt={onSendPrompt}
           />
         ) : (
-          <MemoizedBlock key={i} content={block.content} onLinkClick={onLinkClick} />
+          <MemoizedBlock key={i} content={block.content} onLinkClick={onLinkClick} references={references} citationStyle={citationStyle} />
         )
       )}
       {isStreaming && <span className="streaming-cursor" />}
