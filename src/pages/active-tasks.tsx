@@ -427,9 +427,21 @@ function ChatPanel({
 }) {
   const navigate = useNavigate()
   const [inputText, setInputText] = useState("")
-  const { activityEvents, isHydrating } = useStreamEvents(task.executionId)
+  // For chat sessions, stream events are keyed by session ID; for executions, by execution ID
+  const streamId = task.sessionId ?? task.executionId
+  const { activityEvents, isHydrating } = useStreamEvents(streamId)
   const events = activityEvents
   const isRunning = task.status === "running" || task.status === "generating"
+
+  // Ensure full session messages are loaded for resume/history context
+  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  const ensuredRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (task.sessionId && task.sessionId !== ensuredRef.current) {
+      ensuredRef.current = task.sessionId
+      ensureFullSession(task.sessionId)
+    }
+  }, [task.sessionId, ensureFullSession])
 
   // Determine expand navigation target
   const expandTo = useMemo(() => {
@@ -461,12 +473,13 @@ function ChatPanel({
 
     const store = useSessionStore.getState()
 
+    // Use the task's session ID if available, otherwise find/create a session
+    const session = task.sessionId
+      ? store.getSession(task.sessionId) ?? store.getOrCreateSession({ type: "project-chat", projectId })
+      : store.getOrCreateSession({ type: "project-chat", projectId })
+
     if (isPlayground) {
       const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
-      const session = store.getOrCreateSession({
-        type: "project-chat",
-        projectId,
-      })
       store.addMessage(session.id, { role: "user", content: text })
       store.addMessage(session.id, { role: "assistant", content: "" })
 
@@ -489,10 +502,6 @@ function ChatPanel({
           .join('\n'),
       })
     } else {
-      const session = store.getOrCreateSession({
-        type: "project-chat",
-        projectId,
-      })
       store.addMessage(session.id, { role: "user", content: text })
       store.addMessage(session.id, { role: "assistant", content: "" })
 
@@ -511,7 +520,7 @@ function ChatPanel({
         messages: historyMessages,
       })
     }
-  }, [inputText, isPlayground, projectId, task.nodeId, events])
+  }, [inputText, isPlayground, projectId, task.nodeId, task.sessionId, events])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

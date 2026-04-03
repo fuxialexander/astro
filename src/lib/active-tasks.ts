@@ -20,6 +20,8 @@ export interface ActiveTaskEntry {
   status: "running" | "pending" | "generating" | "idle" | "completed"
   startedAt?: Date
   executionId?: string
+  /** For chat sessions: the session ID used as the SSE stream identifier */
+  sessionId?: string
   nodeType?: string
   nodeStatus?: string
   machineId?: string
@@ -185,7 +187,18 @@ export function deriveActiveTasks(params: {
 
     const entry = chatSessionEntry(session, rawNodesById)
     if (!entry) continue
-    if (addedNodeIds.has(entry.stableNodeId)) continue
+
+    if (addedNodeIds.has(entry.stableNodeId)) {
+      // An execution entry (Pass 1) already claimed this stableNodeId.
+      // Augment the existing entry with the sessionId so the ChatPanel
+      // can subscribe to chat stream events alongside execution events.
+      const list = groupedTasks.get(session.projectId)
+      if (list) {
+        const existing = list.find((t) => t.nodeId === entry.stableNodeId)
+        if (existing) existing.sessionId = sessionId
+      }
+      continue
+    }
 
     pushTask(session.projectId, {
       nodeId: entry.stableNodeId,
@@ -193,6 +206,7 @@ export function deriveActiveTasks(params: {
       title: entry.displayTitle,
       status: "running",
       startedAt: session.updatedAt,
+      sessionId,
     })
     addedNodeIds.add(entry.stableNodeId)
     markRunning(session.projectId)
@@ -220,6 +234,7 @@ export function deriveActiveTasks(params: {
       title: entry.displayTitle,
       status: "idle",
       startedAt: session.updatedAt,
+      sessionId: session.id,
     })
     addedNodeIds.add(entry.stableNodeId)
   }
