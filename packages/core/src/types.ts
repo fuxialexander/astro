@@ -212,8 +212,64 @@ export interface Project {
   projectBranch?: string
   projectPrUrl?: string
   projectPrNumber?: number
+  references?: Reference[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ── References (literature/papers/documents) ─────────────────────────────
+
+/** A literature reference (paper, article, book, etc.) attached to a project. */
+export interface Reference {
+  id: string;
+  /** Paper/article title */
+  title: string;
+  /** Author list */
+  authors?: string[];
+  /** Publication year */
+  year?: number;
+  /** Journal or publication venue */
+  journal?: string;
+  /** Digital Object Identifier */
+  doi?: string;
+  /** PubMed ID */
+  pmid?: string;
+  /** arXiv identifier (e.g., "2301.12345") */
+  arxivId?: string;
+  /** Direct URL to the paper (landing page) */
+  url?: string;
+  /** URL to the PDF (may be open-access or Zotero-provided) */
+  pdfUrl?: string;
+  /** Local filesystem path to downloaded PDF (Tauri desktop only) */
+  pdfPath?: string;
+  /** Whether the PDF has been downloaded locally */
+  pdfDownloaded?: boolean;
+  /** Abstract/summary */
+  abstract?: string;
+  /** User-assigned tags */
+  tags?: string[];
+  /** User notes on this reference */
+  notes?: string;
+  /** Source of the reference (manual, doi-lookup, zotero, bibtex) */
+  source?: 'manual' | 'doi' | 'zotero' | 'bibtex' | 'crossref';
+  /** Zotero item key (if synced from Zotero) */
+  zoteroKey?: string;
+  /** Whether this is open access */
+  isOpenAccess?: boolean;
+  /** Open access source (publisher, repository, etc.) */
+  oaSource?: string;
+  /** When the reference was added */
+  addedAt?: string;
+}
+
+/** Status of a PDF download operation */
+export type PdfDownloadStatus = 'idle' | 'resolving' | 'downloading' | 'complete' | 'error'
+
+/** Result from DOI → PDF resolution */
+export interface PdfResolution {
+  pdfUrl: string | null;
+  isOa: boolean;
+  oaSource: string | null;
 }
 
 // Attachment for tasks (images, files, etc.)
