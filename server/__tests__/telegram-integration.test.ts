@@ -214,7 +214,15 @@ describe('Telegram Bidirectional Integration', () => {
   // ─── 1. Webhook receives text message → routes to handleUpdate ──────
 
   describe('webhook text message handling', () => {
-    it('should respond with help text for unrecognized messages', async () => {
+    it('should prompt to connect when receiving a message from an unlinked user', async () => {
+      // Mock resolveUserFromChat: select().from().where().limit() → [] (no account found)
+      const mockSelectFrom = vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([]),
+        }),
+      })
+      mockSelect.mockReturnValueOnce({ from: mockSelectFrom })
+
       await adapter.handleUpdate({
         update_id: 1001,
         message: {
@@ -229,7 +237,8 @@ describe('Telegram Bidirectional Integration', () => {
       const sendCalls = fetchCalls.filter(c => c.url.includes('/sendMessage'))
       expect(sendCalls).toHaveLength(1)
       expect(sendCalls[0].body.chat_id).toBe('12345')
-      expect(sendCalls[0].body.text).toContain('notifications')
+      // Non-command messages route to chat; unlinked users get a "connect first" message
+      expect(sendCalls[0].body.text).toContain('connect')
     })
 
     it('should ignore messages from bots', async () => {

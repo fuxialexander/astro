@@ -17,7 +17,14 @@ import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 import { formatForChannel } from '../channel-formatter.js'
 import type { ChannelNotification } from '../channel-types.js'
-import { commandRegistry, handleCommand } from './telegram-commands.js'
+import { commandRegistry, handleCommand, resolveUserFromChat } from './telegram-commands.js'
+import {
+  dispatchChatToTelegram,
+  parseChatSession,
+  parseDefaultProject,
+  createFreshSession,
+  saveChatSession,
+} from './telegram-chat.js'
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API helpers (inlined from deleted plugin)
@@ -254,16 +261,117 @@ class TelegramChannelAdapter {
       const response = await handleCommand(text, chatId, this.botToken)
       if (response) {
         await sendMessage(this.botToken, chatId, response)
-        return
+      } else {
+        // Unknown command
+        await sendMessage(
+          this.botToken,
+          chatId,
+          'Unknown command. Use /help to see available commands.',
+        )
+      }
+      return
+    }
+
+    // Non-command text: route to chat session
+    await this.handleChatMessage(text, chatId)
+  }
+
+  /**
+   * Route a non-command message to the project chat.
+   * Looks up the user's connected account, resolves the active project,
+   * and dispatches the message via the relay with streaming edits.
+   */
+  private async handleChatMessage(text: string, chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    // Resolve user from chat ID
+    const userId = await resolveUserFromChat(chatId)
+    if (!userId) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        'You need to connect your Telegram first. Use the link from Astro Settings.',
+      )
+      return
+    }
+
+    // Load connected account for mappings
+    const [account] = await db
+      .select({
+        mappings: connectedAccounts.mappings,
+        userId: connectedAccounts.userId,
+      })
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.externalId, chatId),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+      .limit(1)
+
+    if (!account) {
+      await sendMessage(this.botToken, chatId, 'Your account is not connected. Use the link from Astro Settings.')
+      return
+    }
+
+    const mappings = account.mappings as Record<string, unknown> | null
+
+    // Resolve active project
+    let projectId = parseDefaultProject(mappings)
+    if (!projectId) {
+      // Try to find an existing session
+      const existingSession = parseChatSession(mappings)
+      if (existingSession) {
+        projectId = existingSession.projectId
       }
     }
 
-    // For any other message, let them know this is a notification bot
-    await sendMessage(
-      this.botToken,
-      chatId,
-      'I send Astro notifications here. Use /help for available commands or /disconnect to unlink.',
-    )
+    if (!projectId) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        'No project selected. Use <b>/bind &lt;project-id&gt;</b> to link a project, then chat freely.\n\nUse /projects to list your projects.',
+        { parseMode: 'HTML' },
+      )
+      return
+    }
+
+    // Get or create chat session
+    let session = parseChatSession(mappings)
+    if (!session || session.projectId !== projectId) {
+      session = createFreshSession(projectId)
+    }
+
+    // Dispatch chat
+    try {
+      const result = await dispatchChatToTelegram({
+        botToken: this.botToken,
+        chatId,
+        userId,
+        userMessage: text,
+        session,
+      })
+
+      // Persist updated session (new sessionId, updated history)
+      if (result.success || result.updatedMessages.length > session.messages.length) {
+        await saveChatSession(chatId, {
+          sessionId: result.newSessionId,
+          streamId: session.streamId,
+          projectId: session.projectId,
+          messages: result.updatedMessages,
+        })
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[telegram] Chat dispatch error for chat ${chatId}:`, errMsg)
+      await sendMessage(
+        this.botToken,
+        chatId,
+        `❌ Failed to process your message: ${errMsg.slice(0, 200)}`,
+      )
+    }
   }
 
   private async handleStartCommand(token: string, chatId: string): Promise<void> {
