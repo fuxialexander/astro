@@ -76,11 +76,27 @@ vi.mock('../src/lib/plan-mutations', () => ({
 }))
 
 const mockPushActivityEvent = vi.fn()
+const mockAddActivityEntry = vi.fn()
+// Minimal Zustand-like mock for useRealtimeStore: getState, setState, subscribe
+const realtimeState: Record<string, unknown> = { taskStreams: new Map() }
+const realtimeListeners = new Set<(state: Record<string, unknown>) => void>()
 vi.mock('../src/stores/realtime-store', () => ({
   useRealtimeStore: {
     getState: () => ({
       pushActivityEvent: mockPushActivityEvent,
+      addActivityEntry: mockAddActivityEntry,
+      ...realtimeState,
     }),
+    setState: (fnOrObj: unknown) => {
+      const patch = typeof fnOrObj === 'function' ? fnOrObj(realtimeState) : fnOrObj
+      Object.assign(realtimeState, patch)
+      const snapshot = { pushActivityEvent: mockPushActivityEvent, addActivityEntry: mockAddActivityEntry, ...realtimeState }
+      for (const listener of realtimeListeners) listener(snapshot)
+    },
+    subscribe: (listener: (state: Record<string, unknown>) => void) => {
+      realtimeListeners.add(listener)
+      return () => realtimeListeners.delete(listener)
+    },
   },
 }))
 

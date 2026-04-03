@@ -87,7 +87,7 @@ describe('deriveActiveTasks: streaming sessions', () => {
     const tasks = result.groupedTasks.get('proj-1')!
     expect(tasks).toHaveLength(1)
     expect(tasks[0].nodeId).toBe('playground-proj-1')
-    expect(tasks[0].title).toBe('Playground Chat: Debug auth flow')
+    expect(tasks[0].title).toBe('Session Chat: Debug auth flow')
     expect(tasks[0].status).toBe('running')
   })
 
@@ -123,7 +123,7 @@ describe('deriveActiveTasks: streaming sessions', () => {
       allSessions: new Map([['s1', session]]),
     })
 
-    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat: Custom Title')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Session Chat: Custom Title')
   })
 
   it('falls back to first user message when no title', () => {
@@ -140,10 +140,10 @@ describe('deriveActiveTasks: streaming sessions', () => {
       allSessions: new Map([['s1', session]]),
     })
 
-    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat: Help me debug the API')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Session Chat: Help me debug the API')
   })
 
-  it('shows "Playground Chat" when nothing else available', () => {
+  it('shows "Session Chat" when nothing else available', () => {
     const session = makeSession({
       id: 's1',
       projectId: 'p1',
@@ -156,7 +156,7 @@ describe('deriveActiveTasks: streaming sessions', () => {
       allSessions: new Map([['s1', session]]),
     })
 
-    expect(result.groupedTasks.get('p1')![0].title).toBe('Playground Chat')
+    expect(result.groupedTasks.get('p1')![0].title).toBe('Session Chat')
   })
 
   it('handles multiple streaming sessions across projects', () => {
@@ -382,7 +382,7 @@ describe('deriveActiveTasks: playground follow-up dedup', () => {
     expect(result.activeCount).toBe(1)
   })
 
-  it('shows playground task-chat as Playground Chat when no execution exists', () => {
+  it('shows playground task-chat as Session Chat when no execution exists', () => {
     const session = makeSession({
       id: 's1',
       projectId: 'p1',
@@ -400,7 +400,7 @@ describe('deriveActiveTasks: playground follow-up dedup', () => {
     expect(result.activeCount).toBe(1)
     const tasks = result.groupedTasks.get('p1')!
     expect(tasks[0].nodeId).toBe('playground-p1')
-    expect(tasks[0].title).toBe('Playground Chat: My question')
+    expect(tasks[0].title).toBe('Session Chat: My question')
   })
 })
 

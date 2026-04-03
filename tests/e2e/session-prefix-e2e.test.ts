@@ -19,7 +19,7 @@
  *   npx playwright test tests/e2e/session-prefix-e2e.test.ts
  */
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import WebSocket from 'ws'
 import { randomUUID } from 'node:crypto'
 
@@ -39,7 +39,7 @@ interface FakeAgent {
   sendResult(taskId: string, status: 'completed' | 'failed', output?: string): void
 }
 
-async function connectFakeAgent(machineId = `pw-session-${Date.now()}`): Promise<FakeAgent> {
+async function connectFakeAgent(machineId = `pw-session-${Date.now()}`): Promise<FakeAgent> { // eslint-disable-line @typescript-eslint/no-unused-vars
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(RELAY_WS)
     const timeout = setTimeout(() => reject(new Error('WS connect timeout')), 5000)
@@ -104,7 +104,7 @@ async function createSessionContext(label: string) {
 }
 
 /** Create a project + playground-prefixed execution for comparison */
-async function createPlaygroundContext(label: string) {
+async function createPlaygroundContext(label: string) { // eslint-disable-line @typescript-eslint/no-unused-vars
   const projectId = randomUUID()
   const pRes = await fetch(`${API_BASE}/api/data/projects`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -148,12 +148,10 @@ test.describe('session- prefix handling', () => {
     await page.waitForTimeout(1500)
 
     // The session execution should be counted — look for our project name in the page
-    const pageText = await page.textContent('body')
+    await page.textContent('body')
     // The session should show up somewhere on the dashboard (timeline, counter, etc.)
     // Even if not visible as text, the execution store should have it
-    const executions = await page.evaluate(async () => {
-      // Access Zustand store from window
-      const stores = (window as unknown as Record<string, unknown>)
+    await page.evaluate(async () => {
       // Check the execution store by looking at what's rendered
       return document.querySelectorAll('[data-testid="active-task"]').length
     })
@@ -294,7 +292,7 @@ test.describe('responsive layout', () => {
     await page.waitForTimeout(2000)
 
     // On mobile, the desktop sidebar should not be visible
-    const sidebarVisible = await page.locator('[data-sidebar]').isVisible().catch(() => false)
+    await page.locator('[data-sidebar]').isVisible().catch(() => false)
     // Mobile layout should be present
     const bodyText = await page.textContent('body')
     expect(bodyText).toBeTruthy()

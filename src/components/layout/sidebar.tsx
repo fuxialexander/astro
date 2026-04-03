@@ -204,7 +204,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     if (oldIndex !== -1 && newIndex !== -1) {
       reorderItems(oldIndex, newIndex)
     }
-  }, [isEditing, sidebarItems, visibleItems, reorderItems])
+  }, [isEditing, editableItems, visibleItems, reorderItems])
 
   const handlePinnedDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event

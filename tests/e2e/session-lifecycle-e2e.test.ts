@@ -499,7 +499,7 @@ test.describe('session lifecycle', () => {
 
     // The session should be visible in the "Running" section or activity area
     const projectName = page.locator(`text=E2E Dashboard Count`)
-    const isVisible = await projectName.isVisible({ timeout: 3000 }).catch(() => false)
+    await projectName.isVisible({ timeout: 3000 }).catch(() => false)
 
     // Clean up — mark as complete
     agent.sendResult(executionId, 'completed', 'Done')

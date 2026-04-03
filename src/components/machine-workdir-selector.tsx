@@ -69,9 +69,7 @@ export function MachineWorkdirSelector({
   disabled,
   compact,
   renderMachineExtra,
-  machineLabel = "Machine",
-  dirLabel = "Working directory",
-  dirRequired,
+  // machineLabel, dirLabel, dirRequired — accepted but unused after compact-only layout
   dirPlaceholder = "/path/to/project",
   renderAfterPath,
 }: MachineWorkdirSelectorProps) {
@@ -106,12 +104,7 @@ export function MachineWorkdirSelector({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {false && !compact && (
-        <span className="text-xs text-muted-foreground">
-          {machineLabel} &amp; {dirLabel}
-          {dirRequired && <span className="text-destructive ml-0.5">*</span>}
-        </span>
-      )}
+      {/* Label removed — kept compact */}
 
       <div className="flex items-center gap-1.5">
         {/* ── Recent button ─────────────────────────────── */}

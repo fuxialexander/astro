@@ -759,20 +759,13 @@ function FloatingChat({
   isMobile: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [pos, setPos] = useState({ x: -1, y: -1 })
+  const [pos, setPos] = useState(() => ({
+    x: typeof window !== 'undefined' ? window.innerWidth - 72 : 0,
+    y: typeof window !== 'undefined' ? window.innerHeight - (isMobile ? 160 : 130) : 0,
+  }))
   const dragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 })
   const hasMoved = useRef(false)
-
-  // Initialize position: bottom-right corner
-  useEffect(() => {
-    if (pos.x === -1) {
-      setPos({
-        x: window.innerWidth - 72,
-        y: window.innerHeight - (isMobile ? 160 : 130),
-      })
-    }
-  }, [pos.x, isMobile])
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true

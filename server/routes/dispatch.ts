@@ -575,7 +575,7 @@ dispatchRoute.post('/task', async (c) => {
         return c.json({ success: false, error: 'You already have an active execution for this task' }, 409)
       }
       // Different user — allow parallel dispatch
-      isParallelDispatch = true // eslint-disable-line @typescript-eslint/no-unused-vars -- used in onResult and dispatch-start blocks below
+      isParallelDispatch = true
     }
 
     if (dbNode) {
