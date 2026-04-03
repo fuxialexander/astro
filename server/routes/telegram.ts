@@ -9,8 +9,8 @@ import { Hono } from 'hono'
 import { telegramChannel } from '../lib/channel/adapters/telegram-channel.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
-import { connectedAccounts } from '../lib/db/schema.js'
-import { eq, and } from 'drizzle-orm'
+import { connectedAccounts, blobs } from '../lib/db/schema.js'
+import { eq, and, desc, isNull, like } from 'drizzle-orm'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
 
 const app = new Hono()
@@ -47,6 +47,7 @@ app.use('/link', requireAuth)
 app.use('/status', requireAuth)
 app.use('/disconnect', requireAuth)
 app.use('/setup-webhook', requireAuth)
+app.use('/uploads', requireAuth)
 
 /** POST /link — Generate a deep-link URL for connecting Telegram */
 app.post('/link', async (c) => {
@@ -140,6 +141,52 @@ app.post('/setup-webhook', async (c) => {
 
   const data = await response.json()
   return c.json(data)
+})
+
+/** GET /uploads — List files uploaded via Telegram for the current user */
+app.get('/uploads', async (c) => {
+  const user = c.get('user') as AuthUser
+
+  const rows = await db.select({
+    id: blobs.id,
+    filename: blobs.filename,
+    mimeType: blobs.mimeType,
+    size: blobs.size,
+    projectId: blobs.projectId,
+    nodeId: blobs.nodeId,
+    createdAt: blobs.createdAt,
+  })
+    .from(blobs)
+    .where(
+      and(
+        eq(blobs.ownerId, user.id),
+        like(blobs.filename, 'telegram-upload-%'),
+        isNull(blobs.deletedAt),
+      )
+    )
+    .orderBy(desc(blobs.createdAt))
+    .limit(50)
+
+  // Parse metadata from nodeId field and strip blob data
+  const uploads = rows.map((row) => {
+    let metadata: Record<string, unknown> = {}
+    try {
+      if (row.nodeId) metadata = JSON.parse(row.nodeId)
+    } catch { /* ignore parse errors */ }
+
+    return {
+      id: row.id,
+      filename: row.filename,
+      mimeType: row.mimeType,
+      size: row.size,
+      projectId: row.projectId,
+      caption: metadata.caption as string | undefined,
+      source: metadata.source as string | undefined,
+      createdAt: row.createdAt,
+    }
+  })
+
+  return c.json(uploads)
 })
 
 export const telegramRoute = app

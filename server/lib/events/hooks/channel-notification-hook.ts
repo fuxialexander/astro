@@ -12,6 +12,9 @@
 import type { EventHook, TaskCompletedEvent } from '../types.js'
 import { channelRouter } from '../../channel/channel-router.js'
 import type { ChannelNotification, NotificationType } from '../../channel/channel-types.js'
+import { db } from '../../db/index.js'
+import { fileChanges } from '../../db/schema.js'
+import { eq } from 'drizzle-orm'
 
 const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
 
@@ -109,6 +112,27 @@ export const channelNotificationHook: EventHook = async (event) => {
       const completedUrl = (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
         ? `${BASE_URL}/playground?projectId=${event.projectId}`
         : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
+
+      // Query file changes for this execution to include in the notification
+      let executionFileChanges: Array<{
+        path: string; action: string; linesAdded: number | null; linesRemoved: number | null
+      }> = []
+      if (event.executionId) {
+        try {
+          executionFileChanges = await db.select({
+            path: fileChanges.path,
+            action: fileChanges.action,
+            linesAdded: fileChanges.linesAdded,
+            linesRemoved: fileChanges.linesRemoved,
+          })
+            .from(fileChanges)
+            .where(eq(fileChanges.executionId, event.executionId))
+            .limit(20)
+        } catch {
+          // Non-critical — proceed without file changes
+        }
+      }
+
       notification = {
         type: 'task.completed' as NotificationType,
         projectId: event.projectId,
@@ -117,6 +141,7 @@ export const channelNotificationHook: EventHook = async (event) => {
         metadata: {
           nodeId: event.nodeId,
           executionId: event.executionId,
+          ...(executionFileChanges.length > 0 ? { fileChanges: executionFileChanges } : {}),
         },
       }
       break
