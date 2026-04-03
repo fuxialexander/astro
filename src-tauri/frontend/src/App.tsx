@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from 'react'
+import { Component, useEffect, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { WorkspaceLayout } from '@desktop/components/layout/WorkspaceLayout'
 import { Workspace } from '@desktop/pages/Workspace'
@@ -6,6 +6,14 @@ import { InboxHome } from '@/pages/inbox-home'
 import { ActiveTasks } from '@desktop/pages/ActiveTasks'
 import { Environments } from '@desktop/pages/Environments'
 import { setBaseUrl } from '@desktop/lib/api-client'
+
+// Web-app stores that need bootstrapping
+import { useProjectStore } from '@/stores/project-store'
+import { usePlanStore } from '@/stores/plan-store'
+import { useExecutionStore } from '@/stores/execution-store'
+import { useSettingsStore } from '@/stores/settings-store'
+import { useActivityStore } from '@/stores/activity-store'
+import { useExampleStore } from '@/stores/example-store'
 
 // Connect to the configured backend — localStorage override or local dev default.
 // Local dev runs on port 4001 (PORT env in npm run dev:local).
@@ -35,6 +43,43 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 /**
+ * Bootstrap web-app stores that InboxHome and other shared components depend on.
+ * The web app does this in its own App.tsx; we replicate it here for the Tauri shell.
+ */
+function DataBootstrap({ children }: { children: ReactNode }) {
+  const projectsLoaded = useProjectStore((s) => s.loaded)
+  const loadProjects = useProjectStore((s) => s.load)
+  const planLoaded = usePlanStore((s) => s.loaded)
+  const loadPlan = usePlanStore((s) => s.load)
+  const executionsLoaded = useExecutionStore((s) => s.loaded)
+  const loadExecutions = useExecutionStore((s) => s.load)
+  const settingsLoaded = useSettingsStore((s) => s.loaded)
+  const loadSettings = useSettingsStore((s) => s.load)
+  const activitiesLoaded = useActivityStore((s) => s.loaded)
+  const loadActivities = useActivityStore((s) => s.load)
+  const examplesLoaded = useExampleStore((s) => s.loaded)
+  const loadExamples = useExampleStore((s) => s.load)
+
+  useEffect(() => {
+    if (!projectsLoaded) loadProjects()
+    if (!planLoaded) loadPlan()
+    if (!executionsLoaded) loadExecutions()
+    if (!settingsLoaded) loadSettings()
+    if (!activitiesLoaded) loadActivities()
+    if (!examplesLoaded) loadExamples()
+  }, [
+    projectsLoaded, loadProjects,
+    planLoaded, loadPlan,
+    executionsLoaded, loadExecutions,
+    settingsLoaded, loadSettings,
+    activitiesLoaded, loadActivities,
+    examplesLoaded, loadExamples,
+  ])
+
+  return <>{children}</>
+}
+
+/**
  * WorkspaceLayout is the top-level shell for all routes:
  *   /              → Welcome pane (sidebar shows projects)
  *   /project/:id   → Project workspace
@@ -44,15 +89,17 @@ export function App() {
     <BrowserRouter>
       <div className="h-screen w-screen bg-background text-foreground font-primary overflow-hidden">
         <ErrorBoundary>
-          <Routes>
-            <Route element={<WorkspaceLayout />}>
-              <Route index element={<InboxHome />} />
-              <Route path="/active" element={<ActiveTasks />} />
-              <Route path="/environments" element={<Environments />} />
-              <Route path="/project/:id" element={<Workspace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
+          <DataBootstrap>
+            <Routes>
+              <Route element={<WorkspaceLayout />}>
+                <Route index element={<InboxHome />} />
+                <Route path="/active" element={<ActiveTasks />} />
+                <Route path="/environments" element={<Environments />} />
+                <Route path="/project/:id" element={<Workspace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+            </Routes>
+          </DataBootstrap>
         </ErrorBoundary>
       </div>
     </BrowserRouter>

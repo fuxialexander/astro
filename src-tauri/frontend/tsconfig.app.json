@@ -24,6 +24,7 @@
       "@desktop/*": ["./src/*"],
       "@/lib/supabase-client": ["./src/shims/supabase-client.ts"],
       "@/lib/api-url": ["./src/shims/api-url.ts"],
+      "@/lib/app-mode": ["./src/shims/app-mode.ts"],
       "@/*": ["../../src/*"]
     }
   },

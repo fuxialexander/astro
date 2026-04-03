@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
         // Tauri-specific shims — must come before @/ so they override web-app modules
         { find: /^@\/lib\/supabase-client$/, replacement: path.resolve(__dirname, './src/shims/supabase-client.ts') },
         { find: /^@\/lib\/api-url$/, replacement: path.resolve(__dirname, './src/shims/api-url.ts') },
+        { find: /^@\/lib\/app-mode$/, replacement: path.resolve(__dirname, './src/shims/app-mode.ts') },
         // Desktop-specific code
         { find: '@desktop', replacement: path.resolve(__dirname, './src') },
         // Main web-app source — enables importing web components directly
