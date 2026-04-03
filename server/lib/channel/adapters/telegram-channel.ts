@@ -1,9 +1,13 @@
 /**
  * Telegram Channel Adapter
  *
- * Simplified Telegram integration: one shared bot, per-user connections.
+ * Bidirectional Telegram integration: one shared bot, per-user connections.
  * Users connect by clicking a deep link (t.me/BotName?start=TOKEN),
- * then receive all project notifications on their Telegram account.
+ * then can both receive notifications AND send messages to Astro.
+ *
+ * Inbound messages are normalized into transport-agnostic InboundMessage
+ * format (BotProtocol pattern) and routed to the Astro chat API via
+ * channelRouter. Conversation state is tracked per chat_id.
  *
  * Link tokens are stored in the DB (webauthn_challenges table with
  * "tg-link:" prefix) for multi-instance compatibility.
@@ -12,11 +16,11 @@
 import { randomBytes } from 'node:crypto'
 import { db } from '../../db/index.js'
 import { connectedAccounts, projects, teamMembers, webauthnChallenges } from '../../db/schema.js'
-import { eq, and, inArray, gt } from 'drizzle-orm'
+import { eq, and, inArray, gt, desc } from 'drizzle-orm'
 import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 import { formatForChannel } from '../channel-formatter.js'
-import type { ChannelNotification } from '../channel-types.js'
+import type { ChannelNotification, InboundMessage, OutboundResponse } from '../channel-types.js'
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API helpers (inlined from deleted plugin)
@@ -84,6 +88,51 @@ async function answerCallbackQuery(
 }
 
 // ---------------------------------------------------------------------------
+// Conversation state (per chat_id, in-memory — inherently per-process)
+// ---------------------------------------------------------------------------
+
+export interface ConversationState {
+  /** The Astro userId linked to this chat */
+  userId: string
+  /** Active project for this conversation (set via /project command) */
+  activeProjectId: string | null
+  /** Timestamp of last activity */
+  lastActivityAt: number
+}
+
+/** Max idle time before conversation state is evicted (30 minutes) */
+const CONVERSATION_TTL_MS = 30 * 60 * 1000
+/** Interval for evicting stale conversations (5 minutes) */
+const EVICTION_INTERVAL_MS = 5 * 60 * 1000
+
+// ---------------------------------------------------------------------------
+// Normalized inbound message types (BotProtocol pattern)
+// ---------------------------------------------------------------------------
+
+export type TelegramMessageType = 'text' | 'command' | 'file' | 'photo'
+
+export interface ParsedTelegramMessage {
+  type: TelegramMessageType
+  text: string
+  chatId: string
+  messageId: string
+  senderId: string
+  senderName: string
+  /** For commands: the command name without leading slash */
+  command?: string
+  /** For commands: arguments after the command */
+  commandArgs?: string
+  /** For files: file metadata */
+  file?: {
+    fileId: string
+    fileName?: string
+    mimeType?: string
+    fileSize?: number
+    caption?: string
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
@@ -95,6 +144,10 @@ class TelegramChannelAdapter {
   private botUsername: string | null = null
   private _started = false
 
+  /** Per-chat conversation state tracking */
+  private conversations = new Map<string, ConversationState>()
+  private evictionTimer: ReturnType<typeof setInterval> | null = null
+
   get isConfigured(): boolean {
     return this.botToken !== null && this.botUsername !== null
   }
@@ -105,7 +158,7 @@ class TelegramChannelAdapter {
 
   /**
    * Start the adapter: validate bot token, resolve username,
-   * register as global notification sender.
+   * register as global notification sender and response sender.
    */
   async start(): Promise<void> {
     const token = process.env.TELEGRAM_BOT_TOKEN
@@ -136,12 +189,25 @@ class TelegramChannelAdapter {
       await this.sendNotificationToProjectMembers(notification)
     })
 
+    // Register response sender so channelRouter can send replies back through Telegram
+    channelRouter.registerResponseSender('telegram', async (response) => {
+      await this.sendResponseToChat(response)
+    })
+
+    // Start conversation eviction timer
+    this.evictionTimer = setInterval(() => this.evictStaleConversations(), EVICTION_INTERVAL_MS)
+
     this._started = true
-    console.log(`[telegram] Adapter started — bot @${this.botUsername}`)
+    console.log(`[telegram] Adapter started — bot @${this.botUsername} (bidirectional)`)
   }
 
   stop(): void {
     this._started = false
+    if (this.evictionTimer) {
+      clearInterval(this.evictionTimer)
+      this.evictionTimer = null
+    }
+    this.conversations.clear()
     console.log('[telegram] Adapter stopped')
   }
 
@@ -192,6 +258,99 @@ class TelegramChannelAdapter {
     return rows[0].challenge // This is the userId we stored
   }
 
+  // ─── Message parsing (BotProtocol pattern) ─────────────────────
+
+  /**
+   * Parse a raw Telegram message into a normalized format.
+   * Handles text messages, commands, photos, and documents.
+   */
+  parseMessage(msg: Record<string, unknown>): ParsedTelegramMessage | null {
+    const chat = msg.chat as Record<string, unknown> | undefined
+    const from = msg.from as Record<string, unknown> | undefined
+    if (!chat || !from) return null
+
+    // Ignore bot messages
+    if (from.is_bot) return null
+
+    const chatId = String(chat.id)
+    const messageId = String(msg.message_id)
+    const senderId = String(from.id)
+    const senderName = [from.first_name, from.last_name].filter(Boolean).join(' ') || senderId
+
+    // Photo message (array of sizes, take highest resolution)
+    const photo = msg.photo as Array<Record<string, unknown>> | undefined
+    if (photo && photo.length > 0) {
+      const bestPhoto = photo[photo.length - 1]
+      return {
+        type: 'photo',
+        text: (msg.caption as string) || '',
+        chatId,
+        messageId,
+        senderId,
+        senderName,
+        file: {
+          fileId: bestPhoto.file_id as string,
+          mimeType: 'image/jpeg',
+          fileSize: bestPhoto.file_size as number | undefined,
+          caption: msg.caption as string | undefined,
+        },
+      }
+    }
+
+    // Document message
+    const document = msg.document as Record<string, unknown> | undefined
+    if (document) {
+      return {
+        type: 'file',
+        text: (msg.caption as string) || '',
+        chatId,
+        messageId,
+        senderId,
+        senderName,
+        file: {
+          fileId: document.file_id as string,
+          fileName: document.file_name as string | undefined,
+          mimeType: document.mime_type as string | undefined,
+          fileSize: document.file_size as number | undefined,
+          caption: msg.caption as string | undefined,
+        },
+      }
+    }
+
+    // Text message
+    const text = msg.text as string | undefined
+    if (!text) return null
+
+    // Check if it's a command (starts with /)
+    if (text.startsWith('/')) {
+      const spaceIdx = text.indexOf(' ')
+      const rawCommand = spaceIdx > 0 ? text.slice(1, spaceIdx) : text.slice(1)
+      // Strip @botname suffix from commands (e.g., /status@MyBot → status)
+      const command = rawCommand.split('@')[0].toLowerCase()
+      const commandArgs = spaceIdx > 0 ? text.slice(spaceIdx + 1).trim() : ''
+
+      return {
+        type: 'command',
+        text,
+        chatId,
+        messageId,
+        senderId,
+        senderName,
+        command,
+        commandArgs,
+      }
+    }
+
+    return {
+      type: 'text',
+      text,
+      chatId,
+      messageId,
+      senderId,
+      senderName,
+    }
+  }
+
   // ─── Webhook handler ───────────────────────────────────────────
 
   /**
@@ -207,50 +366,64 @@ class TelegramChannelAdapter {
     }
 
     const msg = update.message as Record<string, unknown> | undefined
-    if (!msg?.text) return
+    if (!msg) return
 
-    const text = msg.text as string
-    const chatId = String((msg.chat as Record<string, unknown>).id)
-    const from = msg.from as Record<string, unknown> | undefined
+    // Parse into normalized format
+    const parsed = this.parseMessage(msg)
+    if (!parsed) return
 
-    // Ignore bot messages
-    if (from?.is_bot) return
-
-    // Handle /start <token> command
-    if (text.startsWith('/start ')) {
-      const token = text.slice(7).trim()
-      await this.handleStartCommand(token, chatId)
+    // Handle commands
+    if (parsed.type === 'command') {
+      await this.handleCommand(parsed)
       return
     }
 
-    // Handle /start without token (user just opened the bot)
-    if (text === '/start') {
-      await sendMessage(
-        this.botToken,
-        chatId,
-        'Welcome! To connect your Telegram to Astro, use the link from your Astro Settings page.',
-      )
-      return
-    }
+    // Route text/file/photo messages to chat
+    await this.handleInboundMessage(parsed)
+  }
 
-    // Handle /status command
-    if (text === '/status') {
-      await this.handleStatusCommand(chatId)
-      return
-    }
+  // ─── Command dispatch ────────────────────────────────────────
 
-    // Handle /disconnect command
-    if (text === '/disconnect') {
-      await this.handleDisconnectCommand(chatId)
-      return
-    }
+  /**
+   * Dispatch bot commands to their handlers.
+   */
+  private async handleCommand(parsed: ParsedTelegramMessage): Promise<void> {
+    if (!this.botToken) return
 
-    // For any other message, let them know this is a notification bot
-    await sendMessage(
-      this.botToken,
-      chatId,
-      'I send Astro notifications here. Use /status to check your connection or /disconnect to unlink.',
-    )
+    switch (parsed.command) {
+      case 'start':
+        if (parsed.commandArgs) {
+          await this.handleStartCommand(parsed.commandArgs, parsed.chatId)
+        } else {
+          await sendMessage(
+            this.botToken,
+            parsed.chatId,
+            'Welcome to Astro! To connect your Telegram, use the link from your Astro Settings page.\n\nOnce connected, you can:\n• Send messages directly to chat with Astro AI\n• Use /project to select an active project\n• Use /projects to list your projects\n• Use /status to check your connection\n• Use /help for all commands',
+          )
+        }
+        break
+      case 'status':
+        await this.handleStatusCommand(parsed.chatId)
+        break
+      case 'disconnect':
+        await this.handleDisconnectCommand(parsed.chatId)
+        break
+      case 'project':
+        await this.handleProjectCommand(parsed.chatId, parsed.commandArgs || '')
+        break
+      case 'projects':
+        await this.handleProjectsCommand(parsed.chatId)
+        break
+      case 'help':
+        await this.handleHelpCommand(parsed.chatId)
+        break
+      default:
+        await sendMessage(
+          this.botToken,
+          parsed.chatId,
+          `Unknown command: /${parsed.command}\nUse /help to see available commands.`,
+        )
+    }
   }
 
   private async handleStartCommand(token: string, chatId: string): Promise<void> {
@@ -294,7 +467,7 @@ class TelegramChannelAdapter {
         .values({
           userId,
           channel: 'telegram',
-          label: 'Telegram Notifications',
+          label: 'Telegram Chat',
           credentials: {},
           mappings: {},
           settings: {},
@@ -305,10 +478,17 @@ class TelegramChannelAdapter {
 
     channelConfigManager.invalidateCache()
 
+    // Initialize conversation state
+    this.conversations.set(chatId, {
+      userId,
+      activeProjectId: null,
+      lastActivityAt: Date.now(),
+    })
+
     await sendMessage(
       this.botToken,
       chatId,
-      'Connected! You will now receive Astro notifications here.\n\nUse /status to check your connection or /disconnect to unlink.',
+      'Connected! You can now chat with Astro directly here.\n\nUse /project to select a project, or just send a message to start chatting.\n\nUse /help to see all commands.',
     )
   }
 
@@ -327,10 +507,140 @@ class TelegramChannelAdapter {
       .limit(1)
 
     if (rows.length > 0) {
-      await sendMessage(this.botToken, chatId, 'Your Telegram is connected to Astro. You will receive notifications for all your projects.')
+      const convo = this.conversations.get(chatId)
+      const projectInfo = convo?.activeProjectId
+        ? `\n\nActive project: <code>${convo.activeProjectId}</code>`
+        : '\n\nNo active project set. Use /project &lt;name&gt; to set one.'
+
+      await sendMessage(
+        this.botToken,
+        chatId,
+        `Your Telegram is connected to Astro. You can send and receive messages here.${projectInfo}`,
+      )
     } else {
       await sendMessage(this.botToken, chatId, 'Your Telegram is not connected to Astro. Use the link from Astro Settings to connect.')
     }
+  }
+
+  private async handleDisconnectCommand(chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    const rows = await db.delete(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.externalId, chatId),
+        )
+      )
+      .returning()
+
+    channelConfigManager.invalidateCache()
+    this.conversations.delete(chatId)
+
+    if (rows.length > 0) {
+      await sendMessage(this.botToken, chatId, 'Disconnected. You will no longer receive Astro notifications here.')
+    } else {
+      await sendMessage(this.botToken, chatId, 'No active connection found.')
+    }
+  }
+
+  /**
+   * Set the active project for a chat. Accepts project name or ID.
+   */
+  private async handleProjectCommand(chatId: string, args: string): Promise<void> {
+    if (!this.botToken) return
+
+    const convo = await this.getOrCreateConversation(chatId)
+    if (!convo) {
+      await sendMessage(this.botToken, chatId, 'Your Telegram is not connected to Astro. Use the link from Astro Settings to connect.')
+      return
+    }
+
+    if (!args) {
+      if (convo.activeProjectId) {
+        await sendMessage(this.botToken, chatId, `Active project: <code>${convo.activeProjectId}</code>\n\nUse /project &lt;name&gt; to change, or /projects to list all.`)
+      } else {
+        await sendMessage(this.botToken, chatId, 'No active project set.\n\nUse /project &lt;name&gt; to set one, or /projects to list available projects.')
+      }
+      return
+    }
+
+    // Look up project by name (case-insensitive partial match) or ID
+    const userProjects = await this.getUserProjects(convo.userId)
+    const searchLower = args.toLowerCase()
+
+    const match = userProjects.find(
+      (p) => p.id === args || p.name.toLowerCase() === searchLower
+    ) || userProjects.find(
+      (p) => p.name.toLowerCase().includes(searchLower)
+    )
+
+    if (!match) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        `No project found matching "${args}".\n\nUse /projects to see your available projects.`,
+      )
+      return
+    }
+
+    convo.activeProjectId = match.id
+    convo.lastActivityAt = Date.now()
+
+    await sendMessage(
+      this.botToken,
+      chatId,
+      `Active project set to: <b>${match.name}</b>\n\nYou can now send messages about this project.`,
+    )
+  }
+
+  /**
+   * List user's projects.
+   */
+  private async handleProjectsCommand(chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    const convo = await this.getOrCreateConversation(chatId)
+    if (!convo) {
+      await sendMessage(this.botToken, chatId, 'Your Telegram is not connected to Astro. Use the link from Astro Settings to connect.')
+      return
+    }
+
+    const userProjects = await this.getUserProjects(convo.userId)
+
+    if (userProjects.length === 0) {
+      await sendMessage(this.botToken, chatId, 'You have no projects yet. Create one in Astro first.')
+      return
+    }
+
+    const lines = userProjects.slice(0, 20).map((p) => {
+      const active = convo.activeProjectId === p.id ? ' ✅' : ''
+      return `• <b>${p.name}</b>${active}`
+    })
+
+    const suffix = userProjects.length > 20 ? `\n\n... and ${userProjects.length - 20} more` : ''
+    await sendMessage(
+      this.botToken,
+      chatId,
+      `Your projects:\n\n${lines.join('\n')}${suffix}\n\nUse /project &lt;name&gt; to set active project.`,
+    )
+  }
+
+  private async handleHelpCommand(chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    await sendMessage(
+      this.botToken,
+      chatId,
+      '<b>Astro Bot Commands</b>\n\n'
+      + '/project &lt;name&gt; — Set active project\n'
+      + '/projects — List your projects\n'
+      + '/status — Check connection status\n'
+      + '/disconnect — Unlink your account\n'
+      + '/help — Show this help\n\n'
+      + '<b>Chat</b>\nJust type a message to chat with Astro AI about your active project. '
+      + 'You can also send photos and documents.',
+    )
   }
 
   /**
@@ -411,25 +721,244 @@ class TelegramChannelAdapter {
     }
   }
 
-  private async handleDisconnectCommand(chatId: string): Promise<void> {
+  // ─── Inbound message routing ──────────────────────────────────
+
+  /**
+   * Route a non-command inbound message to the Astro chat API via channelRouter.
+   * Normalizes the Telegram message into the transport-agnostic InboundMessage format.
+   */
+  private async handleInboundMessage(parsed: ParsedTelegramMessage): Promise<void> {
     if (!this.botToken) return
 
-    const rows = await db.delete(connectedAccounts)
+    // Get or create conversation state (validates user is connected)
+    const convo = await this.getOrCreateConversation(parsed.chatId)
+    if (!convo) {
+      await sendMessage(
+        this.botToken,
+        parsed.chatId,
+        'Your Telegram is not connected to Astro. Use the link from your Astro Settings page to connect.',
+      )
+      return
+    }
+
+    // Update activity timestamp
+    convo.lastActivityAt = Date.now()
+
+    // Build the message text, incorporating file info if present
+    let messageText = parsed.text
+    if (parsed.file) {
+      const fileLabel = parsed.file.fileName
+        ? `[File: ${parsed.file.fileName}]`
+        : `[${parsed.type === 'photo' ? 'Photo' : 'File'}${parsed.file.mimeType ? ` (${parsed.file.mimeType})` : ''}]`
+
+      messageText = parsed.text
+        ? `${fileLabel}\n${parsed.text}`
+        : fileLabel
+    }
+
+    if (!messageText.trim()) {
+      // Empty message, nothing to route
+      return
+    }
+
+    // Normalize into InboundMessage (transport-agnostic format)
+    const inbound: InboundMessage = {
+      sourceMessageId: parsed.messageId,
+      channel: 'telegram',
+      text: messageText,
+      sender: {
+        id: convo.userId,
+        name: parsed.senderName,
+      },
+      conversationRef: {
+        channelId: parsed.chatId,
+        metadata: {
+          telegramSenderId: parsed.senderId,
+          ...(parsed.file ? { fileId: parsed.file.fileId, fileName: parsed.file.fileName, mimeType: parsed.file.mimeType } : {}),
+        },
+      },
+      projectId: convo.activeProjectId || '',
+    }
+
+    // Send "typing" indicator while processing
+    telegramApi(this.botToken, 'sendChatAction', {
+      chat_id: parsed.chatId,
+      action: 'typing',
+    }).catch(() => { /* best-effort */ })
+
+    try {
+      const response = await channelRouter.routeMessage(inbound)
+
+      // Send the response back to the chat
+      await this.sendResponseToChat(response)
+    } catch (err) {
+      console.error(`[telegram] Failed to route inbound message from chat ${parsed.chatId}:`, err)
+      await sendMessage(
+        this.botToken,
+        parsed.chatId,
+        'Sorry, I encountered an error processing your message. Please try again.',
+      )
+    }
+  }
+
+  /**
+   * Send an outbound response back to a Telegram chat.
+   * Used by channelRouter as the registered response sender.
+   */
+  private async sendResponseToChat(response: OutboundResponse): Promise<void> {
+    if (!this.botToken) return
+
+    const chatId = response.conversationRef.channelId
+    if (!chatId) {
+      console.warn('[telegram] Cannot send response — no chatId in conversationRef')
+      return
+    }
+
+    // Split long messages (Telegram limit is 4096 chars)
+    const maxLen = 4000 // Leave some margin for HTML tags
+    const text = response.text
+
+    if (text.length <= maxLen) {
+      await sendMessage(this.botToken, chatId, text)
+    } else {
+      // Split on paragraph boundaries where possible
+      const chunks = this.splitMessage(text, maxLen)
+      for (const chunk of chunks) {
+        await sendMessage(this.botToken, chatId, chunk)
+      }
+    }
+  }
+
+  /**
+   * Split a long message into chunks, preferring paragraph boundaries.
+   */
+  private splitMessage(text: string, maxLen: number): string[] {
+    const chunks: string[] = []
+    let remaining = text
+
+    while (remaining.length > maxLen) {
+      // Try to split on double newline
+      let splitIdx = remaining.lastIndexOf('\n\n', maxLen)
+      if (splitIdx < maxLen / 2) {
+        // Try single newline
+        splitIdx = remaining.lastIndexOf('\n', maxLen)
+      }
+      if (splitIdx < maxLen / 2) {
+        // Fall back to space
+        splitIdx = remaining.lastIndexOf(' ', maxLen)
+      }
+      if (splitIdx < maxLen / 2) {
+        // Hard split
+        splitIdx = maxLen
+      }
+
+      chunks.push(remaining.slice(0, splitIdx))
+      remaining = remaining.slice(splitIdx).trimStart()
+    }
+
+    if (remaining) {
+      chunks.push(remaining)
+    }
+
+    return chunks
+  }
+
+  // ─── Conversation state management ─────────────────────────────
+
+  /**
+   * Get or lazily create conversation state for a chat_id.
+   * Looks up the connected account in DB to resolve userId.
+   * Returns null if the chat is not connected.
+   */
+  async getOrCreateConversation(chatId: string): Promise<ConversationState | null> {
+    const existing = this.conversations.get(chatId)
+    if (existing) {
+      return existing
+    }
+
+    // Look up connected account
+    const rows = await db.select({
+      userId: connectedAccounts.userId,
+    })
+      .from(connectedAccounts)
       .where(
         and(
           eq(connectedAccounts.channel, 'telegram'),
           eq(connectedAccounts.externalId, chatId),
+          eq(connectedAccounts.enabled, true),
         )
       )
-      .returning()
+      .limit(1)
 
-    channelConfigManager.invalidateCache()
+    if (rows.length === 0) return null
 
-    if (rows.length > 0) {
-      await sendMessage(this.botToken, chatId, 'Disconnected. You will no longer receive Astro notifications here.')
-    } else {
-      await sendMessage(this.botToken, chatId, 'No active connection found.')
+    const state: ConversationState = {
+      userId: rows[0].userId,
+      activeProjectId: null,
+      lastActivityAt: Date.now(),
     }
+
+    this.conversations.set(chatId, state)
+    return state
+  }
+
+  /**
+   * Get conversation state for a chat_id (if it exists in memory).
+   * Does not create or look up from DB. Used for read-only checks.
+   */
+  getConversation(chatId: string): ConversationState | undefined {
+    return this.conversations.get(chatId)
+  }
+
+  /**
+   * Evict stale conversations that have been idle beyond the TTL.
+   */
+  private evictStaleConversations(): void {
+    const cutoff = Date.now() - CONVERSATION_TTL_MS
+    for (const [chatId, state] of this.conversations) {
+      if (state.lastActivityAt < cutoff) {
+        this.conversations.delete(chatId)
+      }
+    }
+  }
+
+  /**
+   * Get projects accessible to a user (owned + team projects).
+   */
+  private async getUserProjects(userId: string): Promise<Array<{ id: string; name: string }>> {
+    // Get user's team memberships
+    const memberships = await db.select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, userId))
+
+    const teamIds = memberships.map((m) => m.teamId)
+
+    // Get projects: owned by user OR in their teams
+    let userProjects: Array<{ id: string; name: string }>
+
+    if (teamIds.length > 0) {
+      userProjects = await db.select({
+        id: projects.id,
+        name: projects.name,
+      })
+        .from(projects)
+        .where(
+          inArray(projects.teamId, teamIds)
+        )
+        .orderBy(desc(projects.updatedAt))
+        .limit(50)
+    } else {
+      userProjects = await db.select({
+        id: projects.id,
+        name: projects.name,
+      })
+        .from(projects)
+        .where(eq(projects.ownerId, userId))
+        .orderBy(desc(projects.updatedAt))
+        .limit(50)
+    }
+
+    return userProjects
   }
 
   // ─── Notification fan-out ──────────────────────────────────────
