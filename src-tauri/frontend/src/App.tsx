@@ -56,7 +56,7 @@ function DataBootstrap({ children }: { children: ReactNode }) {
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const loadSettings = useSettingsStore((s) => s.load)
   const activitiesLoaded = useActivityStore((s) => s.loaded)
-  const loadActivities = useActivityStore((s) => s.load)
+  const loadActivities = useActivityStore((s) => s.loadActivities)
   const examplesLoaded = useExampleStore((s) => s.loaded)
   const loadExamples = useExampleStore((s) => s.load)
 
