@@ -69,6 +69,7 @@ import { projectCompletionHook } from './lib/events/hooks/project-completion-hoo
 import { prAutoLinkHook } from './lib/events/hooks/pr-auto-link-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { observationsRoute } from './routes/observations.js'
+import { referencesRoute } from './routes/references.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 import { streamingEventLog } from './lib/streaming-event-log.js'
@@ -227,6 +228,7 @@ export function createApp() {
   app.route('/api/teams', teamsRoute)
   app.route('/api/community', communityRoute)
   app.route('/api/executions', executionsRoute)
+  app.route('/api/references', referencesRoute)
 
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)

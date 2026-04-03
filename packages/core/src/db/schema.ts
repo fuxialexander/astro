@@ -1155,3 +1155,43 @@ export const githubSyncLog = pgTable('github_sync_log', {
   index('github_sync_log_project_id_idx').on(table.projectId),
   index('github_sync_log_created_at_idx').on(table.createdAt),
 ])
+
+// ── References ──────────────────────────────────────────────────────
+// Imported bibliographic references (from BibTeX, RIS, EndNote XML, etc.)
+// Stored in CSL-JSON-like format for universal citation rendering.
+export interface CslAuthorJson {
+  family?: string
+  given?: string
+  literal?: string
+}
+export const references = pgTable('references', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  type: text('type').notNull().default('document'), // CSL type: article-journal, book, chapter, etc.
+  title: text('title').notNull(),
+  authors: jsonb('authors').$type<CslAuthorJson[]>().notNull().default([]),
+  year: text('year'),
+  month: text('month'),
+  abstract: text('abstract'),
+  doi: text('doi'),
+  url: text('url'),
+  journal: text('journal'),
+  volume: text('volume'),
+  issue: text('issue'),
+  pages: text('pages'),
+  publisher: text('publisher'),
+  isbn: text('isbn'),
+  issn: text('issn'),
+  keywords: text('keywords').array().default([]),
+  language: text('language'),
+  extra: jsonb('extra').$type<Record<string, string>>(),
+  sourceFormat: text('source_format'), // 'bibtex' | 'ris' | 'endnote-xml'
+  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('references_project_id_idx').on(table.projectId),
+  index('references_team_id_idx').on(table.teamId),
+  index('references_doi_idx').on(table.doi),
+])
