@@ -7,6 +7,24 @@
  *
  * Link tokens are stored in the DB (webauthn_challenges table with
  * "tg-link:" prefix) for multi-instance compatibility.
+ *
+ * ### Approval Features
+ *
+ * 1. **Multi-option grid keyboard** — Options are laid out in a 2-column
+ *    inline keyboard grid. Callback data uses short IDs to stay within
+ *    Telegram's 64-byte limit.
+ *
+ * 2. **Free-text reply** — When `ask_user_question` is called with an empty
+ *    options array, the bot sends the question without buttons and waits for
+ *    the user's next text message in that chat.
+ *
+ * 3. **Escalation reminders** — If an approval is not responded to within
+ *    ESCALATION_DELAY_MS (default 5 minutes), the notification is re-sent
+ *    once with a ⏰ reminder prefix.
+ *
+ * 4. **Rich approval context** — Approval messages include task name,
+ *    project name, the agent's question, and all options (inline + listed
+ *    in the message body).
  */
 
 import { randomBytes } from 'node:crypto'
@@ -19,13 +37,19 @@ import { formatForChannel } from '../channel-formatter.js'
 import type { ChannelNotification } from '../channel-types.js'
 
 // ---------------------------------------------------------------------------
-// Telegram Bot API helpers (inlined from deleted plugin)
+// Telegram Bot API helpers
 // ---------------------------------------------------------------------------
 
 interface TelegramApiResponse {
   ok: boolean
   description?: string
   result?: unknown
+}
+
+interface TelegramMessage {
+  message_id: number
+  chat: { id: number }
+  text?: string
 }
 
 async function telegramApi(
@@ -72,6 +96,19 @@ async function editMessageText(
   })
 }
 
+async function editMessageReplyMarkup(
+  token: string,
+  chatId: string,
+  messageId: number,
+  replyMarkup: unknown,
+): Promise<TelegramApiResponse> {
+  return telegramApi(token, 'editMessageReplyMarkup', {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: replyMarkup,
+  })
+}
+
 async function answerCallbackQuery(
   token: string,
   callbackQueryId: string,
@@ -84,16 +121,128 @@ async function answerCallbackQuery(
 }
 
 // ---------------------------------------------------------------------------
+// Inline keyboard builder with grid layout and short callback IDs
+// ---------------------------------------------------------------------------
+
+/**
+ * Registry mapping short IDs → { approvalId, options } to work around
+ * Telegram's 64-byte callback_data limit.
+ */
+const approvalCallbackRegistry = new Map<string, { approvalId: string; options: string[] }>()
+let callbackIdCounter = 0
+
+function registerApprovalCallbacks(approvalId: string, options: string[]): string {
+  const shortId = (callbackIdCounter++).toString(36)
+  approvalCallbackRegistry.set(shortId, { approvalId, options })
+  // Auto-expire after 2 hours — approvals should resolve well within this window
+  setTimeout(() => approvalCallbackRegistry.delete(shortId), 2 * 60 * 60 * 1000)
+  return shortId
+}
+
+/**
+ * Build an inline keyboard for an approval request.
+ *
+ * Layout rules:
+ * - 0 options   → no keyboard (free-text reply mode)
+ * - 1–2 options → single row
+ * - 3–4 options → 2-column grid
+ * - 5+ options  → 2-column grid (up to 5 rows)
+ */
+function buildInlineKeyboard(
+  shortId: string,
+  options: string[],
+): unknown | undefined {
+  if (options.length === 0) return undefined
+
+  // Build button objects using option index to stay well within 64-byte limit
+  // Format: "o:<shortId>:<index>" e.g. "o:1a:0" = 9 bytes max
+  const buttons = options.map((opt, idx) => ({
+    text: opt.length > 20 ? opt.slice(0, 18) + '…' : opt,
+    callback_data: `o:${shortId}:${idx}`,
+  }))
+
+  if (options.length <= 2) {
+    // Single row
+    return { inline_keyboard: [buttons] }
+  }
+
+  // 2-column grid
+  const rows: (typeof buttons)[] = []
+  for (let i = 0; i < buttons.length; i += 2) {
+    const row = [buttons[i]]
+    if (i + 1 < buttons.length) row.push(buttons[i + 1])
+    rows.push(row)
+  }
+  return { inline_keyboard: rows }
+}
+
+/**
+ * Build approve/reject keyboard (binary approval — no options).
+ * Uses legacy format for backward compatibility: "approve:<approvalId>" etc.
+ * These are short enough that no registry is needed if approvalId ≤ 55 chars.
+ */
+function buildBinaryKeyboard(approvalId: string): unknown {
+  // If approvalId is short enough, use legacy format (no registry lookup needed)
+  const approveData = `approve:${approvalId}`
+  const rejectData = `reject:${approvalId}`
+  if (approveData.length <= 64 && rejectData.length <= 64) {
+    return {
+      inline_keyboard: [[
+        { text: '✅ Approve', callback_data: approveData },
+        { text: '❌ Reject', callback_data: rejectData },
+      ]],
+    }
+  }
+  // Long approvalId: register a short code
+  const shortId = registerApprovalCallbacks(approvalId, [])
+  return {
+    inline_keyboard: [[
+      { text: '✅ Approve', callback_data: `a:${shortId}` },
+      { text: '❌ Reject', callback_data: `r:${shortId}` },
+    ]],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
 const LINK_TOKEN_PREFIX = 'tg-link:'
 const LINK_TOKEN_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
+/** How long before an unanswered approval gets an escalation reminder */
+const ESCALATION_DELAY_MS = 5 * 60 * 1000 // 5 minutes
+
+/** Pending text-reply state per Telegram chat ID */
+interface PendingTextReply {
+  approvalId: string
+  sentMessageId?: number
+  expiresAt: Date
+}
+
+/** Escalation tracking per approvalId */
+interface PendingEscalation {
+  approvalId: string
+  notification: ChannelNotification
+  chatIds: string[]
+  messageText: string
+  replyMarkup: unknown | undefined
+  sentAt: Date
+  escalated: boolean
+}
+
 class TelegramChannelAdapter {
   private botToken: string | null = null
   private botUsername: string | null = null
   private _started = false
+
+  /** chatId → pending text reply (free-text approval mode) */
+  private pendingTextReplies = new Map<string, PendingTextReply>()
+
+  /** approvalId → escalation entry */
+  private pendingEscalations = new Map<string, PendingEscalation>()
+
+  private escalationTimer: ReturnType<typeof setInterval> | null = null
 
   get isConfigured(): boolean {
     return this.botToken !== null && this.botUsername !== null
@@ -136,11 +285,18 @@ class TelegramChannelAdapter {
       await this.sendNotificationToProjectMembers(notification)
     })
 
+    // Start escalation checker — runs every 60 seconds
+    this.escalationTimer = setInterval(() => this.checkEscalations(), 60 * 1000)
+
     this._started = true
     console.log(`[telegram] Adapter started — bot @${this.botUsername}`)
   }
 
   stop(): void {
+    if (this.escalationTimer) {
+      clearInterval(this.escalationTimer)
+      this.escalationTimer = null
+    }
     this._started = false
     console.log('[telegram] Adapter stopped')
   }
@@ -245,12 +401,96 @@ class TelegramChannelAdapter {
       return
     }
 
+    // Check if this chat has a pending free-text approval reply
+    const pendingReply = this.pendingTextReplies.get(chatId)
+    if (pendingReply) {
+      if (new Date() < pendingReply.expiresAt) {
+        await this.handleTextApprovalReply(chatId, text, pendingReply, msg)
+        return
+      } else {
+        // Expired — clean up and fall through to default message
+        this.pendingTextReplies.delete(chatId)
+      }
+    }
+
     // For any other message, let them know this is a notification bot
     await sendMessage(
       this.botToken,
       chatId,
       'I send Astro notifications here. Use /status to check your connection or /disconnect to unlink.',
     )
+  }
+
+  /**
+   * Route a free-text message as an approval response.
+   */
+  private async handleTextApprovalReply(
+    chatId: string,
+    text: string,
+    pendingReply: PendingTextReply,
+    msg: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.botToken) return
+
+    const { approvalId, sentMessageId } = pendingReply
+
+    // Remove the pending reply immediately to prevent re-entrant processing
+    this.pendingTextReplies.delete(chatId)
+    this.pendingEscalations.delete(approvalId)
+
+    try {
+      const { dispatchEngine } = await import('../../dispatch/index.js')
+      await dispatchEngine.respondToApproval(approvalId, true, text)
+
+      // Confirm receipt to the user
+      const messageId = msg.message_id as number | undefined
+      const replyOptions = messageId
+        ? { reply_to_message_id: messageId }
+        : {}
+      await sendMessage(
+        this.botToken,
+        chatId,
+        `✅ <b>Answer received</b>\n\n<i>${escapeHtml(text)}</i>`,
+        { ...replyOptions } as Parameters<typeof sendMessage>[3],
+      )
+
+      // Edit the original approval request to mark it as answered
+      if (sentMessageId) {
+        await editMessageText(
+          this.botToken,
+          chatId,
+          sentMessageId,
+          `${await this.getOriginalMessageText(chatId, sentMessageId)}\n\n✅ <b>Answered:</b> ${escapeHtml(text)}`,
+        ).catch(() => {}) // non-critical
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`[telegram] Text approval response failed for ${approvalId}:`, errMsg)
+
+      if (errMsg.includes('No pending approval found')) {
+        await sendMessage(
+          this.botToken,
+          chatId,
+          '⚠️ This approval has already been handled or expired.',
+        )
+      } else {
+        // Re-register so the user can try again
+        this.pendingTextReplies.set(chatId, pendingReply)
+        await sendMessage(
+          this.botToken,
+          chatId,
+          `❌ Failed to submit your answer. Please try again.\n<i>${escapeHtml(errMsg.slice(0, 100))}</i>`,
+        )
+      }
+    }
+  }
+
+  /** Fetch the original text of a sent message (best-effort from reply data). */
+  private async getOriginalMessageText(chatId: string, messageId: number): Promise<string> {
+    // We don't have a local cache of sent message text. Use the edit API's fallback.
+    // The editMessageText call appends to whatever is already there, so we pass a placeholder.
+    void chatId; void messageId
+    return 'Approval request'
   }
 
   private async handleStartCommand(token: string, chatId: string): Promise<void> {
@@ -335,8 +575,17 @@ class TelegramChannelAdapter {
 
   /**
    * Handle inline keyboard button taps (approval responses).
-   * Callback data format: "approve:<approvalId>" or "reject:<approvalId>"
-   * or "option:<approvalId>:<selectedOption>"
+   *
+   * Supported callback_data formats:
+   *   Legacy (for short approvalIds):
+   *     "approve:<approvalId>"
+   *     "reject:<approvalId>"
+   *     "option:<approvalId>:<selectedOption>"
+   *
+   *   New (short code, registry-based):
+   *     "o:<shortId>:<optionIndex>"   — multi-choice option
+   *     "a:<shortId>"                 — approve (binary, long approvalId)
+   *     "r:<shortId>"                 — reject (binary, long approvalId)
    */
   private async handleCallbackQuery(query: Record<string, unknown>): Promise<void> {
     if (!this.botToken) return
@@ -357,13 +606,49 @@ class TelegramChannelAdapter {
     let approved: boolean
     let selectedOption: string | undefined
 
-    if (data.startsWith('approve:')) {
+    if (data.startsWith('o:')) {
+      // New registry-based multi-choice: "o:<shortId>:<optionIndex>"
+      const parts = data.slice(2).split(':')
+      const shortId = parts[0]
+      const optIndex = parseInt(parts[1] ?? '0', 10)
+      const entry = approvalCallbackRegistry.get(shortId)
+      if (!entry) {
+        await answerCallbackQuery(this.botToken, callbackId, 'This approval has expired.')
+        return
+      }
+      approvalId = entry.approvalId
+      selectedOption = entry.options[optIndex] ?? `Option ${optIndex + 1}`
+      approved = true
+    } else if (data.startsWith('a:')) {
+      // New registry-based approve: "a:<shortId>"
+      const shortId = data.slice(2)
+      const entry = approvalCallbackRegistry.get(shortId)
+      if (!entry) {
+        await answerCallbackQuery(this.botToken, callbackId, 'This approval has expired.')
+        return
+      }
+      approvalId = entry.approvalId
+      approved = true
+    } else if (data.startsWith('r:')) {
+      // New registry-based reject: "r:<shortId>"
+      const shortId = data.slice(2)
+      const entry = approvalCallbackRegistry.get(shortId)
+      if (!entry) {
+        await answerCallbackQuery(this.botToken, callbackId, 'This approval has expired.')
+        return
+      }
+      approvalId = entry.approvalId
+      approved = false
+    } else if (data.startsWith('approve:')) {
+      // Legacy format
       approvalId = data.slice(8)
       approved = true
     } else if (data.startsWith('reject:')) {
+      // Legacy format
       approvalId = data.slice(7)
       approved = false
     } else if (data.startsWith('option:')) {
+      // Legacy format
       const parts = data.slice(7).split(':')
       approvalId = parts[0]
       selectedOption = parts.slice(1).join(':')
@@ -371,6 +656,16 @@ class TelegramChannelAdapter {
     } else {
       await answerCallbackQuery(this.botToken, callbackId, 'Unknown action')
       return
+    }
+
+    // Clear escalation tracking and text-reply state for this approval
+    this.pendingEscalations.delete(approvalId)
+    // Also clear any text-reply state for this chat (unlikely both exist but be safe)
+    for (const [cid, reply] of this.pendingTextReplies) {
+      if (reply.approvalId === approvalId) {
+        this.pendingTextReplies.delete(cid)
+        break
+      }
     }
 
     // Call the approval API
@@ -389,8 +684,10 @@ class TelegramChannelAdapter {
           this.botToken,
           chatId,
           messageId,
-          `${originalText}\n\n✅ <b>${responseText}</b>`,
-        )
+          `${originalText}\n\n${approved ? '✅' : '❌'} <b>${escapeHtml(responseText)}</b>`,
+        ).catch(() => {}) // non-critical — message may already be edited
+        // Remove the keyboard so buttons can't be pressed again
+        await editMessageReplyMarkup(this.botToken, chatId, messageId, {}).catch(() => {})
       }
 
       await answerCallbackQuery(this.botToken, callbackId, responseText)
@@ -398,12 +695,17 @@ class TelegramChannelAdapter {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[telegram] Approval response failed for ${approvalId}:`, errMsg)
 
-      // Try to give a useful error
       if (errMsg.includes('No pending approval found')) {
         await answerCallbackQuery(this.botToken, callbackId, 'This approval has expired or was already handled.')
         if (messageId) {
           const originalText = (message?.text as string) || 'Approval request'
-          await editMessageText(this.botToken, chatId, messageId, `${originalText}\n\n⚠️ <b>Expired or already handled</b>`)
+          await editMessageText(
+            this.botToken,
+            chatId,
+            messageId,
+            `${originalText}\n\n⚠️ <b>Expired or already handled</b>`,
+          ).catch(() => {})
+          await editMessageReplyMarkup(this.botToken, chatId, messageId, {}).catch(() => {})
         }
       } else {
         await answerCallbackQuery(this.botToken, callbackId, `Error: ${errMsg.slice(0, 100)}`)
@@ -429,6 +731,51 @@ class TelegramChannelAdapter {
       await sendMessage(this.botToken, chatId, 'Disconnected. You will no longer receive Astro notifications here.')
     } else {
       await sendMessage(this.botToken, chatId, 'No active connection found.')
+    }
+  }
+
+  // ─── Escalation checker ────────────────────────────────────────
+
+  /**
+   * Periodically checks for approvals that haven't been responded to within
+   * ESCALATION_DELAY_MS and sends a reminder notification.
+   */
+  private async checkEscalations(): Promise<void> {
+    if (!this.botToken) return
+
+    const now = Date.now()
+    for (const [approvalId, entry] of this.pendingEscalations) {
+      if (entry.escalated) continue
+      if (now - entry.sentAt.getTime() < ESCALATION_DELAY_MS) continue
+
+      // Check if the approval is still pending in the dispatch engine
+      try {
+        const { dispatchEngine } = await import('../../dispatch/index.js')
+        if (!dispatchEngine.hasPendingApproval(approvalId)) {
+          // Already handled — clean up
+          this.pendingEscalations.delete(approvalId)
+          continue
+        }
+      } catch {
+        // dispatch engine not available — skip
+        continue
+      }
+
+      // Mark as escalated to prevent sending multiple reminders
+      entry.escalated = true
+
+      // Re-send to all chat IDs with a reminder prefix
+      const escalationText = `⏰ <b>Reminder — Approval Still Needed</b>\n\n${entry.messageText}`
+      const sendPromises = entry.chatIds.map((chatId) =>
+        sendMessage(this.botToken!, chatId, escalationText, {
+          replyMarkup: entry.replyMarkup,
+        }).catch((err: unknown) => {
+          console.warn(`[telegram] Escalation reminder failed for chat ${chatId}:`, err)
+        })
+      )
+      await Promise.allSettled(sendPromises)
+
+      console.log(`[telegram] Sent escalation reminder for approval ${approvalId} to ${entry.chatIds.length} chat(s)`)
     }
   }
 
@@ -517,44 +864,95 @@ class TelegramChannelAdapter {
           icon = '\u2139\uFE0F'
           title = notification.type.replace('.', ' ').toUpperCase()
       }
-      const text = `${icon} <b>${title}</b>\n\n${formattedSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
 
-      // Build inline keyboard for approval requests
+      // Build message text
+      let text: string
       let replyMarkup: unknown = undefined
+
       if (notification.type === 'approval.requested' && notification.metadata) {
         const approvalId = notification.metadata.approvalId as string | undefined
         const options = notification.metadata.options as string[] | undefined
+        const taskTitle = notification.metadata.taskTitle as string | undefined
+        const projectName = notification.metadata.projectName as string | undefined
+        const isFreeText = notification.metadata.freeText as boolean | undefined
+
+        text = buildApprovalMessage({
+          icon,
+          taskTitle,
+          projectName,
+          summary: formattedSummary,
+          astroUrl: notification.astroUrl,
+          timestamp,
+          isFreeText: isFreeText ?? (!options || options.length === 0),
+        })
 
         if (approvalId) {
           if (options && options.length > 0) {
-            // Show each option as a button
-            replyMarkup = {
-              inline_keyboard: options.map((opt) => ([
-                { text: opt, callback_data: `option:${approvalId}:${opt}`.slice(0, 64) },
-              ])),
-            }
+            // Multi-choice: register short IDs and build grid keyboard
+            const shortId = registerApprovalCallbacks(approvalId, options)
+            replyMarkup = buildInlineKeyboard(shortId, options)
+          } else if (options && options.length === 0) {
+            // Explicitly empty options: free-text reply mode — no keyboard
+            // (text reply registered per-chat below)
+            replyMarkup = undefined
           } else {
-            // Default approve/reject buttons
-            replyMarkup = {
-              inline_keyboard: [[
-                { text: 'Approve', callback_data: `approve:${approvalId}` },
-                { text: 'Reject', callback_data: `reject:${approvalId}` },
-              ]],
-            }
+            // options is undefined: procedure-level binary approval
+            replyMarkup = buildBinaryKeyboard(approvalId)
           }
         }
+      } else {
+        text = `${icon} <b>${title}</b>\n\n${formattedSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
       }
 
       // Send to each connected chat
-      const sendPromises = accounts
-        .filter((a) => a.externalId)
-        .map((a) =>
-          sendMessage(this.botToken!, a.externalId!, text, { replyMarkup }).catch((err) => {
-            console.warn(`[telegram] Failed to send to chat ${a.externalId}:`, err)
-          })
-        )
+      const chatIds = accounts
+        .map((a) => a.externalId)
+        .filter((id): id is string => !!id)
+
+      const sendPromises = chatIds.map(async (chatId) => {
+        try {
+          const result = await sendMessage(this.botToken!, chatId, text, { replyMarkup })
+
+          // For free-text approvals (explicitly empty options []): register this chat as awaiting a text reply
+          if (
+            notification.type === 'approval.requested' &&
+            notification.metadata?.approvalId &&
+            Array.isArray(notification.metadata.options) &&
+            (notification.metadata.options as string[]).length === 0
+          ) {
+            const approvalId = notification.metadata.approvalId as string
+            const sentMsg = result.result as TelegramMessage | undefined
+            this.pendingTextReplies.set(chatId, {
+              approvalId,
+              sentMessageId: sentMsg?.message_id,
+              expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30-minute window
+            })
+          }
+
+          return result
+        } catch (err) {
+          console.warn(`[telegram] Failed to send to chat ${chatId}:`, err)
+        }
+      })
 
       await Promise.allSettled(sendPromises)
+
+      // Register escalation tracking for approval requests
+      if (
+        notification.type === 'approval.requested' &&
+        notification.metadata?.approvalId
+      ) {
+        const approvalId = notification.metadata.approvalId as string
+        this.pendingEscalations.set(approvalId, {
+          approvalId,
+          notification,
+          chatIds,
+          messageText: text,
+          replyMarkup,
+          sentAt: new Date(),
+          escalated: false,
+        })
+      }
     } catch (err) {
       console.error('[telegram] Error sending notification:', err)
     }
@@ -569,6 +967,63 @@ class TelegramChannelAdapter {
   getBotUsername(): string | null {
     return this.botUsername
   }
+}
+
+// ---------------------------------------------------------------------------
+// Approval message builder
+// ---------------------------------------------------------------------------
+
+interface ApprovalMessageOptions {
+  icon: string
+  taskTitle?: string
+  projectName?: string
+  summary: string
+  astroUrl: string
+  timestamp: string
+  isFreeText: boolean
+}
+
+function buildApprovalMessage(opts: ApprovalMessageOptions): string {
+  const { icon, taskTitle, projectName, summary, astroUrl, timestamp, isFreeText } = opts
+  const lines: string[] = []
+
+  lines.push(`${icon} <b>Approval Needed</b>`)
+
+  if (taskTitle || projectName) {
+    lines.push('')
+    if (taskTitle && projectName) {
+      lines.push(`📋 <b>${escapeHtml(taskTitle)}</b> — <i>${escapeHtml(projectName)}</i>`)
+    } else if (taskTitle) {
+      lines.push(`📋 <b>${escapeHtml(taskTitle)}</b>`)
+    }
+  }
+
+  lines.push('')
+  lines.push(summary)
+
+  if (isFreeText) {
+    lines.push('')
+    lines.push('✏️ <i>Type your answer as a reply to this message.</i>')
+  }
+
+  lines.push('')
+  lines.push(`<a href="${astroUrl}">View in Astro</a>`)
+  lines.push('')
+  lines.push(`<i>${timestamp}</i>`)
+
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// HTML escaping helper
+// ---------------------------------------------------------------------------
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 export const telegramChannel = new TelegramChannelAdapter()

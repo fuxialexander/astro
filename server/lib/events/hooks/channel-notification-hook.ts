@@ -12,6 +12,9 @@
 import type { EventHook, TaskCompletedEvent } from '../types.js'
 import { channelRouter } from '../../channel/channel-router.js'
 import type { ChannelNotification, NotificationType } from '../../channel/channel-types.js'
+import { db } from '../../db/index.js'
+import { planNodes, projects } from '../../db/schema.js'
+import { eq } from 'drizzle-orm'
 
 const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
 
@@ -146,15 +149,62 @@ export const channelNotificationHook: EventHook = async (event) => {
         : (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
           ? `${BASE_URL}/playground?projectId=${event.projectId}`
           : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
+
+      // Enrich with task title and project name for better approval context
+      let taskTitle: string | undefined
+      let projectName: string | undefined
+      let recentContext: string | undefined
+      try {
+        const [node] = await db.select({ title: planNodes.title })
+          .from(planNodes)
+          .where(eq(planNodes.id, event.nodeId))
+          .limit(1)
+        taskTitle = node?.title
+
+        const [project] = await db.select({ name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, event.projectId))
+          .limit(1)
+        projectName = project?.name
+
+        // Include subroutine name as additional context if available
+        if (event.subroutine?.name) {
+          recentContext = `Running: ${event.subroutine.name}`
+        }
+      } catch {
+        // non-critical — continue without enrichment
+      }
+
+      // Build a rich summary that gives the user full context
+      const summaryLines: string[] = []
+      if (taskTitle && projectName) {
+        summaryLines.push(`**${taskTitle}** (${projectName})`)
+      } else if (taskTitle) {
+        summaryLines.push(`**${taskTitle}**`)
+      }
+      if (recentContext) {
+        summaryLines.push(recentContext)
+      }
+      summaryLines.push('')
+      summaryLines.push(event.message)
+      // If options are available, list them so users have context even in non-Telegram channels
+      if (event.options && event.options.length > 0) {
+        summaryLines.push('')
+        summaryLines.push('Options: ' + event.options.join(' · '))
+      }
+
       notification = {
         type: 'approval.requested' as NotificationType,
         projectId: event.projectId,
-        summary: `Approval needed: ${event.message}`,
+        summary: summaryLines.filter(Boolean).join('\n').trim() || `Approval needed: ${event.message}`,
         astroUrl: approvalUrl,
         metadata: {
           approvalId: event.approvalId,
           nodeId: event.nodeId,
           options: event.options,
+          taskTitle,
+          projectName,
+          freeText: Array.isArray(event.options) && event.options.length === 0, // explicitly empty = free-text reply mode
         },
       }
       break

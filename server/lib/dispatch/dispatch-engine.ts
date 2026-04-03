@@ -923,6 +923,14 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
+   * Check if a specific approval ID is still pending (not yet responded).
+   * Used by Telegram adapter to skip escalation reminders for already-handled approvals.
+   */
+  hasPendingApproval(approvalId: string): boolean {
+    return this.pendingApprovals.has(approvalId)
+  }
+
+  /**
    * Start polling for ready tasks.
    * Uses Redis leader election when multiple instances are running —
    * only one instance polls to prevent duplicate task dispatch.

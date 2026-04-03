@@ -3223,8 +3223,9 @@ dispatchRoute.post('/request-dynamic-approval', async (c) => {
     return c.json({ success: false, error: 'question required (string)' }, 400)
   }
 
-  if (!Array.isArray(options) || options.length < 2 || options.length > 5) {
-    return c.json({ success: false, error: 'options must be array of 2-5 strings' }, 400)
+  // options can be 0 (free-text reply), 2-5 (multi-choice buttons), or 1 (single choice)
+  if (!Array.isArray(options) || options.length > 10) {
+    return c.json({ success: false, error: 'options must be an array of up to 10 strings (empty = free-text reply)' }, 400)
   }
 
   // Check YOLO mode: auto-approve with first option
