@@ -1155,3 +1155,53 @@ export const githubSyncLog = pgTable('github_sync_log', {
   index('github_sync_log_project_id_idx').on(table.projectId),
   index('github_sync_log_created_at_idx').on(table.createdAt),
 ])
+
+// ── References ──────────────────────────────────────────────────────
+// Academic references stored in CSL-JSON format.
+// Supports multiple sources (Zotero, manual entry, DOI import).
+export const references = pgTable('references', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  source: text('source').notNull().default('manual'), // 'zotero' | 'manual' | 'doi'
+  zoteroKey: text('zotero_key'),         // Zotero item key (e.g., 'ABC12345')
+  zoteroLibraryId: text('zotero_library_id'), // Library ID (user or group)
+  zoteroVersion: integer('zotero_version'),   // Zotero item version for conflict detection
+  cslJson: jsonb('csl_json').$type<Record<string, unknown>>().notNull(), // Full CSL-JSON object
+  title: text('title').notNull().default(''),
+  authors: text('authors').notNull().default(''), // Formatted author string for display
+  year: text('year'),
+  doi: text('doi'),
+  abstract: text('abstract'),
+  itemType: text('item_type'),           // 'journalArticle', 'book', 'conferencePaper', etc.
+  tags: text('tags').array().notNull().default([]),
+  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('references_user_id_idx').on(table.userId),
+  index('references_team_id_idx').on(table.teamId),
+  index('references_source_idx').on(table.source),
+  uniqueIndex('references_zotero_key_library_user_idx')
+    .on(table.userId, table.zoteroKey, table.zoteroLibraryId)
+    .where(sql`${table.zoteroKey} IS NOT NULL`),
+  index('references_doi_idx').on(table.doi),
+])
+
+// ── Zotero Sync State ───────────────────────────────────────────────
+// Tracks per-library sync version for incremental Zotero syncs.
+export const zoteroSyncState = pgTable('zotero_sync_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  libraryType: text('library_type').notNull(), // 'user' | 'group'
+  libraryId: text('library_id').notNull(),     // Zotero user ID or group ID
+  libraryName: text('library_name').notNull().default(''),
+  lastSyncVersion: integer('last_sync_version').notNull().default(0),
+  lastSyncedAt: timestamp('last_synced_at'),
+  itemCount: integer('item_count').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  unique('zotero_sync_state_user_library_unique').on(table.userId, table.libraryType, table.libraryId),
+  index('zotero_sync_state_user_id_idx').on(table.userId),
+])

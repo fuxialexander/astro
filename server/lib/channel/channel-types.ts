@@ -91,7 +91,7 @@ export interface ChannelNotification {
 // Channel types and format
 // ---------------------------------------------------------------------------
 
-export type ChannelType = 'slack' | 'telegram' | 'github' | 'linear' | 'openclaw'
+export type ChannelType = 'slack' | 'telegram' | 'github' | 'linear' | 'openclaw' | 'zotero'
 export type ChannelFormat = 'slack_mrkdwn' | 'telegram_html' | 'github_gfm' | 'linear_markdown' | 'openclaw'
 
 // ---------------------------------------------------------------------------

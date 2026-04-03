@@ -59,4 +59,6 @@ export {
   scheduleRuns,
   loopIterations,
   deliveryBranches,
+  references,
+  zoteroSyncState,
 } from '../../../packages/core/src/db/schema.js'

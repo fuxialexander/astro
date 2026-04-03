@@ -31,9 +31,9 @@ function maskCredentials(creds: Record<string, unknown>): Record<string, unknown
   return masked
 }
 
-type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw'
+type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw' | 'zotero'
 
-const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear', 'openclaw']
+const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear', 'openclaw', 'zotero']
 
 const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   slack: ['botToken', 'signingSecret'],
@@ -41,6 +41,7 @@ const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   github_webhook: ['authToken', 'webhookSecret'],
   linear: ['apiToken', 'webhookSecret'],
   openclaw: ['gatewayUrl'],
+  zotero: ['apiKey', 'userId'],
 }
 
 // ── Routes ──────────────────────────────────────────────────────────
@@ -280,6 +281,31 @@ app.post('/:id/test', async (c) => {
           }
         }
         return c.json({ success: false, message: 'Linear auth failed' })
+      }
+
+      case 'zotero': {
+        const zoteroRes = await fetch(`https://api.zotero.org/keys/${creds.apiKey}`, {
+          headers: {
+            'Zotero-API-Key': creds.apiKey,
+            'Zotero-API-Version': '3',
+          },
+        })
+        if (zoteroRes.ok) {
+          const zoteroData = await zoteroRes.json() as { userID: number; username?: string }
+          if (String(zoteroData.userID) !== creds.userId) {
+            return c.json({ success: false, message: `API key belongs to user ${zoteroData.userID}, not ${creds.userId}` })
+          }
+          // Update external_id with Zotero username
+          if (zoteroData.username) {
+            await db
+              .update(connectedAccounts)
+              .set({ externalId: zoteroData.username, updatedAt: new Date() })
+              .where(eq(connectedAccounts.id, id))
+            channelConfigManager.invalidateCache()
+          }
+          return c.json({ success: true, message: `Connected to Zotero as: ${zoteroData.username || `user ${zoteroData.userID}`}`, details: zoteroData })
+        }
+        return c.json({ success: false, message: `Zotero auth failed: ${zoteroRes.status} ${zoteroRes.statusText}` })
       }
 
       case 'openclaw': {
