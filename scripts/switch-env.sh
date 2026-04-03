@@ -204,9 +204,11 @@ EOF
 switch_to() {
   local mode="$1"
 
-  # Kill stale processes on dev ports
-  echo "Cleaning up ports..."
-  kill_ports
+  # Only kill dev ports if KILL_PORTS=1 is set (avoids killing prod agent runners)
+  if [[ "${KILL_PORTS:-0}" == "1" ]]; then
+    echo "Cleaning up ports..."
+    kill_ports
+  fi
 
   case "$mode" in
     local)

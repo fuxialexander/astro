@@ -9,7 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle, RefreshCw } from "lucide-react"
+import { Sparkles, Loader2, GitBranch, Info, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -39,7 +39,6 @@ import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useToastStore } from "@/stores/toast-store"
-import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable } from "@/components/execution/provider-utils"
@@ -63,6 +62,7 @@ export function ProjectNewPlan() {
     templateLaunchResult?: LaunchExampleResult
     templatePrefill?: ExamplePrefillData
     openExamplePicker?: boolean
+    initialGoal?: string
   } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
@@ -71,7 +71,7 @@ export function ProjectNewPlan() {
   const openExamplePickerFromState = locationState?.openExamplePicker
 
   // Input phase state
-  const [description, setDescription] = useState("")
+  const [description, setDescription] = useState(locationState?.initialGoal ?? "")
   const [workingDir, setWorkingDir] = useState("")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -157,13 +157,14 @@ export function ProjectNewPlan() {
 
 
   // Stores
-  const startPlanGeneration = useExecutionStore((s) => s.startPlanGeneration)
-  const startPlanGenerationForProject = useExecutionStore((s) => s.startPlanGenerationForProject)
+  const startSession = useExecutionStore((s) => s.startSession)
+  const startSessionForProject = useExecutionStore((s) => s.startSessionForProject)
   const setStoreAutoExecute = useExecutionStore((s) => s.setAutoExecute)
-  const allExecutions = useExecutionStore((s) => s.executions)
-  const execution = useExecutionStore((s) =>
-    activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
-  )
+  const execution = useExecutionStore((s) => {
+    if (!activeProjectId) return undefined
+    // Try session- first, then plan- for backward compat with existing sessions
+    return s.executions.get(`session-${activeProjectId}`) || s.executions.get(`plan-${activeProjectId}`)
+  })
   const allProjects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const project = useProjectStore((s) =>
@@ -189,21 +190,23 @@ export function ProjectNewPlan() {
     fromPlaygroundId ? s.executions.get(`playground-${fromPlaygroundId}`) : undefined
   )
 
-  // Recent project chat sessions (projectType === 'plan')
+  // Recent project sessions with plan nodes (node-based, replaces projectType === 'plan')
   const planHistory = useMemo(() => {
+    const idsWithNodes = new Set(planNodes.filter(isLive).map((n) => n.projectId))
     return allProjects
-      .filter((p) => p.projectType === 'plan')
+      .filter((p) => idsWithNodes.has(p.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20)
-  }, [allProjects])
+  }, [allProjects, planNodes])
 
-  // Playground sessions (for the session picker)
+  // Recent sessions without plan nodes (node-based, replaces projectType === 'playground')
   const playgroundHistory = useMemo(() => {
+    const idsWithNodes = new Set(planNodes.filter(isLive).map((n) => n.projectId))
     return allProjects
-      .filter((p) => p.projectType === 'playground')
+      .filter((p) => p.status === 'active' && !idsWithNodes.has(p.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20)
-  }, [allProjects])
+  }, [allProjects, planNodes])
 
   // Sessions store (Claude Code sessions from connected machines)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
@@ -598,7 +601,7 @@ export function ProjectNewPlan() {
           return wf !== 'all' ? wf : (useTeamStore.getState().getPersonalTeamId() ?? '')
         })(),
         status: "active",
-        projectType: "plan",
+        projectType: "default",
         color: getColorForName(project.name),
         icon: getProjectIconForName(project.name),
         workingDirectory: planGenerationRequest.workingDirectory || undefined,
@@ -607,7 +610,7 @@ export function ProjectNewPlan() {
       })
 
       // Start plan generation SSE using the existing project
-      await startPlanGenerationForProject(
+      await startSessionForProject(
         project.id,
         planGenerationRequest.description,
         {
@@ -644,7 +647,7 @@ export function ProjectNewPlan() {
     } finally {
       setTemplateLaunching(false)
     }
-  }, [startPlanGenerationForProject, setSearchParams, autoExecute, setStoreAutoExecute])
+  }, [startSessionForProject, setSearchParams, autoExecute, setStoreAutoExecute])
 
   // Auto-launch from Examples page (templateLaunchResult passed via location state)
   const templateLaunchHandled = useRef(false)
@@ -710,7 +713,7 @@ export function ProjectNewPlan() {
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
 
-        const result = await startPlanGenerationForProject(
+        const result = await startSessionForProject(
           existingProject.id,
           description.trim(),
           {
@@ -737,11 +740,11 @@ export function ProjectNewPlan() {
               ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
             }
           : undefined
-        const result = await startPlanGeneration(
+        const result = await startSession(
           description.trim(),
           firstLine,
           {
-            targetMachineId: selectedMachine?.machineId,
+            targetMachineId: selectedMachine?.machineId || '',
             workingDirectory: workingDir || undefined,
             preferredProvider: selectedProvider || undefined,
             model: effectiveModel,
@@ -860,20 +863,14 @@ export function ProjectNewPlan() {
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
             {isRegeneration ? t('regenerate') : t('generatePlan', { defaultValue: 'Plan' })}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            {isRegeneration
-              ? t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })
-              : t('planDesc', { defaultValue: 'Describe your goal in detail. Agent will build a plan with you collaboratively.' })}
-          </p>
+          {isRegeneration && (
+            <p className="text-sm text-muted-foreground">
+              {t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">
-          {/* Onboarding hint about machine setup */}
-          {allMachines.length > 0 && !selectedMachine && (
-            <OnboardingHint hintId="plan-machine-setup" icon={Monitor}>
-              Select a <strong>machine</strong> and <strong>working directory</strong> below so the plan can be executed on your environment.
-            </OnboardingHint>
-          )}
 
           {/* Playground context card */}
           {fromPlaygroundId && playgroundProject && (
@@ -1150,111 +1147,6 @@ export function ProjectNewPlan() {
             </Button>
           </div>
         </div>
-
-        {/* Recent Plan Sessions */}
-        {planHistory.length > 0 && (
-          <div id="plan-history" className="mt-10">
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              Recent Sessions
-            </h2>
-            <div className="flex flex-col gap-1">
-              {planHistory.map((p) => {
-                const exec = allExecutions.get(`plan-${p.id}`)
-                const statusLabel = exec?.status === 'running' ? 'Running'
-                  : exec?.status === 'success' ? 'Completed'
-                  : exec?.status === 'failure' ? 'Failed'
-                  : exec?.status === 'cancelled' ? 'Stopped'
-                  : 'Pending'
-                const statusColor = exec?.status === 'running' ? 'bg-primary'
-                  : exec?.status === 'success' ? 'bg-success'
-                  : exec?.status === 'failure' ? 'bg-destructive'
-                  : 'bg-muted-foreground'
-                const isFailed = exec?.status === 'failure'
-                const timestamp = p.updatedAt || p.createdAt
-
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => viewSession(p.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') viewSession(p.id) }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group cursor-pointer"
-                  >
-                    <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{p.name}</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-[10px] text-muted-foreground truncate font-mono">
-                          {p.workingDirectory || "—"}
-                        </p>
-                        {timestamp && (
-                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                            {new Date(timestamp).toLocaleString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {statusLabel && (
-                        <Badge variant="outline" className={cn("text-[10px] hidden md:inline-flex", isFailed && "border-destructive/40 text-destructive")}>
-                          {statusLabel}
-                        </Badge>
-                      )}
-                      {isFailed && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hidden md:inline-flex"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRegenerate(p.id)
-                          }}
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          Retry
-                        </Button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (activeProjectId === p.id) {
-                            setActiveProjectId(null)
-                            setSearchParams({})
-                          }
-                          // Cancel any running generation, then remove execution entry.
-                          // IMPORTANT: Do NOT call cleanupPlanGeneration or deleteProject —
-                          // the user is clearing plan session history, not deleting the project.
-                          const execStore = useExecutionStore.getState()
-                          const exec = execStore.executions.get(`plan-${p.id}`)
-                          if (exec?.status === 'pending' || exec?.status === 'running') {
-                            execStore.cancelPlanGeneration(p.id)
-                          }
-                          // Remove execution entry via proper Zustand set() (new Map reference)
-                          useExecutionStore.setState((state) => {
-                            const next = new Map(state.executions)
-                            next.delete(`plan-${p.id}`)
-                            return { executions: next }
-                          })
-                        }}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
-                        title="Delete session"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         {/* YOLO + no working directory warning dialog */}
         <Dialog open={showYoloWarning} onOpenChange={setShowYoloWarning}>

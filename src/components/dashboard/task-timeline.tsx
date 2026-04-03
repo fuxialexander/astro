@@ -50,7 +50,7 @@ export function TaskTimeline({ tasks, className }: TaskTimelineProps) {
         <button
           key={task.id}
           onClick={() => {
-            if (task.id.startsWith("playground-")) {
+            if (task.id.startsWith("playground-") || task.id.startsWith("session-")) {
               navigate(`/playground?projectId=${task.projectId}`)
             } else if (task.id.startsWith("plan-")) {
               navigate(`/welcome?projectId=${task.projectId}`)
@@ -64,7 +64,7 @@ export function TaskTimeline({ tasks, className }: TaskTimelineProps) {
           <div className="relative shrink-0">
             {task.id.startsWith("plan-") ? (
               <Sparkles className="h-4 w-4 text-info animate-pulse" />
-            ) : task.id.startsWith("playground-") ? (
+            ) : (task.id.startsWith("playground-") || task.id.startsWith("session-")) ? (
               <Play className="h-4 w-4 text-primary/70" />
             ) : (
               <Loader2 className="h-4 w-4 animate-spin text-primary/70" />

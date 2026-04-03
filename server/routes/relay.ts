@@ -88,9 +88,10 @@ relayRoute.get('/machines', async (c) => {
   const snapshot = machineRegistry.getSnapshot();
   // Include machines shared with the user's teams
   const teamSharedIds = user?.teamIds ? await getTeamSharedMachineIds(user.teamIds) : new Set<string>();
-  // Filter machines by authenticated user OR team sharing
+  // Filter machines by authenticated user OR team sharing, exclude machines in grace period
   const userMachines = snapshot.machines.filter(m =>
-    !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID || teamSharedIds.has(m.machineId)
+    m.connectionStatus !== 'reconnecting' &&
+    (!m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID || teamSharedIds.has(m.machineId))
   );
 
   // Cross-reference with persistent store to get user-set names

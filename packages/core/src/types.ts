@@ -392,7 +392,7 @@ export type TaskActivityEvent =
   | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date; seq?: number }
   | { type: 'system_message'; message: string; timestamp: Date; seq?: number }
   | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date; seq?: number }
-  | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; timestamp: Date; seq?: number }
+  | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; projectId?: string; timestamp: Date; seq?: number }
   | { type: 'json_render_spec'; spec: { root: string; elements: Record<string, unknown>; state?: Record<string, unknown> }; timestamp: Date; seq?: number }
 
 // Usage metrics from provider execution
@@ -558,6 +558,9 @@ export interface UserProfile {
   defaultMachineId?: string;
   apiKeys: ApiKey[];
   sidebarConfig?: Array<{ id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean; autoRevealed?: boolean; userDismissed?: boolean }>;
+  pinnedSidebarItems?: Array<{ id: string; type: 'project' | 'session' }>;
+  collapsedInitiatives?: string[];
+  projectOrder?: string[];
   createdAt: Date;
   updatedAt: Date;
 }

@@ -47,6 +47,8 @@ export interface MachineWorkdirSelectorProps {
   compact?: boolean
   /** Optional extra content rendered after the path input (e.g. InstructionPicker) */
   renderMachineExtra?: (machine: MachineInfo) => React.ReactNode
+  /** Optional content rendered at the end of the path row (e.g. BranchSelector) */
+  renderAfterPath?: React.ReactNode
   /** Label for the machine section */
   machineLabel?: string
   /** Label for the directory section */
@@ -71,6 +73,7 @@ export function MachineWorkdirSelector({
   dirLabel = "Working directory",
   dirRequired,
   dirPlaceholder = "/path/to/project",
+  renderAfterPath,
 }: MachineWorkdirSelectorProps) {
   const [recentOpen, setRecentOpen] = useState(false)
   const [machineOpen, setMachineOpen] = useState(false)
@@ -103,7 +106,7 @@ export function MachineWorkdirSelector({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {!compact && (
+      {false && !compact && (
         <span className="text-xs text-muted-foreground">
           {machineLabel} &amp; {dirLabel}
           {dirRequired && <span className="text-destructive ml-0.5">*</span>}
@@ -200,9 +203,7 @@ export function MachineWorkdirSelector({
               className={cn(
                 "shrink-0 flex items-center gap-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
                 compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
-                selectedMachine
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
+                "border-border hover:bg-muted text-muted-foreground hover:text-foreground",
               )}
             >
               <Laptop className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5", "shrink-0")} />
@@ -284,6 +285,7 @@ export function MachineWorkdirSelector({
               compact ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs",
             )}
           />
+          {renderAfterPath}
         </div>
       </div>
     </div>

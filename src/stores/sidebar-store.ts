@@ -25,9 +25,17 @@ const AUTO_REVEAL_THRESHOLDS: Record<string, (c: AutoRevealCounts) => boolean> =
   active:      (c) => c.activeTaskCount > 5,
 }
 
+export interface PinnedSidebarItem {
+  id: string
+  type: 'project' | 'session'
+}
+
 interface SidebarStore {
   items: SidebarItem[]
   externalItems: SidebarItem[]
+  pinnedItems: PinnedSidebarItem[]
+  collapsedInitiatives: Set<string>
+  projectOrder: string[]
   isEditing: boolean
   loaded: boolean
   load: () => Promise<void>
@@ -35,6 +43,11 @@ interface SidebarStore {
   setEditing: (editing: boolean) => void
   toggleItemVisibility: (itemId: string) => void
   reorderItems: (startIndex: number, endIndex: number) => void
+  pinItem: (id: string, type: 'project' | 'session') => void
+  unpinItem: (id: string) => void
+  reorderPinnedItems: (startIndex: number, endIndex: number) => void
+  reorderProjectOrder: (fromId: string, toId: string) => void
+  toggleInitiativeCollapse: (initiativeId: string) => void
   resetToDefault: () => void
   subscribeToChanges: () => () => void
   checkAutoReveal: (counts: AutoRevealCounts) => void
@@ -44,14 +57,12 @@ interface SidebarStore {
 }
 
 const defaultItems: SidebarItem[] = [
-  { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
-  { id: "active", to: "/active", icon: "Zap", label: "Active Jobs", visible: true, protected: true },
-  { id: "plan", to: "/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
-  { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
-  { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
-  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false, featureFlag: "github-integration" },
-  { id: "community", to: "/community", icon: "Globe", label: "Community", visible: true, protected: false },
-  { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
+  { id: "dashboard", to: "/dashboard", icon: "Inbox", label: "Dashboard", visible: true, protected: true },
+  { id: "active", to: "/active", icon: "Activity", label: "Active", visible: true, protected: true },
+  { id: "projects", to: "/projects", icon: "Folder", label: "Projects", visible: true, protected: true },
+  { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
+  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: false, protected: false, featureFlag: "github-integration" },
+  { id: "community", to: "/community", icon: "Globe", label: "Community", visible: false, protected: false },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
 ]
@@ -94,25 +105,42 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
 export const useSidebarStore = create<SidebarStore>((set, get) => ({
   items: defaultItems,
   externalItems: [],
+  pinnedItems: [],
+  collapsedInitiatives: new Set<string>(),
+  projectOrder: [],
   isEditing: false,
   loaded: false,
 
   load: async () => {
-    // Try to get sidebar config from the already-loaded user profile store
-    // to avoid a duplicate /api/data/profile fetch.
+    const loadFromProfile = (profile: { sidebarConfig?: SidebarItem[]; pinnedSidebarItems?: PinnedSidebarItem[]; collapsedInitiatives?: string[]; projectOrder?: string[] } | null) => {
+      const updates: Partial<SidebarStore> = { loaded: true }
+      if (profile?.sidebarConfig) {
+        updates.items = mergeWithDefaults(profile.sidebarConfig)
+      }
+      if (profile?.pinnedSidebarItems) {
+        updates.pinnedItems = profile.pinnedSidebarItems
+      }
+      if (profile?.collapsedInitiatives) {
+        updates.collapsedInitiatives = new Set(profile.collapsedInitiatives)
+      }
+      if (profile?.projectOrder) {
+        updates.projectOrder = profile.projectOrder
+      }
+      set(updates)
+    }
+
+    // Try to get from already-loaded user profile store
     const profileState = useUserProfileStore.getState()
-    if (profileState.loaded && profileState.profile?.sidebarConfig) {
-      const merged = mergeWithDefaults(profileState.profile.sidebarConfig)
-      set({ items: merged, loaded: true })
+    if (profileState.loaded && profileState.profile) {
+      loadFromProfile(profileState.profile)
       return
     }
 
-    // Fallback: fetch profile directly (e.g. if sidebar loads before profile store)
+    // Fallback: fetch profile directly
     try {
       const profile = await dataClient.getProfile()
-      if (profile?.sidebarConfig) {
-        const merged = mergeWithDefaults(profile.sidebarConfig)
-        set({ items: merged, loaded: true })
+      if (profile) {
+        loadFromProfile(profile)
         return
       }
     } catch {
@@ -124,10 +152,13 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
 
   save: async () => {
     try {
-      const items = get().items
-
-      // Fire-and-forget: sync to server via profile update
-      dataClient.updateProfile({ sidebarConfig: items }).catch(() => {})
+      const { items, pinnedItems, collapsedInitiatives, projectOrder } = get()
+      dataClient.updateProfile({
+        sidebarConfig: items,
+        pinnedSidebarItems: pinnedItems,
+        collapsedInitiatives: Array.from(collapsedInitiatives),
+        projectOrder,
+      }).catch(() => {})
     } catch (error) {
       console.error("[SidebarStore] Failed to save:", error)
     }
@@ -157,6 +188,45 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
     const [removed] = items.splice(startIndex, 1)
     items.splice(endIndex, 0, removed)
     set({ items })
+    get().save()
+  },
+
+  pinItem: (id: string, type: 'project' | 'session') => {
+    const pinnedItems = get().pinnedItems
+    if (pinnedItems.some((p) => p.id === id)) return
+    set({ pinnedItems: [...pinnedItems, { id, type }] })
+    get().save()
+  },
+
+  unpinItem: (id: string) => {
+    set({ pinnedItems: get().pinnedItems.filter((p) => p.id !== id) })
+    get().save()
+  },
+
+  reorderPinnedItems: (startIndex: number, endIndex: number) => {
+    const pinnedItems = [...get().pinnedItems]
+    const [removed] = pinnedItems.splice(startIndex, 1)
+    pinnedItems.splice(endIndex, 0, removed)
+    set({ pinnedItems })
+    get().save()
+  },
+
+  reorderProjectOrder: (fromId: string, toId: string) => {
+    const order = [...get().projectOrder]
+    const fromIdx = order.indexOf(fromId)
+    const toIdx = order.indexOf(toId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const [removed] = order.splice(fromIdx, 1)
+    order.splice(toIdx, 0, removed)
+    set({ projectOrder: order })
+    get().save()
+  },
+
+  toggleInitiativeCollapse: (initiativeId: string) => {
+    const collapsed = new Set(get().collapsedInitiatives)
+    if (collapsed.has(initiativeId)) collapsed.delete(initiativeId)
+    else collapsed.add(initiativeId)
+    set({ collapsedInitiatives: collapsed })
     get().save()
   },
 

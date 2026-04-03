@@ -12,6 +12,7 @@ export interface BranchInfo {
 export function useBranchList() {
   const [branches, setBranches] = useState<BranchInfo[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isCheckingOut, setIsCheckingOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchBranches = useCallback(async (path: string, machineId: string) => {
@@ -71,5 +72,54 @@ export function useBranchList() {
     }
   }, [])
 
-  return { branches, isLoading, error, fetchBranches, fetchGitHubBranches }
+  const checkoutBranch = useCallback(async (path: string, machineId: string, branch: string, stash?: boolean): Promise<{ success: boolean; error?: string }> => {
+    setIsCheckingOut(true)
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch(apiUrl('/api/repo/checkout'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ path, machineId, branch, ...(stash && { stash }) }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Checkout failed' }
+      }
+      // Re-fetch branches to update current marker
+      await fetchBranches(path, machineId)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
+    } finally {
+      setIsCheckingOut(false)
+    }
+  }, [fetchBranches])
+
+  const createBranch = useCallback(async (path: string, machineId: string, branch: string): Promise<{ success: boolean; error?: string }> => {
+    setIsCheckingOut(true)
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch(apiUrl('/api/repo/create-branch'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ path, machineId, branch }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Create branch failed' }
+      }
+      await fetchBranches(path, machineId)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Create branch failed' }
+    } finally {
+      setIsCheckingOut(false)
+    }
+  }, [fetchBranches])
+
+  return { branches, isLoading, isCheckingOut, error, fetchBranches, fetchGitHubBranches, checkoutBranch, createBranch }
 }

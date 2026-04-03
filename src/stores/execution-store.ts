@@ -22,9 +22,26 @@ import { useUserProfileStore } from "./user-profile-store"
 import { useRealtimeStore } from "./realtime-store"
 import { useWorkspaceFilterStore } from "./workspace-filter-store"
 
-/** Returns true for regular task execution node IDs (not ephemeral playground sessions). */
+/** Returns true for regular task execution node IDs (not ephemeral session/playground nodes). */
 function isExecutionNodeId(nodeId: string): boolean {
-  return !nodeId.startsWith('playground-')
+  return !nodeId.startsWith('playground-') && !nodeId.startsWith('session-')
+}
+
+/** Returns true for unified session node IDs (session-<projectId>). */
+export function isSessionNodeId(nodeId: string): boolean {
+  return nodeId.startsWith('session-')
+}
+
+/**
+ * Resolve the active node ID for a project by checking for session-, playground-, plan- prefixes.
+ * Returns the first match found in the executions map, or undefined.
+ */
+export function getNodeIdForProject(projectId: string, executions: Map<string, TaskExecution>): string | undefined {
+  for (const prefix of ['session-', 'playground-', 'plan-']) {
+    const nodeId = `${prefix}${projectId}`
+    if (executions.has(nodeId)) return nodeId
+  }
+  return undefined
 }
 
 // Helper: Create auth headers for API requests
@@ -265,32 +282,8 @@ interface ExecutionState {
   addFileChange: (nodeId: string, change: FileChange) => void
   updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => void
 
-  // Plan generation methods
-  startPlanGeneration: (
-    description: string,
-    projectName: string,
-    options?: {
-      targetMachineId?: string
-      workingDirectory?: string
-      model?: string
-      preferredProvider?: string
-      visionDoc?: string
-      repository?: string
-      baseBranch?: string
-      githubOwner?: string
-      githubRepo?: string
-      githubRepoId?: number
-      source?: ProjectSource
-      deliveryMode?: string
-    }
-  ) => Promise<{ projectId: string; nodeId: string }>
-  cancelPlanGeneration: (projectId: string) => Promise<void>
-  /** Remove execution entry and delete the project created by startPlanGeneration. */
-  cleanupPlanGeneration: (projectId: string) => void
-  steerPlanGeneration: (projectId: string, message: string) => Promise<{ success: boolean; error?: 'no-machine' | 'send-failed' }>
-
-  /** Start a plan session for an existing project (doesn't create a new project) */
-  startPlanGenerationForProject: (
+  /** Start a session for an existing project (doesn't create a new project) */
+  startSessionForProject: (
     projectId: string,
     description: string,
     options?: {
@@ -317,21 +310,33 @@ interface ExecutionState {
     }
   ) => Promise<{ projectId: string; nodeId: string }>
 
-  // Playground session methods
-  startPlaygroundSession: (
+  // Unified session methods (replaces separate plan/playground methods)
+  startSession: (
     description: string,
+    projectName: string,
     options: {
       targetMachineId: string
       workingDirectory?: string
       model?: string
       preferredProvider?: string
+      visionDoc?: string
+      repository?: string
+      baseBranch?: string
+      githubOwner?: string
+      githubRepo?: string
+      githubRepoId?: number
+      source?: ProjectSource
+      deliveryMode?: string
       resumeSessionId?: string
       forkSession?: boolean
       selectedBackends?: string[]
+      teamId?: string
     }
   ) => Promise<{ projectId: string; nodeId: string }>
-  cancelPlaygroundSession: (projectId: string) => Promise<void>
-  steerPlaygroundSession: (projectId: string, message: string) => Promise<{ success: boolean; error?: 'no-machine' | 'send-failed' }>
+  cancelSession: (projectId: string) => Promise<void>
+  /** Remove execution entry and delete the project created by startSession. */
+  cleanupSession: (projectId: string) => void
+  steerSession: (projectId: string, message: string) => Promise<{ success: boolean; error?: 'no-machine' | 'send-failed' }>
 
   // Persistence
   load: () => Promise<void>
@@ -550,8 +555,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { executions: newExecutions }
     })
 
-    // Update node status to dispatched
-    planStore.updateNode(nodeId, { status: "dispatched" })
+    // Optimistic local-only status update to show "dispatched" in UI immediately.
+    // Do NOT write to API — the backend manages dispatched→in_progress transitions
+    // and writing "dispatched" via PATCH can race with the backend's "in_progress" write.
+    usePlanStore.setState({
+      nodes: planStore.nodes.map((n) =>
+        n.id === nodeId ? { ...n, status: 'dispatched' as const, updatedAt: new Date() } : n
+      ),
+    })
 
     try {
       // Use the dispatch/task endpoint
@@ -600,6 +611,24 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         const errorBody = await response.json().catch(() => null)
         const zodDetail = errorBody?.details?.[0]?.message
         const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || '')
+
+        // 409 = task already dispatched/in_progress — not a user-facing error,
+        // just a race condition (e.g., YOLO auto-execute + manual dispatch).
+        // Reload plan store to sync the node's real status and wire up the existing execution.
+        if (response.status === 409) {
+          console.info(`[execution] Node ${nodeId} already dispatched — syncing state from server`)
+          // Remove the optimistic execution entry we created
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            newExecutions.delete(nodeId)
+            return { executions: newExecutions }
+          })
+          // Reload plan store + execution store to pick up the real node status & executionId
+          await planStore.load()
+          await get().load()
+          return
+        }
+
         throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
       }
 
@@ -969,6 +998,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           hostname: m.hostname,
           status: m.connectionStatus === 'connected' ? 'online'
             : m.connectionStatus === 'disconnected' ? 'offline'
+            : m.connectionStatus === 'reconnecting' ? 'offline'
             : 'online',
           load: m.load,
           providers: m.providers,
@@ -1181,255 +1211,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     })
   },
 
-  // ─── Plan Session Methods ──────────────────────────────────────────
+  // ─── Session For Existing Project ──────────────────────────────────
 
-  startPlanGeneration: async (description, projectName, options) => {
-    // 1. Create project
-    const projectId = crypto.randomUUID()
-    const displayName = projectName || "New Project"
-    const wf = useWorkspaceFilterStore.getState().workspaceFilter
-    const teamId = wf !== 'all' ? wf : useTeamStore.getState().getPersonalTeamId()
-    await useProjectStore.getState().addProject({
-      id: projectId,
-      name: displayName,
-      description,
-      status: 'active',
-      teamId,
-      color: getColorForName(displayName),
-      icon: getProjectIconForName(displayName),
-      visionDoc: options?.visionDoc || "",
-      workingDirectory: options?.workingDirectory,
-      repository: options?.repository,
-      defaultMachineId: options?.targetMachineId,
-      projectType: 'plan',
-      // Include GitHub metadata in initial project creation (avoids post-create PATCH race)
-      ...(options?.githubOwner ? { githubOwner: options.githubOwner } : {}),
-      ...(options?.githubRepo ? { githubRepo: options.githubRepo } : {}),
-      ...(options?.githubRepoId ? { githubRepoId: options.githubRepoId } : {}),
-      // Use the full detected source when available; fall back to constructing
-      // a minimal source from baseBranch for backward compatibility.
-      ...(options?.source ? { source: options.source }
-        : options?.baseBranch ? {
-          source: {
-            localPath: options?.workingDirectory || '',
-            baseBranch: options.baseBranch,
-            isGit: true,
-            remoteType: 'none' as const,
-          },
-        } : {}),
-      ...(options?.deliveryMode ? { deliveryMode: options.deliveryMode } : {}),
-    } as Project)
-
-    const nodeId = `plan-${projectId}`
-
-    // 2. Create execution entry
-    const execution: TaskExecution = {
-      nodeId,
-      projectId,
-      executionId: "",
-      status: "pending",
-      streamText: "",
-      toolTraces: [],
-      fileChanges: [],
-      activityEvents: [],
-      startedAt: new Date(),
-    }
-
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      newExecutions.set(nodeId, execution)
-      return { executions: newExecutions }
-    })
-
-    // Toast tracking disabled for interactive plans — text streams directly in the plan UI
-
-    // 4. Create abort controller
-    const abortController = new AbortController()
-    abortControllers.set(nodeId, abortController)
-
-    // 5. Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
-    // We dispatch the fetch + SSE stream in the background so the caller
-    // gets { projectId, nodeId } immediately and can transition the UI.
-    getAuthHeaders().then(async (headers) => {
-      try {
-        const effectiveTargetMachineId = options?.targetMachineId
-        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
-        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
-        const planSettings = useSettingsStore.getState()
-        const planProvider = options?.preferredProvider || planSettings.defaultProvider || undefined
-        const planModel = options?.model || planSettings.getModelForProvider(planProvider) || undefined
-        const response = await fetch(apiUrl("/api/dispatch/task"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            nodeId,
-            projectId,
-            title: `Interactive planning: ${projectName || description.slice(0, 50)}`,
-            description: safeDescription,
-            dependencies: [],
-            verification: "human",
-            visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
-            targetMachineId: effectiveTargetMachineId,
-            model: planModel,
-            preferredProvider: planProvider,
-            workingDirectory: options?.workingDirectory,
-            isInteractivePlan: true,
-            ...signing,
-          }),
-          signal: abortController.signal,
-        })
-
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => null)
-          const zodDetail = errorBody?.details?.[0]?.message
-          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
-          throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
-        }
-
-        // 6. Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
-        const result = await response.json()
-        if (result.executionId) {
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
-            }
-            return { executions: newExecutions }
-          })
-          // Persist so execution survives page refresh (approval state depends on hydration)
-          get().persist()
-        }
-      } catch (error) {
-        // Only update if entry still exists (cancelPlanGeneration/cleanupPlanGeneration may have already handled it)
-        if (!get().executions.has(nodeId)) return
-        if (error instanceof Error && error.name === "AbortError") {
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
-            }
-            return { executions: newExecutions }
-          })
-        } else {
-          const message = error instanceof Error ? error.message : "Unknown error"
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
-            }
-            return { executions: newExecutions }
-          })
-        }
-      } finally {
-        abortControllers.delete(nodeId)
-      }
-    })
-
-    return { projectId, nodeId }
-  },
-
-  cancelPlanGeneration: async (projectId) => {
-    const nodeId = `plan-${projectId}`
-    const controller = abortControllers.get(nodeId)
-    if (controller) {
-      controller.abort()
-      abortControllers.delete(nodeId)
-    }
-
-    // Set local status IMMEDIATELY so UI updates (don't wait for server)
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      const exec = newExecutions.get(nodeId)
-      if (exec) {
-        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
-      }
-      return { executions: newExecutions }
-    })
-
-    get().persist()
-
-    // Cancel on server/relay (fire-and-forget, same as cancelExecution)
-    const execution = get().executions.get(nodeId)
-    if (execution?.executionId) {
-      try {
-        const headers = await getAuthHeaders()
-        await fetch(apiUrl("/api/dispatch/cancel"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            nodeId,
-            executionId: execution.executionId,
-          }),
-        })
-      } catch {
-        // Ignore cancel errors
-      }
-    }
-  },
-
-  /** Remove execution entry and delete the project created by startPlanGeneration. */
-  cleanupPlanGeneration: (projectId) => {
-    const nodeId = `plan-${projectId}`
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      newExecutions.delete(nodeId)
-      return { executions: newExecutions }
-    })
-    useProjectStore.getState().deleteProject(projectId)
-  },
-
-  steerPlanGeneration: async (projectId, message) => {
-    const nodeId = `plan-${projectId}`
-    const execution = get().executions.get(nodeId)
-
-    // Attempt to resolve machineId from the realtime store's taskStreams when the
-    // execution entry doesn't have one yet (e.g. session_init hasn't arrived).
-    let machineId = execution?.machineId
-    if (!machineId && execution?.executionId) {
-      const { useRealtimeStore } = await import("./realtime-store")
-      machineId = useRealtimeStore.getState().taskStreams.get(execution.executionId)?.machineId
-    }
-
-    if (!execution?.executionId || !machineId) {
-      console.warn("[plan-generation] Cannot steer: no executionId or machineId")
-      return { success: false, error: 'no-machine' as const }
-    }
-
-    try {
-      const headers = await getAuthHeaders()
-      const response = await fetch(apiUrl("/api/dispatch/steer"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          taskId: execution.executionId,
-          machineId,
-          message,
-          action: "guidance",
-        }),
-      })
-
-      if (!response.ok) {
-        console.error("[plan-generation] Failed to steer:", response.status)
-        return { success: false, error: 'send-failed' as const }
-      }
-
-      const result = await response.json()
-      return { success: !!result.success }
-    } catch (error) {
-      console.error("[plan-generation] Error steering:", error)
-      return { success: false, error: 'send-failed' as const }
-    }
-  },
-
-  // ─── Start Plan Session For Existing Project ──────────────────────────
-
-  startPlanGenerationForProject: async (projectId, description, options) => {
+  startSessionForProject: async (projectId, description, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    const nodeId = `plan-${projectId}`
+    const nodeId = `session-${projectId}`
 
     // Update project if options provide new values
     const updates: Partial<Project> = {}
@@ -1493,7 +1280,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           body: JSON.stringify({
             nodeId,
             projectId,
-            title: `Interactive planning: ${description.slice(0, 50)}`,
+            title: `Session: ${description.slice(0, 50)}`,
             description: safeDescription,
             dependencies: [],
             verification: "human",
@@ -1502,7 +1289,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             model: addModel,
             preferredProvider: addProvider,
             workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
-            isInteractivePlan: true,
+            isInteractivePlan: false,
+            deliveryMode: "direct",
+            skipSafetyCheck: true,
+            force: true,
             ...signing,
           }),
           signal: abortController.signal,
@@ -1569,7 +1359,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Cancel any active plan session first
     const existingExec = get().executions.get(nodeId)
     if (existingExec && existingExec.status !== "success" && existingExec.status !== "failure" && existingExec.status !== "cancelled") {
-      await get().cancelPlanGeneration(projectId)
+      await get().cancelSession(projectId)
     }
 
     // Build the replan description with context
@@ -1684,30 +1474,47 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     return { projectId, nodeId }
   },
 
-  // ─── Playground Session Methods ──────────────────────────────────────
+  // ─── Unified Session Methods ──────────────────────────────────────────────
 
-  startPlaygroundSession: async (description, options) => {
-    // 1. Create project for this playground session
+  startSession: async (description, projectName, options) => {
+    // 1. Create project — always 'default' projectType
     const projectId = crypto.randomUUID()
-    const displayName = description.slice(0, 60) || "Playground Session"
-    // Playground sessions are always personal — not shared with team
-    const pgTeamId = useTeamStore.getState().getPersonalTeamId()
+    const displayName = projectName || description.slice(0, 60) || "New Session"
+    const teamId = options.teamId
+      || (() => {
+        const wf = useWorkspaceFilterStore.getState().workspaceFilter
+        return wf !== 'all' ? wf : useTeamStore.getState().getPersonalTeamId()
+      })()
     await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
       status: 'active',
-      teamId: pgTeamId,
+      teamId,
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
-      visionDoc: "",
+      visionDoc: options.visionDoc || "",
       workingDirectory: options.workingDirectory || '',
+      repository: options.repository,
       defaultMachineId: options.targetMachineId,
-      projectType: 'playground',
+      projectType: 'default',
       ...(options.selectedBackends?.length && { computeBackends: options.selectedBackends }),
+      ...(options.githubOwner && { githubOwner: options.githubOwner }),
+      ...(options.githubRepo && { githubRepo: options.githubRepo }),
+      ...(options.githubRepoId && { githubRepoId: options.githubRepoId }),
+      ...(options.source ? { source: options.source }
+        : options.baseBranch ? {
+          source: {
+            localPath: options.workingDirectory || '',
+            baseBranch: options.baseBranch,
+            isGit: true,
+            remoteType: 'none' as const,
+          },
+        } : {}),
+      ...(options.deliveryMode && { deliveryMode: options.deliveryMode }),
     } as Project)
 
-    const nodeId = `playground-${projectId}`
+    const nodeId = `session-${projectId}`
 
     // 2. Create execution entry
     const execution: TaskExecution = {
@@ -1732,27 +1539,28 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const abortController = new AbortController()
     abortControllers.set(nodeId, abortController)
 
-    // 4. Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
+    // 4. Dispatch via POST /api/dispatch/task
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options.targetMachineId)
-        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Playground description")
-        const pgSettings = useSettingsStore.getState()
-        const pgProvider = options.preferredProvider || pgSettings.defaultProvider || undefined
-        const pgModel = options.model || pgSettings.getModelForProvider(pgProvider) || undefined
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Session description")
+        const settings = useSettingsStore.getState()
+        const provider = options.preferredProvider || settings.defaultProvider || undefined
+        const model = options.model || settings.getModelForProvider(provider) || undefined
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
           body: JSON.stringify({
             nodeId,
             projectId,
-            title: `Playground: ${description.slice(0, 80)}`,
+            title: `Session: ${displayName}`,
             description: safeDescription,
             dependencies: [],
             verification: "human",
+            visionDoc: options.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options.targetMachineId,
-            model: pgModel,
-            preferredProvider: pgProvider,
+            model,
+            preferredProvider: provider,
             workingDirectory: options.workingDirectory,
             deliveryMode: "direct",
             skipSafetyCheck: true,
@@ -1772,7 +1580,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // 5. Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
         const result = await response.json()
         if (result.executionId) {
           set((state) => {
@@ -1783,10 +1590,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             }
             return { executions: newExecutions }
           })
-          // Persist so playground execution survives page refresh
           get().persist()
         }
       } catch (error) {
+        if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1815,14 +1622,27 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     return { projectId, nodeId }
   },
 
-  cancelPlaygroundSession: async (projectId) => {
-    const nodeId = `playground-${projectId}`
+  cancelSession: async (projectId) => {
+    const nodeId = `session-${projectId}`
     const controller = abortControllers.get(nodeId)
     if (controller) {
       controller.abort()
       abortControllers.delete(nodeId)
     }
 
+    // Set local status IMMEDIATELY so UI updates
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+      }
+      return { executions: newExecutions }
+    })
+
+    get().persist()
+
+    // Cancel on server/relay
     const execution = get().executions.get(nodeId)
     if (execution?.executionId) {
       try {
@@ -1839,26 +1659,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         // Ignore cancel errors
       }
     }
-
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      const exec = newExecutions.get(nodeId)
-      if (exec) {
-        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
-      }
-      return { executions: newExecutions }
-    })
-
-    // Persist cancelled state to DB
-    get().persist()
   },
 
-  steerPlaygroundSession: async (projectId, message) => {
-    const nodeId = `playground-${projectId}`
+  cleanupSession: (projectId) => {
+    const nodeId = `session-${projectId}`
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.delete(nodeId)
+      return { executions: newExecutions }
+    })
+    useProjectStore.getState().deleteProject(projectId)
+  },
+
+  steerSession: async (projectId, message) => {
+    const nodeId = `session-${projectId}`
     const execution = get().executions.get(nodeId)
 
-    // Attempt to resolve machineId from the realtime store's taskStreams when the
-    // execution entry doesn't have one yet (e.g. session_init hasn't arrived).
     let machineId = execution?.machineId
     if (!machineId && execution?.executionId) {
       const { useRealtimeStore } = await import("./realtime-store")
@@ -1866,7 +1682,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     if (!execution?.executionId || !machineId) {
-      console.warn("[playground] Cannot steer: no executionId or machineId")
+      console.warn("[session] Cannot steer: no executionId or machineId")
       return { success: false, error: 'no-machine' as const }
     }
 
@@ -1884,14 +1700,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       })
 
       if (!response.ok) {
-        console.error("[playground] Failed to steer:", response.status)
+        console.error("[session] Failed to steer:", response.status)
         return { success: false, error: 'send-failed' as const }
       }
 
       const result = await response.json()
       return { success: !!result.success }
     } catch (error) {
-      console.error("[playground] Error steering:", error)
+      console.error("[session] Error steering:", error)
       return { success: false, error: 'send-failed' as const }
     }
   },
@@ -2219,9 +2035,9 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: Pla
   }
 
   const pendingDependencies: string[] = []
-  // Include awaiting_judgment as "done" for dependency purposes — these tasks
-  // have finished execution and shouldn't block downstream work in batch mode.
-  const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified", "awaiting_judgment"]
+  // Only fully verified tasks count as "done" for dependency purposes.
+  // awaiting_judgment (exit code 1) blocks downstream to prevent cascading failures.
+  const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified"]
 
   for (const depId of upstreamIds) {
     const depNode = projectNodes.find((n) => n.id === depId)

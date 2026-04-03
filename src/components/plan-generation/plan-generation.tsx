@@ -12,7 +12,7 @@ import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { useExecutionStore } from "@/stores/execution-store"
+import { useExecutionStore, getNodeIdForProject } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -52,7 +52,10 @@ export function PlanGeneration({
 }: PlanGenerationProps) {
   const navigate = useNavigate()
   const yoloMode = useSettingsStore((s) => s.yoloMode)
-  const nodeId = `plan-${projectId}`
+  // Try session- first, then plan- for backward compat with existing plan sessions
+  const nodeId = useExecutionStore((s) =>
+    getNodeIdForProject(projectId, s.executions) || `plan-${projectId}`
+  )
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingSteer, setPendingSteer] = useState<string | null>(null)
@@ -62,8 +65,8 @@ export function PlanGeneration({
   // Execution state — stable selectors (Map.get returns same ref)
   const execution = useExecutionStore((s) => s.executions.get(nodeId))
   const executionStoreLoaded = useExecutionStore((s) => s.loaded)
-  const cancelPlanGeneration = useExecutionStore((s) => s.cancelPlanGeneration)
-  const steerPlanGeneration = useExecutionStore((s) => s.steerPlanGeneration)
+  const doCancel = useExecutionStore((s) => s.cancelSession)
+  const doSteer = useExecutionStore((s) => s.steerSession)
 
   // Realtime state — select stable refs, derive filtered data in useMemo
   const executionId = execution?.executionId || ""
@@ -206,7 +209,7 @@ export function PlanGeneration({
     addSteerMessage(execution.executionId, text)
 
     try {
-      const result = await steerPlanGeneration(projectId, text)
+      const result = await doSteer(projectId, text)
       if (!result.success) {
         if (result.error === 'no-machine') {
           useToastStore.getState().add({
@@ -236,7 +239,7 @@ export function PlanGeneration({
       setPendingSteer(null)
       setSending(true)
       addSteerMessage(execution.executionId, msg)
-      steerPlanGeneration(projectId, msg).then((result) => {
+      doSteer(projectId, msg).then((result) => {
         if (!result.success && result.error === 'send-failed') {
           useToastStore.getState().add({
             type: 'error',
@@ -247,7 +250,7 @@ export function PlanGeneration({
         }
       }).finally(() => setSending(false))
     }
-  }, [pendingSteer, execution?.executionId, execution?.machineId, sending, projectId, addSteerMessage, steerPlanGeneration])
+  }, [pendingSteer, execution?.executionId, execution?.machineId, sending, projectId, addSteerMessage, doSteer])
 
   // ─── Chat Handler (post-completion) ──────────────────────────────
   function handleChat(text: string) {
@@ -305,7 +308,7 @@ export function PlanGeneration({
         status={headerStatus}
         machineName={machineName}
         workingDirectory={workingDirectory}
-        onAbort={() => cancelPlanGeneration(projectId)}
+        onAbort={() => doCancel(projectId)}
         onBack={onBack}
         onNewPlan={onNewPlan}
       />
@@ -533,7 +536,7 @@ export function PlanGeneration({
               className="h-9 w-9 shrink-0"
               onClick={() => {
                 if (isChatStreaming && chatSession) abortChatStream(chatSession.id)
-                if (isRunning) cancelPlanGeneration(projectId)
+                if (isRunning) doCancel(projectId)
               }}
               title={isRunning ? "Stop generation" : "Stop response"}
             >

@@ -1,7 +1,28 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { useEffect, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Github, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate, ChevronRight, ChevronDown, MessageSquare } from "lucide-react"
+import {
+  Inbox, Activity, Settings, Search, Server, FlaskConical, Folder,
+  LogOut, PanelLeftClose, PanelLeft, AlertCircle, Loader2, User,
+  Cpu, Zap, Sun, Moon, CheckSquare, GitBranch, Github, Terminal,
+  Radio, Target, Plus, Minus, GripVertical, BookOpen, Palette,
+  Globe, FileText, Layers, Box, Wrench, Code, Sparkles, X, LayoutTemplate,
+  Pin, PinOff, ChevronRight,
+} from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -13,83 +34,110 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useTeamStore } from "@/stores/team-store"
-import { useToastStore } from "@/stores/toast-store"
-import { useExecutionStore } from "@/stores/execution-store"
+import { useExecutionStore, getNodeIdForProject } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
+import { useInitiativeStore } from "@/stores/initiative-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { deriveActiveTasks } from "@/lib/active-tasks"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
-import { InlineRenameInput } from "@/components/inline-rename-input"
 import { WorkspaceSwitcher } from "@/components/workspace-switcher"
+import { ColorIconBadge } from "@/components/color-icon-picker"
+import type { Project } from "@/types"
 
-const iconMap: Record<string, typeof CheckSquare> = {
-  CheckSquare,
-  GitBranch,
-  Github,
-  Terminal,
-  Radio,
-  Target,
-  Cpu,
-  BookOpen,
-  Palette,
-  Zap,
-  Globe,
-  FileText,
-  Layers,
-  Box,
-  Wrench,
-  Code,
-  Sparkles,
-  FlaskConical,
-  LayoutTemplate,
+function PieProgress({ progress }: { progress: number }) {
+  const pct = Math.max(0, Math.min(100, progress)) / 100
+  const r = 5.5
+  const cx = 7
+  const cy = 7
+  if (pct >= 1) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0">
+        <circle cx={cx} cy={cy} r={r} className="fill-primary opacity-80" />
+      </svg>
+    )
+  }
+  if (pct <= 0) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0">
+        <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-muted-foreground/25" strokeWidth="1.5" />
+      </svg>
+    )
+  }
+  const angle = 2 * Math.PI * pct
+  const endX = cx + r * Math.sin(angle)
+  const endY = cy - r * Math.cos(angle)
+  const largeArcFlag = pct > 0.5 ? 1 : 0
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0">
+      <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-muted-foreground/20" strokeWidth="1" />
+      <path
+        d={`M ${cx},${cy} L ${cx},${cy - r} A ${r},${r} 0 ${largeArcFlag},1 ${endX.toFixed(3)},${endY.toFixed(3)} Z`}
+        className="fill-primary opacity-80"
+      />
+    </svg>
+  )
 }
 
-// Project color palette — Morandi muted tones
-const projectColors = [
-  "#5B7F9A", // Steel blue
-  "#7B9B7D", // Sage green
-  "#C09070", // Dusty terracotta
-  "#8B7BAD", // Dusty lavender
-  "#B07B8B", // Dusty rose
-  "#BDA26B", // Dusty gold
-  "#7B97AD", // Dusty sky
-  "#A08B7B", // Warm taupe
-]
+const iconMap: Record<string, typeof CheckSquare> = {
+  CheckSquare, GitBranch, Github, Terminal, Radio, Target, Cpu,
+  BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench,
+  Code, Sparkles, FlaskConical, LayoutTemplate, Inbox, Activity,
+  Folder, Server, Plus, Minus,
+}
 
 const EMPTY_FLAGS: Record<string, boolean> = {}
 
-/** Must match GLOBAL_DEFAULTS in use-feature-flag.ts and server/lib/feature-flags.ts */
-const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
-  'github-integration': true,
-  'team-machines': true,
-  'inbox-home': false,
+const projectColors = [
+  "#5B7F9A", "#7B9B7D", "#C09070", "#8B7BAD",
+  "#B07B8B", "#BDA26B", "#7B97AD", "#A08B7B",
+]
+
+/* ─── Generic sortable wrapper ─── */
+function SortableItem({ id, children, gripMode = "hover", groupClass }: { id: string; children: React.ReactNode; gripMode?: "hover" | "whole"; groupClass?: string }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...(gripMode === "whole" ? listeners : {})}
+      className={cn("relative", groupClass, isDragging && "opacity-50 z-50", gripMode === "whole" && "cursor-grab")}
+    >
+      {gripMode === "hover" && (
+        <div className="absolute left-0 top-0 bottom-0 flex items-center opacity-0 group-hover/sortable:opacity-100 transition-opacity cursor-grab" {...listeners}>
+          <GripVertical className="h-3 w-3 text-muted-foreground/40" />
+        </div>
+      )}
+      {children}
+    </div>
+  )
 }
+
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { t, i18n } = useTranslation("nav")
-  const { theme, setTheme } = useTheme()
-  // Resolve whether dark mode is active (accounts for "system" theme)
-  const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  const navigate = useNavigate()
+  const params = useParams()
+  const location = useLocation()
+
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
-  const modelTier = useSettingsStore((s) => s.modelTier)
-  const setModelTier = useSettingsStore((s) => s.setModelTier)
-  const yoloMode = useSettingsStore((s) => s.yoloMode)
-  const setYoloMode = useSettingsStore((s) => s.setYoloMode)
   const profile = useUserProfileStore((s) => s.profile)
   const authUser = useAuthStore((s) => s.user)
+  const signOut = useAuthStore((s) => s.signOut)
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
-  const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const nodesLoaded = usePlanStore((s) => s.loaded)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
-  const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const sidebarItems = useSidebarStore((s) => s.items)
@@ -98,230 +146,174 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const setEditing = useSidebarStore((s) => s.setEditing)
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
   const reorderItems = useSidebarStore((s) => s.reorderItems)
+  const pinnedItems = useSidebarStore((s) => s.pinnedItems)
+  const pinItem = useSidebarStore((s) => s.pinItem)
+  const unpinItem = useSidebarStore((s) => s.unpinItem)
+  const reorderPinnedItems = useSidebarStore((s) => s.reorderPinnedItems)
+  const collapsedInitiatives = useSidebarStore((s) => s.collapsedInitiatives)
+  const toggleInitiativeCollapse = useSidebarStore((s) => s.toggleInitiativeCollapse)
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
   const dismissAutoReveal = useSidebarStore((s) => s.dismissAutoReveal)
-  const addToast = useToastStore((s) => s.add)
-  const navigate = useNavigate()
-  const params = useParams()
-  const location = useLocation()
-  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
-  const showAuth = isServerMode()
-
-  const activeProjectId = params.id
-
-  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
-  const [settingsExpanded, setSettingsExpanded] = useState(() => {
-    try { return localStorage.getItem("astro-sidebar-settings") !== "collapsed" } catch { return true /* localStorage unavailable */ }
-  })
-
-  // Auto-reveal sidebar items based on usage thresholds
-  useAutoReveal()
-
-  // Active task tracking for sidebar indicators
   const executions = useExecutionStore((s) => s.executions)
   const batchExecutions = useExecutionStore((s) => s.batchExecutions)
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const allSessions = useSessionStore((s) => s.sessions)
-
-  // Navigate to generation activity view if plan is actively generating, otherwise list view
-  const navigateToProject = useCallback((projectId: string) => {
-    const planExec = executions.get(`plan-${projectId}`)
-    const isGenerating = planExec?.status === "running" || planExec?.status === "pending"
-    if (isGenerating) {
-      navigate(`/plan?projectId=${projectId}`)
-    } else {
-      navigate(`/project/${projectId}/list`)
-    }
-  }, [executions, navigate])
-
-  const { activeCount, projectsWithRunning } = useMemo(() => (
-    deriveActiveTasks({
-      executions,
-      batchExecutions,
-      rawNodes: rawPlanNodes,
-      liveNodes: planNodes,
-      nodesLoaded,
-      projects,
-      projectsLoaded,
-      streamingSessions,
-      allSessions,
-      workspaceFilter,
-    })
-  ), [executions, batchExecutions, rawPlanNodes, planNodes, nodesLoaded, projects, projectsLoaded, streamingSessions, allSessions, workspaceFilter])
-
-  // Count pending plan approvals for the Plan nav badge
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
-  const pendingPlanApprovals = useMemo(() => {
-    let count = 0
-    for (const approval of dynamicApprovals.values()) {
-      if (approval.taskId.startsWith("plan-")) count++
-    }
-    return count
-  }, [dynamicApprovals])
+  const initiatives = useInitiativeStore((s) => s.initiatives)
+  const { theme, setTheme } = useTheme()
+  const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  const modelTier = useSettingsStore((s) => s.modelTier)
+  const setModelTier = useSettingsStore((s) => s.setModelTier)
+  const yoloMode = useSettingsStore((s) => s.yoloMode)
+  const setYoloMode = useSettingsStore((s) => s.setYoloMode)
+  const showAuth = isServerMode()
+  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+  const activeProjectId = params.id
 
-  // Count actionable items for Dashboard badge (pending decisions + dynamic approvals)
-  const dashboardAttentionCount = useMemo(() => {
-    const pendingDecisionNodes = planNodes.filter(
-      (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
-    ).length
-    return pendingDecisionNodes + dynamicApprovals.size
-  }, [planNodes, dynamicApprovals])
+  // Auto-reveal sidebar items based on usage thresholds
+  useAutoReveal()
 
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
-  const longPressTimer = useRef<number | null>(null)
-  const [showHint, setShowHint] = useState(() => !localStorage.getItem("sidebar-hint-dismissed"))
-
-  // Rename state
-  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
-
-  // Subscribe to realtime changes (multi-device sync)
   useEffect(() => {
     const unsubscribe = subscribeToChanges()
     return () => unsubscribe()
   }, [subscribeToChanges])
 
-  // Removed: syncWithProjectCount was hiding Tasks when < 2 projects
-  // Tasks is always visible as the home route
-
-  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
-
-  const handleLongPressStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    const isTouch = "touches" in e
-    // Track touch start position to cancel on scroll
-    if (isTouch) {
-      const touch = e.touches[0]
-      touchStartPos.current = { x: touch.clientX, y: touch.clientY }
-    }
-    longPressTimer.current = window.setTimeout(() => {
-      setEditing(true)
-      setShowHint(false)
-      localStorage.setItem("sidebar-hint-dismissed", "1")
-    }, isTouch ? 800 : 500)
-    // Prevent iOS Safari link preview / context menu on touch
-    if (isTouch) {
-      e.preventDefault()
-    }
-  }, [setEditing])
-
-  const handleLongPressEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-    touchStartPos.current = null
-  }, [])
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    // Cancel long-press if finger moves more than 10px (user is scrolling)
-    if (longPressTimer.current && touchStartPos.current) {
-      const touch = e.touches[0]
-      const dx = touch.clientX - touchStartPos.current.x
-      const dy = touch.clientY - touchStartPos.current.y
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-        window.clearTimeout(longPressTimer.current)
-        longPressTimer.current = null
-      }
-    }
-  }, [])
-
-  const dismissHint = useCallback(() => {
-    setShowHint(false)
-    localStorage.setItem("sidebar-hint-dismissed", "1")
-  }, [])
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDraggedIndex(index)
-    e.dataTransfer.effectAllowed = "move"
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = "move"
-  }
-
-  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault()
-    if (draggedIndex !== null && draggedIndex !== dropIndex) {
-      reorderItems(draggedIndex, dropIndex)
-    }
-    setDraggedIndex(null)
-  }
-
-  const visibleItems = sidebarItems.filter((item) => {
-    // Hide Community nav item in local mode
+  // Items available for editing (respects feature flags + auth gates)
+  const editableItems = sidebarItems.filter((item) => {
     if (item.id === 'community' && !showAuth) return false
-    // Hide items gated behind a feature flag the team doesn't have
-    if (item.featureFlag && !(teamFeatureFlags[item.featureFlag] ?? FEATURE_FLAG_DEFAULTS[item.featureFlag] ?? false)) return false
-    return item.visible
+    if (item.featureFlag && !teamFeatureFlags[item.featureFlag]) return false
+    return true
   })
 
-  const calculateProgress = (projectId: string): number => {
-    const projectTasks = planNodes.filter(
-      (n) => n.projectId === projectId && n.type !== "milestone"
-    )
-    if (projectTasks.length === 0) return 0
+  const visibleItems = editableItems.filter((item) => item.visible)
 
-    const completedTasks = projectTasks.filter(
-      (n) => n.status === "completed" || n.status === "auto_verified"
-    )
-    return Math.round((completedTasks.length / projectTasks.length) * 100)
-  }
+  const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.id)), [pinnedItems])
 
-  const getInitials = (nameOrEmail: string) => {
-    if (!nameOrEmail) return "U"
+  // DnD sensors for @dnd-kit
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
 
-    // If it's an email, use first part before @
-    if (nameOrEmail.includes("@")) {
-      const username = nameOrEmail.split("@")[0]
-      // Handle dots/underscores in username (e.g., john.doe → JD)
-      const parts = username.split(/[._-]/)
-      if (parts.length >= 2) {
-        return (parts[0][0] + parts[1][0]).toUpperCase()
-      }
-      return username.slice(0, 2).toUpperCase()
+  const handleNavDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const items = isEditing ? editableItems : visibleItems
+    const oldIndex = items.findIndex((i) => i.id === active.id)
+    const newIndex = items.findIndex((i) => i.id === over.id)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      reorderItems(oldIndex, newIndex)
     }
+  }, [isEditing, sidebarItems, visibleItems, reorderItems])
 
-    // If it's a name, use first letters of first/last name
-    const parts = nameOrEmail.trim().split(/\s+/)
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  const handlePinnedDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = pinnedItems.findIndex((p) => p.id === active.id)
+    const newIndex = pinnedItems.findIndex((p) => p.id === over.id)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      reorderPinnedItems(oldIndex, newIndex)
     }
+  }, [pinnedItems, reorderPinnedItems])
 
-    // Single word name - use first two letters
-    return nameOrEmail.slice(0, 2).toUpperCase()
-  }
 
-  const getDisplayName = (nameOrEmail: string) => {
-    if (!nameOrEmail) return "User"
-
-    // If it's an email, show username part in a nicer format
-    if (nameOrEmail.includes("@")) {
-      const username = nameOrEmail.split("@")[0]
-      // Replace dots/underscores with spaces and capitalize (e.g., john.doe → John Doe)
-      return username
-        .split(/[._-]/)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    }
-
-    return nameOrEmail
-  }
-
-  // Translate sidebar nav item labels by item.id (falls back to item.label if no key)
   const getItemLabel = (item: { id: string; label: string }): string => {
-    const key = item.id === "active" ? "active" : item.id
-    // Check if key exists in nav namespace; use defaultValue (item.label) as fallback
-    return t(key, { defaultValue: item.label })
+    return t(item.id === "active" ? "active" : item.id, { defaultValue: item.label })
   }
 
-  const getProjectColor = (index: number) => {
-    return projectColors[index % projectColors.length]
+  const { activeCount, projectsWithRunning } = useMemo(() => (
+    deriveActiveTasks({
+      executions, batchExecutions, rawNodes: rawPlanNodes, liveNodes: planNodes,
+      nodesLoaded, projects, projectsLoaded, streamingSessions, allSessions, workspaceFilter,
+    })
+  ), [executions, batchExecutions, rawPlanNodes, planNodes, nodesLoaded, projects, projectsLoaded, streamingSessions, allSessions, workspaceFilter])
+
+  const inboxCount = useMemo(() => {
+    const pending = planNodes.filter(
+      (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
+    ).length
+    return pending + dynamicApprovals.size
+  }, [planNodes, dynamicApprovals])
+
+  const navigateToProject = useCallback((projectId: string) => {
+    const nodeId = getNodeIdForProject(projectId, executions)
+    const exec = nodeId ? executions.get(nodeId) : undefined
+    const isGenerating = exec?.status === "running" || exec?.status === "pending"
+    if (isGenerating && nodeId?.startsWith('session-')) {
+      navigate(`/playground?projectId=${projectId}`)
+    } else if (isGenerating && nodeId?.startsWith('plan-')) {
+      navigate(`/plan?projectId=${projectId}`)
+    } else if (isGenerating && nodeId?.startsWith('playground-')) {
+      navigate(`/playground?projectId=${projectId}`)
+    } else {
+      navigate(`/project/${projectId}`)
+    }
+  }, [executions, navigate])
+
+  const getInitials = (s: string) => {
+    if (!s) return "U"
+    if (s.includes("@")) {
+      const u = s.split("@")[0]
+      const p = u.split(/[._-]/)
+      return p.length >= 2 ? (p[0][0] + p[1][0]).toUpperCase() : u.slice(0, 2).toUpperCase()
+    }
+    const p = s.trim().split(/\s+/)
+    return p.length >= 2 ? (p[0][0] + p[p.length - 1][0]).toUpperCase() : s.slice(0, 2).toUpperCase()
   }
 
-  const getHealthBarWidth = (progress?: number) => {
-    if (progress === undefined) return 0
-    // Map 0-100 progress to 0-40px width (w-10 container = 40px)
-    return Math.round((progress / 100) * 40)
+  const getDisplayName = (s: string) => {
+    if (!s) return "User"
+    if (s.includes("@")) {
+      return s.split("@")[0].split(/[._-]/)
+        .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(" ")
+    }
+    return s
+  }
+
+  // Node-based categorization, sorted alphabetically
+  const { activeProjects, recentSessions } = useMemo(() => {
+    const projectIdsWithNodes = new Set<string>()
+    for (const node of planNodes) projectIdsWithNodes.add(node.projectId)
+    const withNodes: typeof projects = []
+    const recent: typeof projects = []
+    for (const p of projects) {
+      if (p.status !== "active") continue
+      if (pinnedIds.has(p.id)) continue // Pinned items shown in pages section
+      if (projectIdsWithNodes.has(p.id)) withNodes.push(p)
+      else recent.push(p)
+    }
+    withNodes.sort((a, b) => a.name.localeCompare(b.name))
+    recent.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    return { activeProjects: withNodes, recentSessions: recent.slice(0, 5) }
+  }, [projects, planNodes, pinnedIds])
+
+  // Group projects by initiative (order within groups preserved from activeProjects sort)
+  const { initiativeGroups, ungroupedProjects } = useMemo(() => {
+    const activeInitiatives = initiatives.filter((i) => i.status === "active")
+    if (!activeInitiatives.length) return { initiativeGroups: [], ungroupedProjects: activeProjects }
+    const groups = new Map<string, { initiative: typeof activeInitiatives[0]; projects: Project[] }>()
+    const ungrouped: Project[] = []
+    for (const p of activeProjects) {
+      if (p.initiativeId) {
+        const init = activeInitiatives.find((i) => i.id === p.initiativeId)
+        if (init) {
+          if (!groups.has(init.id)) groups.set(init.id, { initiative: init, projects: [] })
+          groups.get(init.id)!.projects.push(p)
+          continue
+        }
+      }
+      ungrouped.push(p)
+    }
+    return { initiativeGroups: Array.from(groups.values()), ungroupedProjects: ungrouped }
+  }, [activeProjects, initiatives])
+
+  const getProjectColor = (i: number) => projectColors[i % projectColors.length]
+
+  const calculateProgress = (projectId: string) => {
+    const tasks = planNodes.filter(n => n.projectId === projectId && n.type !== "milestone")
+    if (!tasks.length) return 0
+    const done = tasks.filter(n => n.status === "completed" || n.status === "auto_verified")
+    return Math.round((done.length / tasks.length) * 100)
   }
 
   const handleSignOut = async () => {
@@ -329,210 +321,184 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     navigate("/login")
   }
 
-  const handleProjectRename = async (projectId: string, newName: string) => {
-    const project = projects.find((p) => p.id === projectId)
-    if (!project) return
-
-    const oldName = project.name
-
-    try {
-      // Optimistic update
-      updateProject(projectId, { name: newName })
-      setRenamingProjectId(null)
-
-      // Verify server sync (only in server mode)
-      if (isServerMode()) {
-        // In a real implementation, we'd check for conflicts here
-        // For now, we'll just show a success message
-        addToast({
-          type: "success",
-          title: "Project renamed",
-          description: `"${oldName}" → "${newName}"`,
-        })
-      }
-    } catch (error) {
-      // Revert on error
-      updateProject(projectId, { name: oldName })
-      addToast({
-        type: "error",
-        title: "Rename failed",
-        description: "Could not rename project. Please try again.",
-      })
-      console.error("Project rename error:", error)
-    }
-  }
-
-  const validateProjectName = (name: string): string | null => {
-    if (!name.trim()) {
-      return "Project name cannot be empty"
-    }
-    if (name.length > 100) {
-      return "Project name is too long (max 100 characters)"
-    }
-    // Check for duplicates (excluding current project)
-    const isDuplicate = projects.some(
-      (p) => p.id !== renamingProjectId && p.name.toLowerCase() === name.toLowerCase()
-    )
-    if (isDuplicate) {
-      return "A project with this name already exists"
-    }
+  const getBadge = (id: string) => {
+    if (id === "dashboard" && inboxCount > 0) return { count: inboxCount, variant: "warning" as const }
+    if (id === "active" && activeCount > 0) return { count: activeCount, variant: "info" as const }
     return null
   }
 
-  const activeProjects = useMemo(
-    () => projects.filter(p => p.status === 'active' && p.projectType !== 'playground'),
-    [projects]
-  )
+  // Resolve pinned items to actual project/session data
+  const resolvedPinnedItems = useMemo(() => {
+    return pinnedItems
+      .map((pin) => {
+        const project = projects.find((p) => p.id === pin.id)
+        if (!project) return null
+        return { ...pin, project }
+      })
+      .filter(Boolean) as Array<{ id: string; type: 'project' | 'session'; project: Project }>
+  }, [pinnedItems, projects])
 
-  const playgroundSessions = useMemo(
-    () => projects
-      .filter(p => p.projectType === 'playground')
-      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()),
-    [projects]
-  )
-  const hasRunningPlayground = useMemo(() =>
-    playgroundSessions.some((s) => {
-      const exec = executions.get(`playground-${s.id}`)
-      return exec?.status === "running" || exec?.status === "pending"
-    }),
-    [playgroundSessions, executions]
-  )
-  const [playgroundManualExpanded, setPlaygroundManualExpanded] = useState(false)
-  // Auto-expand when a session is running; manual toggle otherwise
-  const playgroundExpanded = playgroundManualExpanded || hasRunningPlayground
-  const setPlaygroundExpanded = setPlaygroundManualExpanded
+  /* ─── Render a project row (shared between sections) ─── */
+  function renderProjectRow(project: Project, index: number, isPinned: boolean) {
+    const isActive = activeProjectId === project.id
+    const progress = calculateProgress(project.id)
+    const color = getProjectColor(index)
 
-  // Shared handler for Plan click — resets to fresh input when already on /plan.
-  // Uses location.state to signal form reset even when URL doesn't change.
-  const handlePlanClick = useCallback((e?: React.MouseEvent) => {
-    e?.preventDefault()
-    if (location.pathname === "/plan") {
-      // Already on /plan — use a unique state key to force reset detection
-      navigate("/plan", { replace: true, state: { resetForm: Date.now() } })
-    } else {
-      navigate("/plan")
-    }
-  }, [location.pathname, navigate])
+    const projectIcon = (() => {
+      if (!project.icon) return null
+      const FaIcon = getFaIcon(project.icon)
+      if (FaIcon) return <FaIcon size={collapsed ? 18 : 16} style={{ color: project.color || color }} className="shrink-0" />
+      return <span className="text-base leading-none shrink-0">{project.icon}</span>
+    })()
 
-  return (
-    <aside className={cn(
-      "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden w-full",
-      collapsed && "!w-[52px]",
-    )}>
-      {/* Logo Section */}
-      <div className={cn(
-        "flex h-14 shrink-0 items-center",
-        collapsed ? "justify-center px-0" : "gap-2 px-5 py-5"
-      )}>
-        <div className="relative shrink-0">
-          <img src="/icon-192.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
-          <div
-            className={cn(
-              "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white dark:border-card",
-              connectionStatus === "connected" ? "bg-success" : connectionStatus === "checking" ? "bg-warning animate-pulse" : "bg-destructive"
-            )}
-          />
-        </div>
-        {!collapsed && (
-          <span className="font-secondary text-2xl font-bold text-foreground">
-            {i18n.language.startsWith('zh') ? 'Astro｜摘星' : 'Astro'}
-          </span>
-        )}
-      </div>
-
-      {/* Command Palette Search Button */}
-      {collapsed ? (
-        <div className="flex justify-center py-2">
+    if (collapsed) {
+      return (
+        <div key={project.id} className="flex justify-center w-full">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => setCommandPaletteOpen(true)}
-                className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors"
+                onClick={() => navigateToProject(project.id)}
+                className={cn(
+                  "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
+                  isActive ? "bg-accent" : "hover:bg-muted/50"
+                )}
               >
+                {projectIcon}
+                {projectsWithRunning.has(project.id) && (
+                  <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3 w-3">
+                    <Loader2 className="h-3 w-3 text-info animate-spin" />
+                  </span>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{project.name}</TooltipContent>
+          </Tooltip>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        key={project.id}
+        onClick={() => navigateToProject(project.id)}
+        className={cn(
+          "group/proj flex items-center gap-3 rounded-[10px] px-3.5 py-2 transition-colors cursor-pointer",
+          isActive ? "bg-accent" : "hover:bg-muted/50"
+        )}
+      >
+        {projectIcon}
+        <span className={cn(
+          "flex-1 text-[15px] truncate",
+          isActive ? "text-accent-foreground font-semibold" : "text-muted-foreground font-medium"
+        )}>
+          {project.name.includes("/") ? project.name.split("/").slice(1).join("/") : project.name}
+        </span>
+        {/* Pin/unpin button on hover */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isPinned) { unpinItem(project.id) } else { pinItem(project.id, 'project') }
+          }}
+          className={cn(
+            "shrink-0 p-0.5 rounded transition-colors",
+            isPinned
+              ? "text-muted-foreground/60 hover:text-destructive"
+              : "opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-muted-foreground"
+          )}
+        >
+          {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+        </button>
+        {projectsWithRunning.has(project.id) ? (
+          <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />
+        ) : (
+          <PieProgress progress={progress} />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <aside className={cn(
+      "flex h-full shrink-0 flex-col border-r bg-card overflow-hidden w-full",
+      collapsed ? "!w-[52px] border-border/30" : "border-border",
+    )}>
+
+      {/* ─── Header ─── */}
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-1 py-2 border-b border-border/50">
+          <div className="relative shrink-0">
+            <img src="/icon-192.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
+            <div className={cn(
+              "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white dark:border-card",
+              connectionStatus === "connected" ? "bg-success"
+                : connectionStatus === "checking" ? "bg-warning animate-pulse"
+                : "bg-destructive"
+            )} />
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
                 <Search className="h-4 w-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">Search ({isMac ? "⌘" : "Ctrl+"}K)</TooltipContent>
           </Tooltip>
+          <WorkspaceSwitcher collapsed />
         </div>
       ) : (
-        <div className="px-4 pt-4 pb-2">
-          <button
-            onClick={() => setCommandPaletteOpen(true)}
-            className="flex w-full items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium text-muted-foreground bg-muted/30 hover:bg-muted/50 transition-colors border border-border/50"
-          >
-            <Search className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left text-sm">Search...</span>
-            <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border/70 bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              {isMac ? "⌘" : "Ctrl+"}K
-            </kbd>
-          </button>
+        <div className="flex h-14 shrink-0 items-center gap-2 px-4 border-b border-border/50">
+          <div className="relative shrink-0">
+            <img src="/icon-192.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
+            <div className={cn(
+              "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white dark:border-card",
+              connectionStatus === "connected" ? "bg-success"
+                : connectionStatus === "checking" ? "bg-warning animate-pulse"
+                : "bg-destructive"
+            )} />
+          </div>
+          <span className="font-secondary text-2xl font-bold text-foreground flex-1">
+            {i18n.language.startsWith("zh") ? "Astro｜摘星" : "Astro"}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
+                <Search className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Search ({isMac ? "⌘" : "Ctrl+"}K)</TooltipContent>
+          </Tooltip>
+          <WorkspaceSwitcher iconOnly />
         </div>
       )}
 
-      {/* Workspace Switcher — filter across all, personal, or specific team */}
-      <WorkspaceSwitcher collapsed={collapsed} />
-
-      {/* Scrollable middle section: navigation + projects */}
-      <div
-        className="flex-1 min-h-0 overflow-y-auto"
-        style={collapsed ? { scrollbarWidth: "none" } : undefined}
-      >
-        {/* Navigation */}
-        <nav
-          className={cn("flex flex-col gap-1 py-2", collapsed ? "items-center" : "px-4")}
-          style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
-          onMouseDown={collapsed ? undefined : handleLongPressStart}
-          onMouseUp={collapsed ? undefined : handleLongPressEnd}
-          onMouseLeave={collapsed ? undefined : handleLongPressEnd}
-          onTouchStart={collapsed ? undefined : handleLongPressStart}
-          onTouchMove={collapsed ? undefined : handleTouchMove}
-          onTouchEnd={collapsed ? undefined : handleLongPressEnd}
-          onContextMenu={collapsed ? undefined : (e) => e.preventDefault()}
-        >
-          {/* Long-press hint bubble (expanded only) */}
-          {!collapsed && showHint && !isEditing && (
-            <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground mb-1">
-              <span className="flex-1">Long press below to edit</span>
-              <button onClick={dismissHint} className="p-0.5 rounded hover:bg-muted-foreground/10 transition-colors shrink-0">
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          )}
-          {/* Visible items */}
-          {(isEditing && !collapsed ? sidebarItems : visibleItems).map((item, index) => {
-            const Icon = iconMap[item.icon] || CheckSquare
-            const isHidden = !item.visible
-
-            if (collapsed) {
-              if (isHidden) return null
+      {/* ─── Pages section (sticky, does NOT scroll) ─── */}
+      <div className="shrink-0 border-b border-border/50">
+        {collapsed ? (
+          <nav className="flex flex-col gap-1 py-2 items-center">
+            {visibleItems.map((item) => {
+              const Icon = iconMap[item.icon] || CheckSquare
+              const badge = getBadge(item.id)
               const isItemActive = location.pathname === item.to
+                || (item.id === "projects" && location.pathname.startsWith("/project/"))
               return (
                 <div key={item.id} className="flex justify-center w-full">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         data-tour-id={item.id}
-                        onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : () => navigate(item.to)}
+                        onClick={() => navigate(item.to)}
                         className={cn(
                           "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
-                          isItemActive
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-muted/50"
+                          isItemActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/50"
                         )}
                       >
                         <Icon className="h-[18px] w-[18px]" />
-                        {item.id === "active" && activeCount > 0 && (
-                          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full bg-info text-[8px] font-bold text-white px-0.5">
-                            {activeCount}
-                          </span>
-                        )}
-                        {item.id === "plan" && pendingPlanApprovals > 0 && (
-                          <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-warning border-2 border-card" />
-                        )}
-                        {item.id === "dashboard" && dashboardAttentionCount > 0 && (
-                          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full bg-warning text-[8px] font-bold text-white px-0.5">
-                            {dashboardAttentionCount}
+                        {badge && (
+                          <span className={cn(
+                            "absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full text-[8px] font-bold text-white px-0.5",
+                            badge.variant === "warning" ? "bg-warning" : "bg-info"
+                          )}>
+                            {badge.count}
                           </span>
                         )}
                       </button>
@@ -541,149 +507,228 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   </Tooltip>
                 </div>
               )
-            }
+            })}
+          </nav>
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={isEditing ? handleNavDragEnd : handlePinnedDragEnd}>
+            <nav className="flex flex-col gap-1 py-2 px-4">
+              <SortableContext items={(isEditing ? editableItems : visibleItems).map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                {(isEditing ? editableItems : visibleItems).map((item) => {
+                  const Icon = iconMap[item.icon] || CheckSquare
+                  const isHidden = !item.visible
+                  const badge = getBadge(item.id)
 
-            return (
-              <div
-                key={item.id}
-                draggable={isEditing}
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, index)}
-                className={cn(
-                  "relative group",
-                  isHidden && "opacity-40"
-                )}
-              >
-                {isEditing ? (
-                  <div
-                    className={cn(
-                      "flex items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium bg-muted/30 border-2 border-dashed",
-                      isHidden ? "border-muted-foreground/20" : "border-muted-foreground/40"
-                    )}
-                  >
-                    <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-                    <Icon className="h-5 w-5" />
-                    <span className="flex-1">{getItemLabel(item)}</span>
-                    {!item.protected && (
-                      <button
-                        onClick={() => toggleItemVisibility(item.id)}
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded-full transition-colors",
-                          isHidden
-                            ? "bg-success hover:bg-success/90 text-white"
-                            : "bg-error hover:bg-error/90 text-white"
-                        )}
-                      >
-                        {isHidden ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-                      </button>
-                    )}
-                  </div>
-                ) : !isHidden ? (
-                  <NavLink
-                    to={item.to}
-                    end
-                    data-tour-id={item.id}
-                    onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
-                        isActive
-                          ? "bg-accent text-accent-foreground font-semibold"
-                          : "text-muted-foreground hover:bg-muted/50"
-                      )
-                    }
-                  >
-                    <Icon className="h-5 w-5" />
-                    <span className="flex-1">{getItemLabel(item)}</span>
-                    {item.autoRevealed && (
-                      <>
-                        <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">
-                          New
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            dismissAutoReveal(item.id)
-                          }}
-                          className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
-                          aria-label={`Dismiss ${getItemLabel(item)}`}
-                        >
-                          <X className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      </>
-                    )}
-                    {item.id === "active" && activeCount > 0 && (
-                      <span className="flex items-center gap-1 rounded-full bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
-                        <div className="relative h-1.5 w-1.5">
-                          <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                  if (isEditing) {
+                    return (
+                      <SortableItem key={item.id} id={item.id} gripMode="whole" groupClass={cn(isHidden && "opacity-40")}>
+                        <div className={cn(
+                          "flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-[15px] font-medium bg-muted/30 border-2 border-dashed",
+                          isHidden ? "border-muted-foreground/20" : "border-muted-foreground/40"
+                        )}>
+                          <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground cursor-grab" />
+                          <div className="h-5 w-5 shrink-0 flex items-center justify-center">
+                            <Icon className="h-[18px] w-[18px]" />
+                          </div>
+                          <span className="flex-1 truncate">{getItemLabel(item)}</span>
+                          {!item.protected ? (
+                            <button
+                              onClick={() => toggleItemVisibility(item.id)}
+                              className={cn(
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+                                isHidden
+                                  ? "text-muted-foreground hover:text-success hover:bg-success/10"
+                                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              )}
+                            >
+                              {isHidden ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+                            </button>
+                          ) : (
+                            <div className="w-5 shrink-0" />
+                          )}
                         </div>
-                        {activeCount}
-                      </span>
-                    )}
-                    {item.id === "plan" && pendingPlanApprovals > 0 && (
-                      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
-                        <AlertCircle className="h-3 w-3" />
-                        {pendingPlanApprovals}
-                      </span>
-                    )}
-                    {item.id === "dashboard" && dashboardAttentionCount > 0 && (
-                      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
-                        <AlertCircle className="h-3 w-3" />
-                        {dashboardAttentionCount}
-                      </span>
-                    )}
-                  </NavLink>
-                ) : null}
-              </div>
-            )
-          })}
+                      </SortableItem>
+                    )
+                  }
 
-          {/* Edit mode: Done button / Normal mode: Customize link */}
-          {!collapsed && (isEditing ? (
-            <button
-              onClick={() => setEditing(false)}
-              className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Done
-            </button>
-          ) : sidebarItems.some((item) => !item.visible) && (
+                  return (
+                    <NavLink
+                      key={item.id}
+                      to={item.to}
+                      end
+                      data-tour-id={item.id}
+                      className={({ isActive }) => {
+                        const active = isActive || (item.id === "projects" && location.pathname.startsWith("/project/"))
+                        return cn(
+                          "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
+                          active ? "bg-accent text-accent-foreground font-semibold" : "text-muted-foreground hover:bg-muted/50"
+                        )
+                      }}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="flex-1">{getItemLabel(item)}</span>
+                      {item.autoRevealed && (
+                        <>
+                          <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">New</span>
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); dismissAutoReveal(item.id) }}
+                            className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
+                          >
+                            <X className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        </>
+                      )}
+                      {badge && (
+                        <span className={cn(
+                          "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                          badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
+                        )}>
+                          {badge.variant === "info" && (
+                            <div className="relative h-1.5 w-1.5">
+                              <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                            </div>
+                          )}
+                          {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
+                          {badge.count}
+                        </span>
+                      )}
+                    </NavLink>
+                  )
+                })}
+              </SortableContext>
+
+              {/* Edit mode Done button */}
+              {isEditing && (
+                <button
+                  onClick={() => setEditing(false)}
+                  className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  Done
+                </button>
+              )}
+
+              {/* Pinned items in pages section */}
+              {!isEditing && resolvedPinnedItems.length > 0 && (
+                <div className="flex flex-col gap-0.5 mt-1">
+                  {resolvedPinnedItems.map((item, index) => (
+                    <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
+                  ))}
+                </div>
+              )}
+            </nav>
+          </DndContext>
+        )}
+
+        {/* Pinned items collapsed mode */}
+        {!isEditing && resolvedPinnedItems.length > 0 && collapsed && (
+          <div className="flex flex-col items-center gap-1 pb-2">
+            {resolvedPinnedItems.map((item, index) => (
+              <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
+            ))}
+          </div>
+        )}
+
+        {/* Customize sidebar button — above projects */}
+        {!collapsed && !isEditing && (
+          <div className="px-5 py-1">
             <button
               onClick={() => setEditing(true)}
-              className="mt-1 px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
             >
               Customize sidebar...
             </button>
-          ))}
-        </nav>
+          </div>
+        )}
+      </div>
 
-        {/* Projects Section */}
-        {activeProjects.length > 0 && (
-          <div className={cn("flex flex-col gap-2 pb-6 font-primary", collapsed ? "items-center" : "px-5")}>
+      {/* ─── Scrollable area: projects + sessions ─── */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={collapsed ? { scrollbarWidth: "none" } : undefined}>
+
+        {/* Initiative-grouped projects */}
+        {initiativeGroups.length > 0 && (
+          <div className={cn("flex flex-col gap-1 py-2 font-primary", collapsed ? "items-center" : "px-5")}>
             {!collapsed && (
-              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">
-                PROJECTS
-              </div>
+              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground mb-1">PROJECTS</div>
             )}
             {collapsed && <div className="w-6 h-px bg-border my-1" />}
-            <div className={cn("flex flex-col", collapsed ? "items-center gap-1" : "gap-2")}>
-              {activeProjects.map((project, index) => {
-                const isActive = activeProjectId === project.id
-                const progress = calculateProgress(project.id)
-                const healthWidth = getHealthBarWidth(progress)
-                const color = getProjectColor(index)
 
-                const projectIcon = (() => {
-                  const projIcon = project.icon
-                  const projColor = project.color || color
-                  if (!projIcon) return null
-                  const FaIcon = getFaIcon(projIcon)
-                  if (FaIcon) {
-                    return <FaIcon size={collapsed ? 18 : 16} style={{ color: projColor }} className="shrink-0" />
-                  }
-                  return <span className="text-base leading-none shrink-0">{projIcon}</span>
-                })()
+            {initiativeGroups.map(({ initiative, projects: groupProjects }) => {
+              const isGroupCollapsed = collapsedInitiatives.has(initiative.id)
+              return (
+                <div key={initiative.id}>
+                  {!collapsed && (
+                    <button
+                      onClick={() => toggleInitiativeCollapse(initiative.id)}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", !isGroupCollapsed && "rotate-90")} />
+                      <ColorIconBadge color={initiative.color} icon={initiative.icon} type="initiative" />
+                      <span className="text-[15px] font-medium text-muted-foreground flex-1 truncate">{initiative.name}</span>
+                      <span className="text-[11px] text-muted-foreground/60">{groupProjects.length}</span>
+                    </button>
+                  )}
+                  {!isGroupCollapsed && !collapsed && (
+                    <div className="flex flex-col gap-0.5 ml-3">
+                      {groupProjects.map((project, index) => (
+                        <div key={project.id}>{renderProjectRow(project, index, false)}</div>
+                      ))}
+                    </div>
+                  )}
+                  {!isGroupCollapsed && collapsed && (
+                    <div className="flex flex-col items-center gap-1">
+                      {groupProjects.map((project, index) => renderProjectRow(project, index, false))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Ungrouped projects (no initiative) */}
+            {ungroupedProjects.length > 0 && !collapsed && (
+              <div className="flex flex-col gap-0.5">
+                {ungroupedProjects.map((project, index) => (
+                  <div key={project.id}>{renderProjectRow(project, index + initiativeGroups.length * 10, false)}</div>
+                ))}
+              </div>
+            )}
+            {ungroupedProjects.length > 0 && collapsed && (
+              <div className="flex flex-col items-center gap-1">
+                {ungroupedProjects.map((project, index) => renderProjectRow(project, index + initiativeGroups.length * 10, false))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Flat projects list (no initiatives) */}
+        {initiativeGroups.length === 0 && activeProjects.length > 0 && (
+          <div className={cn("flex flex-col gap-2 py-2 font-primary", collapsed ? "items-center" : "px-5")}>
+            {!collapsed && (
+              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">PROJECTS</div>
+            )}
+            {collapsed && <div className="w-6 h-px bg-border my-1" />}
+            {!collapsed ? (
+              <div className="flex flex-col gap-0.5">
+                {activeProjects.map((project, index) => (
+                  <div key={project.id}>{renderProjectRow(project, index, false)}</div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1">
+                {activeProjects.map((project, index) => renderProjectRow(project, index, false))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Recent sessions */}
+        {recentSessions.length > 0 && (
+          <div className={cn("flex flex-col gap-2 py-2 font-primary", collapsed ? "items-center" : "px-5")}>
+            {!collapsed && (
+              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">RECENT</div>
+            )}
+            {collapsed && <div className="w-6 h-px bg-border my-1" />}
+            <div className={cn("flex flex-col", collapsed ? "items-center gap-1" : "gap-0.5")}>
+              {recentSessions.filter((s) => !pinnedIds.has(s.id)).map((project) => {
+                const isActive = location.search.includes(project.id) && location.pathname === "/playground"
 
                 if (collapsed) {
                   return (
@@ -691,18 +736,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={() => navigateToProject(project.id)}
+                            onClick={() => navigate(`/playground?projectId=${project.id}`)}
                             className={cn(
                               "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                               isActive ? "bg-accent" : "hover:bg-muted/50"
                             )}
                           >
-                            {projectIcon}
-                            {projectsWithRunning.has(project.id) && (
-                              <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3 w-3">
-                                <Loader2 className="h-3 w-3 text-info animate-spin" />
-                              </span>
-                            )}
+                            <FlaskConical className="h-4 w-4 text-muted-foreground" />
                           </button>
                         </TooltipTrigger>
                         <TooltipContent side="right">{project.name}</TooltipContent>
@@ -714,52 +754,27 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 return (
                   <div
                     key={project.id}
-                    className={cn(
-                      "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 transition-colors",
-                      isActive
-                        ? "bg-accent"
-                        : "hover:bg-muted/50"
-                    )}
+                    className="group/proj flex items-center gap-3 rounded-[10px] px-3.5 py-2 transition-colors cursor-pointer hover:bg-muted/50"
+                    onClick={() => navigate(`/playground?projectId=${project.id}`)}
                   >
-                    {projectIcon}
-
-                    {/* Project name - editable on double-click */}
-                    {renamingProjectId === project.id ? (
-                      <InlineRenameInput
-                        value={project.name}
-                        onSave={(newName) => handleProjectRename(project.id, newName)}
-                        onCancel={() => setRenamingProjectId(null)}
-                        validate={validateProjectName}
-                        className="flex-1"
-                      />
-                    ) : (
-                      <span
-                        onDoubleClick={(e) => {
-                          e.stopPropagation()
-                          setRenamingProjectId(project.id)
-                        }}
-                        onClick={() => navigateToProject(project.id)}
-                        className={cn(
-                          "flex-1 text-sm truncate cursor-pointer",
-                          isActive
-                            ? "text-accent-foreground font-semibold"
-                            : "text-muted-foreground font-medium"
-                        )}
-                      >
-                        {project.name.includes('/') ? project.name.split('/').slice(1).join('/') : project.name}
-                      </span>
-                    )}
-
-                    {/* Running indicator or health bar */}
-                    {projectsWithRunning.has(project.id) ? (
+                    <FlaskConical className={cn("h-4 w-4 shrink-0", isActive ? "text-accent-foreground" : "text-muted-foreground")} />
+                    <span className={cn(
+                      "flex-1 text-[15px] truncate",
+                      isActive ? "text-accent-foreground font-semibold" : "text-muted-foreground font-medium"
+                    )}>
+                      {project.name}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (pinnedIds.has(project.id)) { unpinItem(project.id) } else { pinItem(project.id, 'session') }
+                      }}
+                      className="shrink-0 p-0.5 rounded transition-colors opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-muted-foreground"
+                    >
+                      <Pin className="h-3 w-3" />
+                    </button>
+                    {projectsWithRunning.has(project.id) && (
                       <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />
-                    ) : (
-                      <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
-                        <div
-                          className="h-full rounded-sm bg-primary"
-                          style={{ width: `${healthWidth}px` }}
-                        />
-                      </div>
                     )}
                   </div>
                 )
@@ -768,64 +783,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </div>
         )}
 
-        {/* Playground Sessions */}
-        {playgroundSessions.length > 0 && !collapsed && (
-          <div className="flex flex-col gap-1 pb-6 font-primary px-5">
-            <button
-              onClick={() => setPlaygroundExpanded(!playgroundExpanded)}
-              className="flex items-center gap-1 text-xs font-medium tracking-[0.5px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {playgroundExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              PLAYGROUND ({playgroundSessions.length})
-            </button>
-            {playgroundExpanded && (
-              <div className="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
-                {playgroundSessions.map((session) => {
-                  const isActive = location.pathname === "/playground" && new URLSearchParams(location.search).get("projectId") === session.id
-                  const exec = executions.get(`playground-${session.id}`)
-                  const isRunning = exec?.status === "running" || exec?.status === "pending"
-                  return (
-                    <button
-                      key={session.id}
-                      onClick={() => navigate(`/playground?projectId=${session.id}`)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-lg px-3 py-1.5 text-left transition-colors",
-                        isActive ? "bg-accent" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className={cn(
-                        "flex-1 text-xs truncate",
-                        isActive ? "text-accent-foreground font-medium" : "text-muted-foreground"
-                      )}>
-                        {session.name.replace(/^Playground:\s*/, '').slice(0, 40)}
-                      </span>
-                      {isRunning && <Loader2 className="h-3 w-3 text-info animate-spin shrink-0" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-        {playgroundSessions.length > 0 && collapsed && (
-          <div className="flex justify-center pb-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => navigate("/playground")}
-                  className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Playground Sessions ({playgroundSessions.length})</TooltipContent>
-            </Tooltip>
-          </div>
-        )}
       </div>
 
-      {/* Local Mode Badge */}
+      {/* ─── Local Mode badge ─── */}
       {!showAuth && (
         collapsed ? (
           <Tooltip>
@@ -834,20 +794,19 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 <div className="h-2 w-2 rounded-full bg-warning" />
               </div>
             </TooltipTrigger>
-            <TooltipContent side="right">{t("localMode")}</TooltipContent>
+            <TooltipContent side="right">Local Mode</TooltipContent>
           </Tooltip>
         ) : (
-          <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
+          <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border">
             <div className="h-2 w-2 rounded-full bg-warning" />
-            {t("localMode")}
+            Local Mode
           </div>
         )
       )}
 
-      {/* Quick Settings */}
+      {/* ─── Quick Settings ─── */}
       {collapsed ? (
-        <div className="flex flex-col gap-1 py-2">
-          {/* Model Size — popup horizontal selector */}
+        <div className="flex flex-col gap-1 py-2 border-t border-border">
           <div className="flex justify-center w-full">
             <Popover>
               <PopoverTrigger asChild>
@@ -865,9 +824,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           className={cn(
                             "flex items-center justify-center rounded-full transition-colors",
                             tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                            modelTier === tier
-                              ? "bg-primary"
-                              : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                            modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
                           )}
                         >
                           <div className={cn(
@@ -889,11 +846,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           <div className="flex justify-center w-full">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  data-tour-id="yolo"
-                  onClick={() => setYoloMode(!yoloMode)}
-                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
-                >
+                <button data-tour-id="yolo" onClick={() => setYoloMode(!yoloMode)} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
                   <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
                 </button>
               </TooltipTrigger>
@@ -903,10 +856,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           <div className="flex justify-center w-full">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  onClick={() => setTheme(isDark ? "light" : "dark")}
-                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
-                >
+                <button onClick={() => setTheme(isDark ? "light" : "dark")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
                   {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
                 </button>
               </TooltipTrigger>
@@ -915,131 +865,98 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </div>
         </div>
       ) : (
-        <div className="flex flex-col">
-          {/* Toggle bar for settings section */}
-          <button
-            type="button"
-            onClick={() => {
-              const next = !settingsExpanded
-              setSettingsExpanded(next)
-              try { localStorage.setItem("astro-sidebar-settings", next ? "expanded" : "collapsed") } catch { /* localStorage unavailable */ }
-            }}
-            className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:bg-muted/50 transition-colors"
-          >
-            <ChevronRight className={cn("h-3 w-3 transition-transform", settingsExpanded && "rotate-90")} />
-            Settings
-          </button>
-          {settingsExpanded && (
-            <div className="px-4 pb-2 flex flex-col gap-0.5">
-              {/* Model Size Selector */}
-              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-                <div className="flex items-center gap-3">
-                  <Cpu className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Model</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {(["small", "medium", "large"] as const).map((tier) => (
-                    <Tooltip key={tier}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => setModelTier(tier)}
-                          className={cn(
-                            "flex items-center justify-center rounded-full transition-colors",
-                            tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                            modelTier === tier
-                              ? "bg-primary"
-                              : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                          )}
-                        >
-                          <div className={cn(
-                            "rounded-full",
-                            tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
-                            modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                          )} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              </div>
-
-              {/* YOLO Mode Toggle */}
-              <Tooltip>
+        <div className="flex items-center gap-3 px-5 py-2 border-t border-border">
+          <div className="flex items-center gap-1.5">
+            <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
+            {(["small", "medium", "large"] as const).map((tier) => (
+              <Tooltip key={tier}>
                 <TooltipTrigger asChild>
-                  <div data-tour-id="yolo" className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-                    <div className="flex items-center gap-3">
-                      <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
-                      <span className="text-sm font-medium text-muted-foreground">YOLO</span>
-                    </div>
-                    <Switch
-                      checked={yoloMode}
-                      onCheckedChange={setYoloMode}
-                    />
-                  </div>
+                  <button
+                    onClick={() => setModelTier(tier)}
+                    className={cn(
+                      "flex items-center justify-center rounded-full transition-colors",
+                      tier === "small" ? "h-4 w-4" : tier === "medium" ? "h-5 w-5" : "h-6 w-6",
+                      modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                    )}
+                  >
+                    <div className={cn(
+                      "rounded-full",
+                      tier === "small" ? "h-1.5 w-1.5" : tier === "medium" ? "h-2 w-2" : "h-2.5 w-2.5",
+                      modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                    )} />
+                  </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[220px]">
-                  Auto-approve safety checks, tool requests, and task completions across all projects. Failed tasks still require review.
+                <TooltipContent side="top">
+                  {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
                 </TooltipContent>
               </Tooltip>
-
-              {/* Dark Mode Toggle */}
-              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-                <div className="flex items-center gap-3">
-                  {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
-                  <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
-                </div>
-                <Switch
-                  checked={isDark}
-                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-                />
-              </div>
-
-            </div>
-          )}
+            ))}
+          </div>
+          <div className="flex-1" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-tour-id="yolo" onClick={() => setYoloMode(!yoloMode)} className="flex items-center justify-center h-7 w-7 rounded-md hover:bg-muted/50 transition-colors">
+                <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">YOLO: {yoloMode ? "On" : "Off"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => setTheme(isDark ? "light" : "dark")} className="flex items-center justify-center h-7 w-7 rounded-md hover:bg-muted/50 transition-colors">
+                {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Toggle {isDark ? "Light" : "Dark"} Mode</TooltipContent>
+          </Tooltip>
         </div>
       )}
 
-      {/* Bottom: User Profile / Expand button */}
+      {/* ─── User Profile ─── */}
       {collapsed ? (
-        <div className="flex flex-col gap-1.5 border-t border-border py-3">
+        <div className="flex flex-col gap-1 border-t border-border py-2">
           <div className="flex justify-center w-full">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  onClick={() => navigate("/settings")}
-                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
-                  title={t("settings")}
-                >
-                  <Settings className="h-4 w-4 text-muted-foreground" />
+                <button onClick={() => navigate("/stats")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
+                  <User className="h-4 w-4 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{t("settings")}</TooltipContent>
+              <TooltipContent side="right">Profile & Stats</TooltipContent>
             </Tooltip>
           </div>
           <div className="flex justify-center w-full">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  onClick={toggleSidebar}
-                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
-                >
+                <button onClick={() => navigate("/settings")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex justify-center w-full">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={toggleSidebar} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
                   <PanelLeft className="h-4 w-4 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{t("toggleSidebar")}</TooltipContent>
+              <TooltipContent side="right">Expand sidebar</TooltipContent>
             </Tooltip>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between border-t border-border dark:border-border px-5 py-3 gap-2">
-          {/* User Avatar & Info */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center justify-between border-t border-border px-5 py-3 gap-2">
+          <button
+            onClick={() => navigate("/stats")}
+            className="flex items-center gap-2 min-w-0 flex-1 rounded-md hover:bg-muted/50 transition-colors px-1 py-1 -mx-1 text-left"
+          >
             <Avatar className="h-8 w-8 shrink-0">
               <AvatarImage src={profile.avatarUrl} />
-              <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name || authUser?.email || "")}</AvatarFallback>
+              <AvatarFallback className="text-[13px] font-bold">
+                {getInitials(profile.name || authUser?.email || "")}
+              </AvatarFallback>
             </Avatar>
             <div className="flex flex-col items-start gap-0.5 min-w-0">
               <span className="text-[13px] font-semibold text-foreground truncate w-full">
@@ -1051,30 +968,21 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 </span>
               )}
             </div>
-          </div>
-
-          {/* Icon Actions */}
+          </button>
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => navigate("/settings")}
-              className="p-2 rounded-md hover:bg-muted/50 transition-colors"
-              title={t("settings")}
-            >
-              <Settings className="h-4 w-4 text-muted-foreground" />
-            </button>
-            <button
-              onClick={toggleSidebar}
-              className="p-2 rounded-md hover:bg-muted/50 transition-colors"
-              title={t("toggleSidebar")}
-            >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={() => navigate("/settings")} className="p-2 rounded-md hover:bg-muted/50 transition-colors">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Settings</TooltipContent>
+            </Tooltip>
+            <button onClick={toggleSidebar} className="p-2 rounded-md hover:bg-muted/50 transition-colors">
               <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
             </button>
             {showAuth && (
-              <button
-                onClick={handleSignOut}
-                className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
-                title="Sign Out"
-              >
+              <button onClick={handleSignOut} className="p-2 rounded-md hover:bg-destructive/10 transition-colors">
                 <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive" />
               </button>
             )}

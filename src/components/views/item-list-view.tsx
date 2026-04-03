@@ -62,6 +62,8 @@ interface ItemListViewProps<T> {
   groups: ListGroup<T>[]
   visibleColumns: string[]
   onItemClick?: (item: T) => void
+  /** Called when Enter is pressed on a focused item (keyboard nav). Falls back to onItemClick if not provided. */
+  onItemActivate?: (item: T) => void
   getItemId: (item: T) => string
   getItemClass?: (item: T) => string
   renderItemName?: (item: T) => ReactNode
@@ -207,6 +209,7 @@ export function ItemListView<T>({
   groups,
   visibleColumns,
   onItemClick,
+  onItemActivate,
   getItemId,
   getItemClass,
   renderItemName,
@@ -222,7 +225,7 @@ export function ItemListView<T>({
   onGroupDrop,
   headerActions,
 }: ItemListViewProps<T>) {
-  const isMobile = useMediaQuery("(max-width: 639px)")
+  const isMobile = useMediaQuery("(max-width: 767px)")
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     // Only honor defaultCollapsed when there are multiple groups.
     // With a single group, collapsing it hides all items and no group header
@@ -259,11 +262,12 @@ export function ItemListView<T>({
   const setItems = useKeyboardNavStore((s) => s.setItems)
   const clear = useKeyboardNavStore((s) => s.clear)
 
+  const activateHandler = onItemActivate ?? onItemClick
   const { focusedId } = useKeyboardNav({
     onActivate: (id) => {
       const item = groups.flatMap((g) => g.items).find((item) => getItemId(item) === id)
-      if (item && onItemClick) {
-        onItemClick(item)
+      if (item && activateHandler) {
+        activateHandler(item)
       }
     },
     enabled: true,
@@ -422,7 +426,7 @@ export function ItemListView<T>({
           onItemClick && "cursor-pointer",
           indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "pl-12",
           isSelected && "bg-primary/5",
-          isFocused && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]",
+          isFocused && "bg-accent/40 border-l-2 border-l-primary",
           getItemClass?.(item),
           itemClassName,
         )}

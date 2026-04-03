@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useRef } from "react"
 import { Outlet } from "react-router"
+import { cn } from "@/lib/utils"
 import { Sidebar } from "./sidebar"
+import { MobileTabBar } from "./mobile-layout"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 import { ProductTour } from "@/components/product-tour"
@@ -9,6 +11,7 @@ import { SseDisconnectBanner } from "@/components/sse-disconnect-banner"
 import { ToastContainer } from "@/components/toast-container"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useUIStore } from "@/stores/ui-store"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 function SidebarResizeHandle() {
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth)
@@ -48,29 +51,36 @@ function SidebarResizeHandle() {
 export function AppLayout() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const sidebarWidth = useUIStore((s) => s.sidebarWidth)
+  const isMobile = !useMediaQuery("(min-width: 768px)")
 
   useEffect(() => {
     requestNotificationPermission()
   }, [])
 
-  const width = sidebarCollapsed ? 52 : sidebarWidth
+  // On mobile, sidebar is always collapsed (icon rail)
+  const effectiveCollapsed = isMobile || sidebarCollapsed
+  const width = effectiveCollapsed ? 52 : sidebarWidth
 
   return (
-    <div className="flex flex-col md:flex-row h-dvh overflow-hidden bg-background">
-      {/* Sidebar with collapse transition */}
+    <div className="flex flex-row h-dvh overflow-hidden bg-background">
+      {/* Sidebar — always visible, collapsed on mobile */}
       <div
-        className="hidden md:flex shrink-0 relative"
-        style={{ width, transition: sidebarCollapsed ? "width 200ms" : undefined }}
+        className="flex shrink-0 relative"
+        style={{ width, transition: effectiveCollapsed ? "width 200ms" : undefined }}
       >
-        <Sidebar collapsed={sidebarCollapsed} />
-        {!sidebarCollapsed && <SidebarResizeHandle />}
+        <Sidebar collapsed={effectiveCollapsed} />
+        {!effectiveCollapsed && <SidebarResizeHandle />}
       </div>
 
-      <main className="flex-1 overflow-auto w-full md:w-auto">
+      <main className={cn("flex-1 overflow-auto w-full md:w-auto", isMobile && "pb-20")}>
         <SseDisconnectBanner />
         <PasskeyNudgeBanner />
         <Outlet />
       </main>
+
+      {/* Mobile bottom tab bar */}
+      {isMobile && <MobileTabBar />}
+
       <SafetyPromptDialog />
       <WelcomeProfileDialog />
       <ProductTour />

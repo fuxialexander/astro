@@ -33,6 +33,9 @@ import type { TaskActivityEvent } from "@/types"
 const InlineApprovalCard = lazy(() =>
   import("@/components/plan-generation/inline-approval-card").then(m => ({ default: m.InlineApprovalCard }))
 )
+const PlanResultCard = lazy(() =>
+  import("@/components/plan-generation/plan-result-card").then(m => ({ default: m.PlanResultCard }))
+)
 
 // JsonRenderSpec uses the existing JsonRenderView component
 const JsonRenderView = lazy(() =>
@@ -213,6 +216,24 @@ export function ActivityBlockRenderer({
             const lastPlanResultIdx = blocks.map(b => b.type).lastIndexOf('plan_result')
             if (i !== lastPlanResultIdx) return null
             const planEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>
+            // Show PlanResultCard (with "View Plan" button) when projectId is available
+            if (planEvent.projectId) {
+              const milestoneNames = planEvent.nodes
+                .filter(n => n.type === 'milestone')
+                .map(n => n.title)
+              return (
+                <Suspense key={key} fallback={null}>
+                  <PlanResultCard
+                    projectId={planEvent.projectId}
+                    projectName={planEvent.projectName ?? ''}
+                    nodeCount={planEvent.nodes.length}
+                    edgeCount={planEvent.edges.length}
+                    milestoneNames={milestoneNames}
+                    status="success"
+                  />
+                </Suspense>
+              )
+            }
             return <PlanGraphBlock key={key} event={planEvent} />
           }
 

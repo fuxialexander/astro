@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router';
-import { LayoutDashboard, Sparkles, GitBranch, Server, FlaskConical, Settings } from 'lucide-react';
+import { LayoutDashboard, Sparkles, GitBranch, Server, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
@@ -21,11 +21,6 @@ const tabs: TabItem[] = [
     path: '/plan',
   },
   {
-    id: 'playground',
-    icon: FlaskConical,
-    path: '/playground',
-  },
-  {
     id: 'projects',
     icon: GitBranch,
     path: '/projects',
@@ -42,7 +37,7 @@ const tabs: TabItem[] = [
   },
 ];
 
-export function MobileLayout() {
+export function MobileTabBar() {
   const { t } = useTranslation('nav');
   const location = useLocation();
 
@@ -55,54 +50,56 @@ export function MobileLayout() {
 
   return (
     <div
+      className="md:hidden mobile-tab-bar fixed left-0 right-0 z-50 flex justify-center px-4"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+    >
+      <nav className="flex items-center justify-around rounded-full bg-card/90 backdrop-blur-lg h-[56px] shadow-2xl border border-border/40 w-full max-w-md px-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = isTabActive(tab.path);
+
+          return (
+            <Link
+              key={tab.id}
+              to={tab.path}
+              className={cn(
+                'flex flex-col items-center justify-center gap-0.5 flex-1 h-full rounded-full transition-colors',
+                'hover:bg-accent/50'
+              )}
+            >
+              <Icon
+                className={cn(
+                  'h-5 w-5',
+                  isActive ? 'text-foreground' : 'text-muted-foreground'
+                )}
+              />
+              <span
+                className={cn(
+                  'text-[9px]',
+                  isActive ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
+                )}
+              >
+                {t(tab.id, { defaultValue: tab.id })}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+export function MobileLayout() {
+  return (
+    <div
       className="md:hidden min-h-dvh bg-background"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      {/* Content flows naturally — the document body scrolls, which lets
-          Safari collapse its toolbar. Bottom padding clears the floating tab bar. */}
       <main className="mobile-main-content pb-20">
         <Outlet />
       </main>
 
-      {/* Floating tab bar — fixed above Safari toolbar / home indicator.
-          Content scrolls behind it. */}
-      <div
-        className="mobile-tab-bar fixed left-0 right-0 z-50 flex justify-center px-4"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
-      >
-        <nav className="flex items-center justify-around rounded-full bg-card/90 backdrop-blur-lg h-[56px] shadow-2xl border border-border/40 w-full max-w-md px-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = isTabActive(tab.path);
-
-            return (
-              <Link
-                key={tab.id}
-                to={tab.path}
-                className={cn(
-                  'flex flex-col items-center justify-center gap-0.5 flex-1 h-full rounded-full transition-colors',
-                  'hover:bg-accent/50'
-                )}
-              >
-                <Icon
-                  className={cn(
-                    'h-5 w-5',
-                    isActive ? 'text-foreground' : 'text-muted-foreground'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'text-[9px]',
-                    isActive ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
-                  )}
-                >
-                  {t(tab.id, { defaultValue: tab.id })}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+      <MobileTabBar />
     </div>
   );
 }

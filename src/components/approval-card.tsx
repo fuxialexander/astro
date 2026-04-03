@@ -1,18 +1,18 @@
 /**
- * ApprovalCard Component
+ * ApprovalCard — asymmetric design.
  *
- * Displays approval requests with options for user response.
- * Supports both binary (approve/reject) and multi-choice approvals.
+ * Reject is small and immediately accessible at the top.
+ * Approve is large and prominent at the bottom — requires intentional scroll.
+ * This friction gradient reduces false-approvals on high-risk actions.
  */
 
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { Check, X, AlertCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
+import { useState } from "react"
+import { useTranslation } from "react-i18next"
+import { Check, X, AlertTriangle, ChevronDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 export interface ApprovalRequest {
   approvalId: string
@@ -20,7 +20,7 @@ export interface ApprovalRequest {
   projectId: string
   executionId: string
   message: string
-  options?: string[] // If present, show multi-choice; if absent, show binary approve/reject
+  options?: string[]
   timestamp: Date
 }
 
@@ -31,10 +31,8 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ approval, onRespond, className }: ApprovalCardProps) {
-  const { t } = useTranslation(['dialogs', 'common'])
-  const [selectedOption, setSelectedOption] = useState<string | undefined>(
-    approval.options?.[0]
-  )
+  const { t } = useTranslation(["dialogs", "common"])
+  const [selectedOption, setSelectedOption] = useState<string | undefined>(approval.options?.[0])
   const [responding, setResponding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,14 +41,12 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
     setError(null)
     try {
       if (approval.options) {
-        // Multi-choice approval - send selected option
         await onRespond(approval.approvalId, true, selectedOption)
       } else {
-        // Binary approval - just approve
         await onRespond(approval.approvalId, true)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to respond')
+      setError(err instanceof Error ? err.message : "Failed to respond")
       setResponding(false)
     }
   }
@@ -61,105 +57,94 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
     try {
       await onRespond(approval.approvalId, false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to respond')
+      setError(err instanceof Error ? err.message : "Failed to respond")
       setResponding(false)
     }
   }
 
   return (
-    <Card className={cn('rounded-2xl shadow-lg border-warning/40', className)}>
-      <CardContent className="flex flex-col gap-0 p-0">
-        {/* Header */}
-        <div className="flex flex-col gap-3 p-5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning">
-              <AlertCircle className="h-4 w-4 text-warning-foreground" />
-            </div>
-            <p className="text-base font-semibold text-foreground">{t('approval.title', { ns: 'dialogs' })}</p>
+    <div className={cn("rounded-xl border border-warning/30 bg-card overflow-hidden", className)}>
+      {/* Top bar: small reject — friction-free, immediately reachable */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-muted/[0.03]">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-warning/15">
+            <AlertTriangle className="h-3 w-3 text-warning" />
           </div>
-
-          <p className="text-sm text-muted-foreground">{approval.message}</p>
-
-          {/* Multi-choice options */}
-          {approval.options && approval.options.length > 0 && (
-            <RadioGroup
-              value={selectedOption}
-              onValueChange={setSelectedOption}
-              className="flex flex-col gap-2 mt-2"
-            >
-              {approval.options.map((option, index) => (
-                <div
-                  key={option}
-                  className="flex items-center space-x-2 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
-                >
-                  <RadioGroupItem value={option} id={`option-${index}`} />
-                  <Label
-                    htmlFor={`option-${index}`}
-                    className="flex-1 cursor-pointer text-sm font-normal"
-                  >
-                    {option}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
-          )}
-
-          {error && (
-            <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
+          <span className="text-[11px] font-semibold text-warning tracking-wide uppercase">
+            {t("approval.title", { ns: "dialogs" })}
+          </span>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleReject}
+          disabled={responding}
+          className="h-6 text-[11px] px-2.5 gap-1 text-muted-foreground/60 hover:text-error hover:bg-error/5 border border-border/40"
+        >
+          <X className="h-3 w-3" />
+          {t("approval.reject", { ns: "dialogs" })}
+        </Button>
+      </div>
 
-        {/* Actions */}
-        <div className="flex gap-2 border-t px-5 py-4">
-          {approval.options ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReject}
-                disabled={responding}
-                className="flex-1"
+      {/* Body: context for the decision */}
+      <div className="flex flex-col gap-3 px-4 py-4">
+        <p className="text-sm text-foreground/80 leading-relaxed">{approval.message}</p>
+
+        {/* Multi-choice options */}
+        {approval.options && approval.options.length > 0 && (
+          <RadioGroup
+            value={selectedOption}
+            onValueChange={setSelectedOption}
+            className="flex flex-col gap-2 mt-1"
+          >
+            {approval.options.map((option, i) => (
+              <div
+                key={option}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer",
+                  selectedOption === option
+                    ? "border-primary/40 bg-primary/[0.03]"
+                    : "border-border/40 hover:bg-muted/30"
+                )}
               >
-                <X className="h-4 w-4 mr-1.5" />
-                {t('cancel', { ns: 'common' })}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleApprove}
-                disabled={responding || !selectedOption}
-                className="flex-1"
-              >
-                <Check className="h-4 w-4 mr-1.5" />
-                {responding ? t('approval.confirming', { ns: 'dialogs' }) : t('confirm', { ns: 'common' })}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReject}
-                disabled={responding}
-                className="flex-1"
-              >
-                <X className="h-4 w-4 mr-1.5" />
-                {t('approval.reject', { ns: 'dialogs' })}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleApprove}
-                disabled={responding}
-                className="flex-1"
-              >
-                <Check className="h-4 w-4 mr-1.5" />
-                {responding ? t('approval.approving', { ns: 'dialogs' }) : t('approval.approve', { ns: 'dialogs' })}
-              </Button>
-            </>
-          )}
+                <RadioGroupItem value={option} id={`opt-${approval.approvalId}-${i}`} />
+                <Label htmlFor={`opt-${approval.approvalId}-${i}`} className="flex-1 cursor-pointer text-sm font-normal">
+                  {option}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        )}
+
+        {error && (
+          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        {/* Scroll cue — nudges user to see the full context before approving */}
+        <div className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground/30 mt-1">
+          <ChevronDown className="h-3 w-3" />
+          <span>review before approving</span>
+          <ChevronDown className="h-3 w-3" />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* Bottom: large approve button — requires scroll, intentional click */}
+      <div className="px-4 pb-4">
+        <Button
+          onClick={handleApprove}
+          disabled={responding || (!!approval.options && !selectedOption)}
+          className="w-full h-10 gap-2 font-semibold text-sm"
+        >
+          <Check className="h-4 w-4" />
+          {responding
+            ? t("approval.approving", { ns: "dialogs" })
+            : approval.options
+              ? t("confirm", { ns: "common" })
+              : t("approval.approve", { ns: "dialogs" })}
+        </Button>
+      </div>
+    </div>
   )
 }

@@ -13,6 +13,7 @@ export {
   buildLabelSuggestionPrompt,
   buildSummaryPrompt,
   buildInteractivePlanPrompt,
+  buildUnifiedPlaygroundPrompt,
   sanitizeGitHubName,
   sanitizeGitBranch,
   formatMachineInstruction,

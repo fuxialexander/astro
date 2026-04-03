@@ -665,8 +665,23 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             })
             const mergedActivityRaw = [...existingKept, ...hydratedNew]
             mergedActivityRaw.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-            // Deduplicate consecutive operational events with the same message
+            // Deduplicate by requestId for approval events and by message for operational events
+            const seenApprovalRequestIds = new Set<string>()
+            const seenApprovalResponseIds = new Set<string>()
             const mergedActivity = mergedActivityRaw.filter((e, i) => {
+              // Deduplicate approval_request/approval_response by requestId (live SSE + DB hydration race)
+              if (e.type === 'approval_request') {
+                const rid = (e as { requestId: string }).requestId
+                if (seenApprovalRequestIds.has(rid)) return false
+                seenApprovalRequestIds.add(rid)
+                return true
+              }
+              if (e.type === 'approval_response') {
+                const rid = (e as { requestId: string }).requestId
+                if (seenApprovalResponseIds.has(rid)) return false
+                seenApprovalResponseIds.add(rid)
+                return true
+              }
               if (i === 0) return true
               if (e.type !== 'operational') return true
               const prev = mergedActivityRaw[i - 1]
@@ -718,7 +733,23 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // append only genuinely new live events after the hydrated base. This prevents
             // discarding historical events (e.g. approval_responses) when a race between
             // SSE reconnect and catch-up hydration causes `existing` to be partially populated.
-            const mergedActivity = mergeBySeq(hydrated.activityEvents, existing.activityEvents)
+            const mergedActivityRaw2 = mergeBySeq(hydrated.activityEvents, existing.activityEvents)
+            // Deduplicate approval events by requestId (live SSE no-seq + DB hydrated seq'd)
+            const seenReqIds = new Set<string>()
+            const seenRespIds = new Set<string>()
+            const mergedActivity = mergedActivityRaw2.filter(e => {
+              if (e.type === 'approval_request') {
+                const rid = (e as { requestId: string }).requestId
+                if (seenReqIds.has(rid)) return false
+                seenReqIds.add(rid)
+              }
+              if (e.type === 'approval_response') {
+                const rid = (e as { requestId: string }).requestId
+                if (seenRespIds.has(rid)) return false
+                seenRespIds.add(rid)
+              }
+              return true
+            })
             const mergedToolTraces = mergeBySeq(hydrated.toolTraces, existing.toolTraces)
             const mergedFileChanges = mergeBySeq(hydrated.fileChanges, existing.fileChanges)
             // Use the longer stdout — live SSE may be ahead of DB-persisted text
@@ -1440,6 +1471,37 @@ function handleRealtimeEvent(
               })
             }
 
+            // Session completion: refresh plan store to pick up any plan nodes
+            // created during the session (e.g., via astro-cli plan create-node).
+            // Individual POST /plan/nodes calls don't emit plan_result SSE events,
+            // so the frontend won't know about them until we reload here.
+            // Also push a synthetic plan_result activity event so PlanGraphBlock renders.
+            if (isSuccess && nid.startsWith('session-')) {
+              const sessionProjectId = nid.slice('session-'.length)
+              // Refresh both project store (name/sidebar) and plan store (plan nodes)
+              const projectLoadP = useProjectStore.getState().load()
+              import('@/stores/plan-store').then(({ usePlanStore }) => {
+                Promise.all([usePlanStore.getState().load(), projectLoadP]).then(() => {
+                  const planNodes = usePlanStore.getState().nodes.filter(n => n.projectId === sessionProjectId)
+                  if (planNodes.length > 0) {
+                    const planEdgeSet = new Set(planNodes.map(n => n.id))
+                    const planEdges = usePlanStore.getState().edges.filter(
+                      e => planEdgeSet.has(e.source) || planEdgeSet.has(e.target)
+                    )
+                    const project = useProjectStore.getState().projects.find(p => p.id === sessionProjectId)
+                    useRealtimeStore.getState().pushActivityEvent(execId, {
+                      type: 'plan_result',
+                      nodes: planNodes.map(n => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+                      edges: planEdges.map(e => ({ source: e.source, target: e.target })),
+                      projectName: project?.name ?? '',
+                      projectId: sessionProjectId,
+                      timestamp: new Date(),
+                    })
+                  }
+                })
+              })
+            }
+
             // YOLO auto-execute: when a plan-* execution completes successfully,
             // trigger executeAllProject. The plan_result SSE fires before task:result,
             // so the auto-execute check at plan_result time fails (status still 'running').
@@ -1899,17 +1961,19 @@ function handleRealtimeEvent(
       const timestamp = new Date()
 
       // Push both approval_request and approval_response (auto-approved) into task stream
+      // Deduplicate: skip the approval_request if it was already added (e.g., from a prior SSE event)
       set((state) => {
         const streams = new Map(state.taskStreams)
         const stream = streams.get(execId) || createEmptyTaskStream(execId)
-        streams.set(execId, {
-          ...stream,
-          activityEvents: [
-            ...stream.activityEvents,
-            { type: 'approval_request' as const, requestId, question, options, timestamp },
-            { type: 'approval_response' as const, requestId, question, answer, autoApproved: true, timestamp },
-          ],
-        })
+        const alreadyHasRequest = stream.activityEvents.some(
+          e => e.type === 'approval_request' && e.requestId === requestId
+        )
+        const newEvents = [...stream.activityEvents]
+        if (!alreadyHasRequest) {
+          newEvents.push({ type: 'approval_request' as const, requestId, question, options, timestamp })
+        }
+        newEvents.push({ type: 'approval_response' as const, requestId, question, answer, autoApproved: true, timestamp })
+        streams.set(execId, { ...stream, activityEvents: newEvents })
         // Do NOT add to dynamicApprovals — no dialog needed
         return { taskStreams: streams }
       })
@@ -1982,7 +2046,7 @@ function handleRealtimeEvent(
 
       // 1. Create or update execution entry so ExecutionPanel can render.
       // Always update machineId + executionId — the entry may exist from
-      // startPlaygroundSession (which creates it without machineId) or from
+      // startSession (which creates it without machineId) or from
       // a DB load on another tab.
       const execStore = useExecutionStore.getState()
       const existingExec = execStore.executions.get(initNodeId)
@@ -2150,7 +2214,7 @@ function handleRealtimeEvent(
         // when handleSSEEvent updates the plan node before node:status_changed.
         {
           const BATCH_TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
-          if (BATCH_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+          if (BATCH_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-') && !nodeId.startsWith('session-')) {
             useExecutionStore.getState().triggerBatchWave(projectId)
           }
         }
@@ -2158,7 +2222,7 @@ function handleRealtimeEvent(
         {
           // Check if all tasks in the project are now complete
           const PROJ_TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
-          if (PROJ_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+          if (PROJ_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-') && !nodeId.startsWith('session-')) {
             const execStore = useExecutionStore.getState()
             if (!execStore.completedProjectIds.has(projectId)) {
               const COMPLETE_TERMINAL = new Set(['completed', 'auto_verified', 'pruned'])
@@ -2255,11 +2319,12 @@ function handleRealtimeEvent(
 
     case 'task:plan_result': {
       // Plan created via CLI — push plan_result activity event into the task stream
-      // so PlanGraphBlock renders inline, and trigger plan store refresh from DB.
+      // so PlanResultCard renders inline, and trigger plan store refresh from DB.
       const execId = data.taskId as string
       const nodes = data.nodes as Array<{ id: string; title: string; type: string; status?: string }>
       const edges = data.edges as Array<{ source: string; target: string }>
       const projectName = data.projectName as string | undefined
+      const planProjectId = data.projectId as string | undefined
       const timestamp = new Date()
 
       set((state) => {
@@ -2269,7 +2334,7 @@ function handleRealtimeEvent(
           ...stream,
           activityEvents: [
             ...stream.activityEvents,
-            { type: 'plan_result' as const, nodes, edges, projectName, timestamp },
+            { type: 'plan_result' as const, nodes, edges, projectName, projectId: planProjectId, timestamp },
           ],
         })
         return { taskStreams: streams }
@@ -2278,7 +2343,6 @@ function handleRealtimeEvent(
       // Refresh plan store from DB (plan nodes were already created by the CLI)
       import('@/stores/plan-store').then(({ usePlanStore }) => {
         usePlanStore.getState().load().then(() => {
-          const planProjectId = data.projectId as string | undefined
           if (planProjectId && tryAutoExecutePlannedProject(planProjectId)) {
             console.log(`[realtime] YOLO mode: auto-executing loaded plan for project ${planProjectId}`)
           }

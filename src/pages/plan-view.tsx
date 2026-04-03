@@ -2,9 +2,12 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
+import { resolveEditorContent, fileToBase64 } from "@/lib/html-utils"
+import { dataClient } from "@/lib/data-client"
 
 import { PlanHistory } from "@/components/plan-history"
 import { Button } from "@/components/ui/button"
@@ -27,12 +30,12 @@ import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
-import { OverviewTab } from "@/pages/project-overview"
 import { KnowledgePanel } from "@/components/knowledge-panel"
 import { RepoExplorer } from "@/components/repo-explorer/repo-explorer"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { SyncHealthDot } from "@/components/github-sync-health"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -43,7 +46,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { useUIStore } from "@/stores/ui-store"
+import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
@@ -57,6 +60,9 @@ import {
 import { isServerMode } from "@/lib/app-mode"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
+import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
+import { useInitiativeStore } from "@/stores/initiative-store"
+import { useTeamStore } from "@/stores/team-store"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
@@ -244,16 +250,54 @@ function ExecuteAllButton({ projectId }: { projectId: string }) {
   )
 }
 
-// --- Compact workdir bar shown below the header ---
+// --- Editor app definitions for "Open in" dropdown ---
+// --- Editor app icon helper ---
+function AppIcon({ appId, className }: { appId: string; className?: string }) {
+  return <img src={`/app-icons/${appId}.png`} alt="" className={cn("rounded-[3px]", className)} draggable={false} />
+}
+
+const EDITOR_APPS = [
+  { id: 'cursor', label: 'Cursor', scheme: 'cursor' },
+  { id: 'vscode', label: 'VS Code', scheme: 'vscode' },
+  { id: 'vscode-insiders', label: 'VS Code Insiders', scheme: 'vscode-insiders' },
+  { id: 'finder', label: 'Finder', scheme: 'finder' },
+  { id: 'terminal', label: 'Terminal', scheme: 'terminal' },
+  { id: 'iterm', label: 'iTerm2', scheme: 'iterm' },
+  { id: 'ghostty', label: 'Ghostty', scheme: 'ghostty' },
+  { id: 'xcode', label: 'Xcode', scheme: 'xcode' },
+] as const
+
+type EditorAppId = (typeof EDITOR_APPS)[number]['id']
+
+function buildEditorUrl(appId: EditorAppId, path: string, isRemote: boolean, machineName?: string): string | null {
+  const app = EDITOR_APPS.find((a) => a.id === appId)
+  if (!app || !path) return null
+  const scheme = app.scheme
+  // Terminal-type apps: open via x-man-page or custom handler
+  if (appId === 'finder') return `file://${path}`
+  if (appId === 'terminal') return `terminal://open?path=${encodeURIComponent(path)}`
+  if (appId === 'iterm') return `iterm2://open?path=${encodeURIComponent(path)}`
+  if (appId === 'ghostty') return `ghostty://open?path=${encodeURIComponent(path)}`
+  if (appId === 'xcode') return `xcode://open?path=${encodeURIComponent(path)}`
+  // VS Code / Cursor family
+  if (isRemote && machineName) {
+    return `${scheme}://vscode-remote/ssh-remote+${machineName}${path.startsWith('/') ? '' : '/'}${path}`
+  }
+  return `${scheme}://file${path}`
+}
+
+// --- Compact workdir bar shown at bottom of plan view ---
 function WorkdirBar({ project }: { project: Project }) {
   const [repoOpen, setRepoOpen] = useState(false)
-  const [useVSCode, setUseVSCode] = useState(false)
-  const [useLocalUrls, setUseLocalUrls] = useState(true)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const liveMachines = useExecutionStore((s) => s.machines)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+  const editorType = useSettingsStore((s) => s.editorType)
+  const setEditorType = useSettingsStore((s) => s.setEditorType)
+  const [selectedApp, setSelectedApp] = useState<EditorAppId>(editorType === 'vscode' ? 'vscode' : 'cursor')
+  const [useRemote, setUseRemote] = useState(false)
 
   useEffect(() => {
     if (machines.length === 0) fetchMachines()
@@ -272,21 +316,25 @@ function WorkdirBar({ project }: { project: Project }) {
     return live?.providers?.map((p) => p.type) ?? reg?.providers ?? []
   }, [defaultMachine?.id, liveMachines, machines])
 
-  const editorUrl = (() => {
-    if (!project.workingDirectory) return null
-    const path = project.workingDirectory
-    const scheme = useVSCode ? 'vscode' : 'cursor'
-    if (useLocalUrls) return `${scheme}://file${path}`
-    if (defaultMachine?.name) return `${scheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path.startsWith('/') ? '' : '/'}${path}`
-    return `${scheme}://file${path}`
-  })()
+  const editorUrl = project.workingDirectory
+    ? buildEditorUrl(selectedApp, project.workingDirectory, useRemote, defaultMachine?.name)
+    : null
+
+  const selectedAppDef = EDITOR_APPS.find((a) => a.id === selectedApp)!
 
   const hasWorkdir = !!(project.workingDirectory || project.repository)
+
+  // Sync selectedApp → settings store for apps that map to editor types
+  const handleSelectApp = useCallback((appId: EditorAppId) => {
+    setSelectedApp(appId)
+    if (appId === 'vscode' || appId === 'vscode-insiders') setEditorType('vscode')
+    else if (appId === 'cursor') setEditorType('cursor')
+  }, [setEditorType])
 
   return (
     <>
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 md:px-6 h-8 shrink-0 bg-muted/20 text-xs">
+      <div className="flex items-center gap-2 border-t border-border/60 px-3 md:px-6 h-9 shrink-0 bg-muted/20 text-xs">
         {hasWorkdir ? (
           <>
             <button
@@ -346,6 +394,7 @@ function WorkdirBar({ project }: { project: Project }) {
                 </span>
               )}
             </button>
+
             {/* AI Agent selector */}
             {providerIds.length > 0 && (
               <Popover>
@@ -387,29 +436,67 @@ function WorkdirBar({ project }: { project: Project }) {
                 </PopoverContent>
               </Popover>
             )}
-            <div className="hidden md:flex items-center gap-1 ml-auto shrink-0">
-              <Badge
-                variant="outline"
-                className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-5 px-1.5"
-                onClick={() => setUseLocalUrls(!useLocalUrls)}
-              >
-                {useLocalUrls ? "Local" : "Remote"}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-5 px-1.5"
-                onClick={() => setUseVSCode(!useVSCode)}
-              >
-                {useVSCode ? "VSCode" : "Cursor"}
-              </Badge>
-              {editorUrl && (
-                <a
-                  href={editorUrl}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-5"
-                >
-                  <ExternalLink className="h-3 w-3 text-primary" />
-                  <span className="text-[10px] font-medium text-primary">Open</span>
-                </a>
+
+            <div className="flex items-center gap-2 ml-auto shrink-0">
+              <ExecuteAllButton projectId={project.id} />
+
+              {/* Open in editor: icon button + dropdown */}
+              {project.workingDirectory && (
+                <div className="flex items-center">
+                  {/* Direct open button */}
+                  <a
+                    href={editorUrl ?? '#'}
+                    className={cn(
+                      "flex items-center justify-center h-7 w-7 rounded-l-md border border-border hover:bg-muted transition-colors",
+                      !editorUrl && "pointer-events-none opacity-40"
+                    )}
+                    title={`Open in ${selectedAppDef.label}`}
+                  >
+                    <AppIcon appId={selectedApp} className="h-4 w-4" />
+                  </a>
+                  {/* Dropdown chevron */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="flex items-center justify-center h-7 w-5 rounded-r-md border border-l-0 border-border hover:bg-muted transition-colors cursor-pointer">
+                        <ChevronLeft className="h-3 w-3 text-muted-foreground rotate-[270deg]" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-52 p-1" align="end" side="top">
+                      {EDITOR_APPS.map((app) => (
+                        <button
+                          key={app.id}
+                          type="button"
+                          className={cn(
+                            "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors cursor-pointer",
+                            app.id === selectedApp && "bg-accent/50"
+                          )}
+                          onClick={() => handleSelectApp(app.id)}
+                        >
+                          <AppIcon appId={app.id} className="h-4 w-4" />
+                          <span className="flex-1 text-left font-medium">{app.label}</span>
+                          {app.id === selectedApp && <Check className="h-3.5 w-3.5 text-primary" />}
+                        </button>
+                      ))}
+                      {/* Local/Remote toggle */}
+                      <div className="border-t border-border mt-1 pt-1 px-3 py-2 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Remote (SSH)</span>
+                        <button
+                          type="button"
+                          onClick={() => setUseRemote(!useRemote)}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                            useRemote ? "bg-primary" : "bg-muted-foreground/30"
+                          )}
+                        >
+                          <span className={cn(
+                            "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow-sm",
+                            useRemote ? "translate-x-[18px]" : "translate-x-[3px]"
+                          )} />
+                        </button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               )}
             </div>
           </>
@@ -422,11 +509,11 @@ function WorkdirBar({ project }: { project: Project }) {
               <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
               <span>Set working directory</span>
             </button>
+            <div className="ml-auto shrink-0">
+              <ExecuteAllButton projectId={project.id} />
+            </div>
           </>
         )}
-        <div className="ml-auto shrink-0">
-          <ExecuteAllButton projectId={project.id} />
-        </div>
       </div>
     </>
   )
@@ -497,132 +584,278 @@ function ForkSourceBanner({ project }: { project: Project }) {
   )
 }
 
-// --- Bottom resizable chat panel ---
-function ResizableChatPanel({
+// --- Collapsible project info section (description + properties) ---
+function ProjectInfoSection({ project }: { project: Project }) {
+  const [expanded, setExpanded] = useState(false)
+  const [visionOpen, setVisionOpen] = useState(false)
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const initiatives = useInitiativeStore((s) => s.initiatives)
+  const addActivity = useActivityStore((s) => s.addActivity)
+  const teams = useTeamStore((s) => s.teams)
+
+  const [descriptionDraft, setDescriptionDraft] = useState(() => resolveEditorContent(project.description))
+  const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const descriptionEditorRef = useRef<RichTextEditorRef>(null)
+  const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+
+  const handleDescriptionChange = useCallback((html: string) => {
+    setDescriptionDraft(html)
+    if (html === project.description) return
+    if (descriptionDebounceRef.current) clearTimeout(descriptionDebounceRef.current)
+    descriptionDebounceRef.current = setTimeout(() => {
+      setDescriptionSaveStatus("saving")
+      updateProject(project.id, { description: html })
+      addActivity({ projectId: project.id, type: "project.updated", title: "Updated project description" })
+      setDescriptionSaveStatus("saved")
+      setTimeout(() => setDescriptionSaveStatus("idle"), 1500)
+    }, 800)
+  }, [project.id, project.description, updateProject, addActivity])
+
+  useEffect(() => {
+    return () => { if (descriptionDebounceRef.current) clearTimeout(descriptionDebounceRef.current) }
+  }, [])
+
+  const handleDescriptionImageUpload = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const base64 = await fileToBase64(file)
+      const blobId = await dataClient.uploadBlob(base64, file.type, file.size, file.name, project.id, project.id)
+      return dataClient.getBlobUrl(blobId)
+    } catch (err) {
+      console.error('Failed to upload image:', err)
+      return null
+    }
+  }, [project.id])
+
+  return (
+    <>
+      <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+      <Dialog open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto p-0">
+          <KnowledgePanel projectId={project.id} />
+        </DialogContent>
+      </Dialog>
+      <div className="border-b border-border/30">
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none"
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-2">
+              {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+              <FileText className="h-3 w-3 shrink-0" />
+              <span>Notes</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{expanded ? "Click to collapse notes" : "Click to expand notes"}</TooltipContent>
+        </Tooltip>
+
+        {/* Initiative */}
+        <div className="relative group/initiative" onClick={(e) => e.stopPropagation()}>
+          <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer">
+            <Target className="h-3 w-3 shrink-0" />
+            <span className="truncate max-w-[120px]">{project.initiativeId ? (initiatives.find(i => i.id === project.initiativeId)?.name ?? "—") : "No initiative"}</span>
+          </button>
+          <div className="absolute top-full left-0 pt-1 invisible group-hover/initiative:visible opacity-0 group-hover/initiative:opacity-100 transition-all z-50">
+            <div className="bg-popover border border-border rounded-lg shadow-lg p-1 min-w-[140px]">
+              <button
+                className={cn("flex w-full items-center rounded-sm px-2 py-1.5 text-[12px] hover:bg-muted/60 transition-colors", !project.initiativeId && "text-primary font-medium")}
+                onClick={() => updateProject(project.id, { initiativeId: undefined })}
+              >
+                No initiative
+              </button>
+              {initiatives.filter(i => i.status === "active").map((i) => (
+                <button
+                  key={i.id}
+                  className={cn("flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-[12px] hover:bg-muted/60 transition-colors", project.initiativeId === i.id && "text-primary font-medium")}
+                  onClick={() => updateProject(project.id, { initiativeId: i.id })}
+                >
+                  <Target className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{i.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Team (multi-team) */}
+        {teams.length > 1 && (
+          <div className="relative group/team" onClick={(e) => e.stopPropagation()}>
+            <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <Users className="h-3 w-3 shrink-0" />
+              <span className="truncate max-w-[100px]">{teams.find(t => t.id === project.teamId)?.name ?? teams[0]?.name}</span>
+            </button>
+            <div className="absolute top-full left-0 pt-1 invisible group-hover/team:visible opacity-0 group-hover/team:opacity-100 transition-all z-50">
+              <div className="bg-popover border border-border rounded-lg shadow-lg p-1 min-w-[120px]">
+                {teams.map((t) => (
+                  <button
+                    key={t.id}
+                    className={cn("flex w-full items-center rounded-sm px-2 py-1.5 text-[12px] hover:bg-muted/60 transition-colors", project.teamId === t.id && "text-primary font-medium")}
+                    onClick={() => updateProject(project.id, { teamId: t.id })}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* skill.md */}
+        <button onClick={(e) => { e.stopPropagation(); setVisionOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors">
+          <FileText className="h-3 w-3" />
+          <span>skill.md</span>
+        </button>
+
+        {/* Knowledge */}
+        <button onClick={(e) => { e.stopPropagation(); setKnowledgeOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors">
+          <BookOpen className="h-3 w-3" />
+          <span>Knowledge</span>
+        </button>
+
+        <div className="flex-1" />
+      </div>
+
+      {/* Expanded: notes */}
+      {expanded && (
+        <div className="px-4 pb-3 pt-1">
+          <div className="flex items-center justify-end mb-1">
+            {descriptionSaveStatus !== "idle" && (
+              <span className="text-[11px] text-muted-foreground/40 flex items-center gap-1">
+                {descriptionSaveStatus === "saving" && <><Loader2 className="h-2.5 w-2.5 animate-spin" />Saving</>}
+                {descriptionSaveStatus === "saved" && <><CircleCheck className="h-2.5 w-2.5" />Saved</>}
+              </span>
+            )}
+          </div>
+          <RichTextEditor
+            ref={descriptionEditorRef}
+            content={descriptionDraft}
+            onChange={handleDescriptionChange}
+            placeholder="Add notes — goals, context, key details..."
+            onImageUpload={handleDescriptionImageUpload}
+            className="min-h-[80px] text-[13px]"
+          />
+        </div>
+      )}
+      </div>
+    </>
+  )
+}
+
+// --- Floating chat bubble: unified for mobile + desktop ---
+function FloatingChat({
   projectId,
   visionDoc,
   initialMessage,
   onNodeSelect,
-  onClose,
+  isMobile,
 }: {
   projectId: string
   visionDoc?: string
   initialMessage?: string
   onNodeSelect: (nodeId: string) => void
-  onClose?: () => void
+  isMobile: boolean
 }) {
-  const position = useUIStore((s) => s.chatPanelPosition)
-  const togglePosition = useUIStore((s) => s.toggleChatPanelPosition)
-  const isRight = position === "right"
+  const [expanded, setExpanded] = useState(false)
+  const [pos, setPos] = useState({ x: -1, y: -1 })
+  const dragging = useRef(false)
+  const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 })
+  const hasMoved = useRef(false)
 
-  const [height, setHeight] = useState(300)
-  const [width, setWidth] = useState(400)
-  const size = isRight ? width : height
-  const setSize = isRight ? setWidth : setHeight
-  const isDragging = useRef(false)
-  const startPos = useRef(0)
-  const startSize = useRef(0)
-
-  const handleDragStart = useCallback((clientX: number, clientY: number) => {
-    isDragging.current = true
-    startPos.current = isRight ? clientX : clientY
-    startSize.current = size
-  }, [size, isRight])
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    handleDragStart(e.clientX, e.clientY)
-    e.preventDefault()
-  }, [handleDragStart])
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0]
-    handleDragStart(touch.clientX, touch.clientY)
-  }, [handleDragStart])
-
+  // Initialize position: bottom-right corner
   useEffect(() => {
-    const handleMove = (clientX: number, clientY: number) => {
-      if (!isDragging.current) return
-      if (isRight) {
-        const delta = startPos.current - clientX
-        const newWidth = Math.max(300, Math.min(window.innerWidth * 0.5, startSize.current + delta))
-        setSize(newWidth)
-      } else {
-        const delta = startPos.current - clientY
-        const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startSize.current + delta))
-        setSize(newHeight)
-      }
+    if (pos.x === -1) {
+      setPos({
+        x: window.innerWidth - 72,
+        y: window.innerHeight - (isMobile ? 160 : 130),
+      })
     }
-    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX, e.clientY)
-    const handleTouchMove = (e: TouchEvent) => {
-      if (isDragging.current) e.preventDefault()
-      handleMove(e.touches[0].clientX, e.touches[0].clientY)
-    }
-    const handleEnd = () => { isDragging.current = false }
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleEnd)
-    document.addEventListener("touchmove", handleTouchMove, { passive: false })
-    document.addEventListener("touchend", handleEnd)
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleEnd)
-      document.removeEventListener("touchmove", handleTouchMove)
-      document.removeEventListener("touchend", handleEnd)
-    }
-  }, [isRight, setSize])
+  }, [pos.x, isMobile])
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true
+    hasMoved.current = false
+    dragStart.current = { x: e.clientX, y: e.clientY, posX: pos.x, posY: pos.y }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }, [pos])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return
+    const dx = e.clientX - dragStart.current.x
+    const dy = e.clientY - dragStart.current.y
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved.current = true
+    setPos({
+      x: Math.max(52, Math.min(window.innerWidth - 56, dragStart.current.posX + dx)),
+      y: Math.max(40, Math.min(window.innerHeight - 56, dragStart.current.posY + dy)),
+    })
+  }, [])
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    dragging.current = false
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+    if (!hasMoved.current) setExpanded((v) => !v)
+  }, [])
+
+  // Panel dimensions — larger on desktop
+  const panelW = isMobile ? Math.min(340, window.innerWidth - 68) : Math.min(420, window.innerWidth - 100)
+  const panelH = isMobile ? Math.min(460, window.innerHeight - 140) : Math.min(560, window.innerHeight - 80)
+  // Anchor panel above+left of FAB, clamp to viewport
+  const panelX = Math.max(56, Math.min(pos.x - panelW + 48, window.innerWidth - panelW - 12))
+  const panelY = Math.max(12, Math.min(pos.y - panelH - 12, window.innerHeight - panelH - 12))
 
   return (
-    <div
-      className={cn("flex shrink-0", isRight ? "flex-row border-l border-border/60" : "flex-col border-t border-border/60")}
-      style={isRight ? { width: size } : { height: size }}
-    >
-      {/* Drag handle */}
+    <>
+      {/* Expanded floating sheet */}
+      {expanded && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onPointerDown={() => setExpanded(false)}
+          />
+          <div
+            className={cn(
+              "fixed z-40 flex flex-col bg-card overflow-hidden",
+              "rounded-2xl shadow-[0_8px_40px_-8px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]",
+              "border border-border/50",
+              "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200",
+            )}
+            style={{ left: panelX, top: panelY, width: panelW, height: panelH }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <ChatPanel
+              projectId={projectId}
+              visionDoc={visionDoc}
+              initialMessage={initialMessage}
+              onNodeSelect={onNodeSelect}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Draggable FAB */}
       <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
         className={cn(
-          "flex items-center justify-center hover:bg-accent/50 transition-colors group touch-none",
-          isRight ? "w-2.5 cursor-col-resize" : "h-2.5 cursor-row-resize"
+          "fixed z-40 flex items-center justify-center rounded-full touch-none select-none cursor-pointer",
+          "transition-all duration-200 ease-out",
+          expanded
+            ? "h-10 w-10 bg-primary text-primary-foreground shadow-md"
+            : "h-12 w-12 bg-card shadow-[0_2px_16px_-2px_rgba(0,0,0,0.12)] dark:shadow-[0_2px_16px_-2px_rgba(0,0,0,0.35)] border border-border/50 hover:shadow-[0_4px_20px_-2px_rgba(0,0,0,0.18)] hover:scale-110 active:scale-95",
         )}
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
+        style={{ left: pos.x, top: pos.y }}
       >
-        <div className={cn(
-          "rounded-full bg-border group-hover:bg-muted-foreground transition-colors",
-          isRight ? "h-8 w-0.5" : "w-8 h-0.5"
-        )} />
+        {expanded ? (
+          <X className="h-4 w-4" />
+        ) : (
+          <Sparkles className="h-5 w-5 text-primary" />
+        )}
       </div>
-      {/* Chat content */}
-      <div className="flex-1 overflow-hidden">
-        <ChatPanel
-          projectId={projectId}
-          visionDoc={visionDoc}
-          initialMessage={initialMessage}
-          onNodeSelect={onNodeSelect}
-          headerActions={
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={togglePosition}
-                className="p-1 rounded-md hover:bg-muted/50 transition-colors"
-                title={isRight ? "Move chat to bottom" : "Move chat to right"}
-              >
-                {isRight ? (
-                  <PanelBottom className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </button>
-              {onClose && (
-                <button
-                  onClick={onClose}
-                  className="p-1 rounded-md hover:bg-muted/50 transition-colors"
-                  title="Close chat"
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          }
-        />
-      </div>
-    </div>
+    </>
   )
 }
 
@@ -919,66 +1152,79 @@ function InlineListCreationRow({
   projectId,
   defaultMilestoneId,
   onCreated,
+  onMilestoneCreated,
 }: {
   projectId: string
   columns?: ListColumn<PlanNode>[]
   displaySettings?: DisplaySettings
   defaultMilestoneId?: string
   onCreated?: () => void
+  onMilestoneCreated?: (milestoneId: string) => void
 }) {
   const addNode = usePlanStore((s) => s.addNode)
   const allProjects = useProjectStore((s) => s.projects)
   const [taskName, setTaskName] = useState("")
+  const [mode, setMode] = useState<"task" | "milestone">("task")
   const nameInputRef = useRef<HTMLInputElement>(null)
 
   // Detect cross-project mode: projectId is not a valid UUID
   const isCrossProject = !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
 
-  const createTask = useCallback((targetProjectId: string) => {
+  const createNode = useCallback((targetProjectId: string) => {
     if (!taskName.trim()) return
 
-    const { title: taskTitle, description: taskDescription } = splitTitleDescription(taskName)
+    const { title, description } = splitTitleDescription(taskName)
     const nodeId = crypto.randomUUID()
 
     addNode({
       id: nodeId,
       projectId: targetProjectId,
-      type: "task",
-      title: taskTitle,
-      description: taskDescription,
+      type: mode,
+      title,
+      description,
       status: "planned",
       parentId: null,
       dependencies: [],
-      verification: "auto",
+      verification: mode === "milestone" ? "human" : "auto",
       position: { x: 0, y: 0 },
       priority: "medium",
-      milestoneId: defaultMilestoneId,
+      milestoneId: mode === "task" ? defaultMilestoneId : undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
 
     setTaskName("")
-    requestAnimationFrame(() => nameInputRef.current?.focus())
-  }, [taskName, defaultMilestoneId, addNode])
+
+    if (mode === "milestone") {
+      // Switch to task mode and notify parent to move cursor to the new milestone's group
+      setMode("task")
+      onMilestoneCreated?.(nodeId)
+    } else {
+      requestAnimationFrame(() => nameInputRef.current?.focus())
+    }
+  }, [taskName, defaultMilestoneId, addNode, mode, onMilestoneCreated])
 
   const handleCreate = () => {
     if (!taskName.trim()) return
 
     if (isCrossProject) {
       if (allProjects.length === 1) {
-        createTask(allProjects[0].id)
+        createNode(allProjects[0].id)
       } else {
         // Use first project as fallback in cross-project mode
-        createTask(allProjects[0]?.id ?? projectId)
+        createNode(allProjects[0]?.id ?? projectId)
       }
       return
     }
 
-    createTask(projectId)
+    createNode(projectId)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && taskName.trim()) {
+    if (e.key === "Tab" && e.shiftKey) {
+      e.preventDefault()
+      setMode((m) => (m === "task" ? "milestone" : "task"))
+    } else if (e.key === "Enter" && taskName.trim()) {
       e.preventDefault()
       handleCreate()
     } else if (e.key === "Escape") {
@@ -989,6 +1235,9 @@ function InlineListCreationRow({
 
   return (
     <div className="flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors">
+      {mode === "milestone" && (
+        <Diamond className="h-3.5 w-3.5 mr-2 text-primary shrink-0" />
+      )}
       <div className="min-w-0 flex-1">
         <input
           ref={nameInputRef}
@@ -996,7 +1245,9 @@ function InlineListCreationRow({
           value={taskName}
           onChange={(e) => setTaskName(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Task name... (Enter to create, Esc to cancel)"
+          placeholder={mode === "task"
+            ? "Task name... (Enter to create, Shift+Tab for milestone, Esc to cancel)"
+            : "Milestone name... (Enter to create, Shift+Tab for task, Esc to cancel)"}
           autoFocus
           className="w-full bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
         />
@@ -1404,24 +1655,25 @@ export function PlanListView({
     return result
   }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes, showTaskNumbers])
 
-  // Open creation row for the first group when Enter is pressed globally
+  // Open creation row for the first group when Enter is pressed with no focused item
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle Enter when not in an input/textarea and no creation row is open
       const target = e.target as HTMLElement
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable
       ) return
-      if (e.key === "Enter" && groups.length > 0 && creatingInGroup === null) {
+      // Only handle Enter when no item is focused (j/k not used yet) and in fast edit mode
+      const { focusedId } = useKeyboardNavStore.getState()
+      if (e.key === "Enter" && fastEdit && !focusedId && groups.length > 0 && creatingInGroup === null) {
         e.preventDefault()
         setCreatingInGroup(groups[0].key)
       }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [groups, creatingInGroup])
+  }, [groups, creatingInGroup, fastEdit])
 
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
@@ -1438,9 +1690,11 @@ export function PlanListView({
           displaySettings={displaySettings}
           defaultMilestoneId={defaultMilestoneId}
           onCreated={() => setCreatingInGroup(null)}
+          onMilestoneCreated={(milestoneId) => setCreatingInGroup(`milestone-${milestoneId}`)}
         />
       )
     }
+    if (!fastEdit) return null
     return (
       <button
         type="button"
@@ -1537,6 +1791,17 @@ export function PlanListView({
             onNodeSelect(node)
           }
         }}
+        onItemActivate={(node) => {
+          if (fastEdit) {
+            // Open creation row in the same group as the focused node
+            const group = groups.find((g) => g.items.some((item) => item.id === node.id))
+            if (group) {
+              setCreatingInGroup(group.key)
+            }
+          } else {
+            onNodeSelect(node)
+          }
+        }}
         getItemId={(n) => n.id}
         getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
         footer={renderAddTaskRow}
@@ -1576,7 +1841,6 @@ export function PlanListView({
           }
           return (
             <span className={cn("text-sm truncate flex items-center gap-1.5", node.status === "pruned" && "line-through")}>
-              {node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
               <span className="truncate">{node.title}</span>
             </span>
           )
@@ -1914,6 +2178,8 @@ export function PlanView() {
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
   const projectTaskCount = useMemo(() => planNodes.filter((n) => n.projectId === id && n.type !== "milestone").length, [planNodes, id])
@@ -1945,10 +2211,6 @@ export function PlanView() {
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
-  const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
-  const chatPanelVisible = useUIStore((s) => s.chatPanelVisible)
-  const setChatPanelVisible = useUIStore((s) => s.setChatPanelVisible)
-  const isRightChat = chatPanelPosition === "right"
   const [isRenaming, setIsRenaming] = useState(false)
 
   const handleRename = useCallback((newName: string) => {
@@ -1967,11 +2229,7 @@ export function PlanView() {
     const lastPart = pathParts[pathParts.length - 1]
 
     // Check if the last part is a view mode
-    if (lastPart === 'overview') {
-      return { viewMode: 'graph' as ViewMode, activeTab: 'overview' as const }
-    } else if (lastPart === 'knowledge') {
-      return { viewMode: 'graph' as ViewMode, activeTab: 'knowledge' as const }
-    } else if (lastPart === 'repo') {
+    if (lastPart === 'repo') {
       return { viewMode: 'graph' as ViewMode, activeTab: 'repo' as const }
     } else if (VALID_VIEWS.has(lastPart as ViewMode)) {
       return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
@@ -1986,7 +2244,7 @@ export function PlanView() {
     if (!id) return
     const pathParts = location.pathname.split('/')
     const lastPart = pathParts[pathParts.length - 1]
-    if (lastPart === id) {
+    if (lastPart === id || lastPart === 'overview' || lastPart === 'knowledge') {
       navigate(`/project/${id}/list`, { replace: true })
     }
   }, [location.pathname, id, navigate])
@@ -1995,6 +2253,13 @@ export function PlanView() {
   // This effect legitimately syncs UI state (selectedNode) when the derived
   // viewMode changes from URL navigation. The guard avoids no-op renders.
   useEffect(() => { setSelectedNode(null) }, [viewMode, activeTab])
+
+  // Sync keyboard-nav focused node → inspector selected node
+  useEffect(() => {
+    if (!inspectorOpen || !focusedId) return
+    const node = planNodes.find((n) => n.id === focusedId)
+    if (node) setSelectedNode(node)
+  }, [focusedId, inspectorOpen, planNodes])
 
   // Keyboard shortcuts: 'i' to enter fast edit, 'Escape' to exit, 1-4 to switch views
   useEffect(() => {
@@ -2082,7 +2347,7 @@ export function PlanView() {
     node: selectedNode,
     project,
     viewMode,
-    onClose: () => setSelectedNode(null),
+    onClose: () => { setSelectedNode(null); setInspectorOpen(false) },
     onNodeUpdate: setSelectedNode,
   } : null
 
@@ -2126,44 +2391,44 @@ export function PlanView() {
               <button className="hidden md:inline-flex items-center justify-center ml-1.5 p-1 -m-1 rounded opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}><Pencil className="h-3 w-3" /></button>
             </span>
           )}
-          <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0 hidden md:block" />
         </div>
 
-        {/* Tasks | Description Toggle — desktop only */}
+        {/* View mode switcher — desktop only */}
         <div className="hidden md:flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => navigate(`/project/${project.id}/list`)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              activeTab === "plan"
-                ? "text-accent-foreground border-b-2 border-accent"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t('tabs.tasks', 'Tasks')}
-          </button>
-          <button
-            onClick={() => navigate(`/project/${project.id}/overview`)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              activeTab === "overview"
-                ? "text-accent-foreground border-b-2 border-accent"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t('tabs.description', 'Description')}
-          </button>
-          <button
-            onClick={() => navigate(`/project/${project.id}/knowledge`)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              activeTab === "knowledge"
-                ? "text-accent-foreground border-b-2 border-accent"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t('tabs.knowledge', 'Knowledge')}
-          </button>
+          <div className="relative group/views">
+            <button
+              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer text-accent-foreground border-b-2 border-accent flex items-center gap-1.5"
+            >
+              {viewMode === "list" ? <List className="h-3.5 w-3.5" />
+                : viewMode === "board" ? <Columns3 className="h-3.5 w-3.5" />
+                : viewMode === "timeline" ? <CalendarRange className="h-3.5 w-3.5" />
+                : <Network className="h-3.5 w-3.5" />}
+              {viewMode === "list" ? "List" : viewMode === "board" ? "Board" : viewMode === "timeline" ? "Timeline" : "Graph"}
+              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            </button>
+            <div className="absolute top-full left-0 pt-1 invisible group-hover/views:visible opacity-0 group-hover/views:opacity-100 transition-all z-50">
+              <div className="bg-popover border border-border rounded-lg shadow-lg p-1 min-w-[140px]">
+                {([
+                  { value: "list", label: "List", icon: List },
+                  { value: "board", label: "Board", icon: Columns3 },
+                  { value: "timeline", label: "Timeline", icon: CalendarRange },
+                  { value: "graph", label: "Graph", icon: Network },
+                ] as const).map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    onClick={() => navigate(`/project/${project.id}/${value}`)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+                      viewMode === value ? "bg-muted text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           {isGitHubProject && (
             <button
               onClick={() => navigate(`/project/${project.id}/repo`)}
@@ -2185,25 +2450,34 @@ export function PlanView() {
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
             {isServerMode() && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPublishDialogOpen(true)}
-                className="text-xs"
-              >
-                <Globe className="h-3.5 w-3.5 mr-1.5" />
-                Publish to Community
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPublishDialogOpen(true)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Publish to Community</TooltipContent>
+              </Tooltip>
             )}
-            <Button
-              variant={fastEdit ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => toggleFastEdit()}
-            >
-              <Pencil className={cn("h-3.5 w-3.5", fastEdit && "text-primary")} />
-              <span className="hidden md:inline">Fast Edit</span>
-            </Button>
-            <DisplayPopover config={{
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={fastEdit ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={() => toggleFastEdit()}
+                  className="h-8 w-8 p-0"
+                >
+                  <Pencil className={cn("h-3.5 w-3.5", fastEdit && "text-primary")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Fast Edit</TooltipContent>
+            </Tooltip>
+            <DisplayPopover iconOnly config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
                 : viewMode === "board" ? planBoardDisplayConfig
@@ -2212,6 +2486,47 @@ export function PlanView() {
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadBundle(exportProject(project.id))}
+                  className="h-8 w-8 p-0"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export project</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const bundle = exportProject(project.id)
+                      const res = await fetch(apiUrl("/api/share"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(bundle),
+                      })
+                      if (!res.ok) throw new Error("Failed to create share link")
+                      const { id: shareId } = await res.json()
+                      const url = `${window.location.origin}/share/${shareId}`
+                      await navigator.clipboard.writeText(url)
+                    } catch (err) {
+                      console.error("[share] Failed:", err)
+                    }
+                  }}
+                  className="h-8 w-8 p-0"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy share link</TooltipContent>
+            </Tooltip>
             {canSyncGitHub ? (
               <div className="flex items-center gap-1.5">
                 <SyncHealthDot projectId={project?.id} className="mr-0.5" />
@@ -2242,6 +2557,19 @@ export function PlanView() {
                 </div>
               </div>
             ) : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={inspectorOpen ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={() => { setInspectorOpen(!inspectorOpen); if (inspectorOpen) setSelectedNode(null) }}
+                  className="h-8 w-8 p-0"
+                >
+                  <PanelRight className={cn("h-3.5 w-3.5", inspectorOpen && "text-primary")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Node Inspector</TooltipContent>
+            </Tooltip>
           </div>
         )}
 
@@ -2249,20 +2577,6 @@ export function PlanView() {
         <PlanHistory projectId={project.id} />
 
         {/* Chat panel toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setChatPanelVisible(!chatPanelVisible)}
-            >
-              <Sparkles className={cn("h-4 w-4", chatPanelVisible ? "text-primary" : "text-muted-foreground")} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{chatPanelVisible ? "Hide Chat" : "Show Chat"}</TooltipContent>
-        </Tooltip>
-
         {/* Mobile overflow menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -2271,41 +2585,57 @@ export function PlanView() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {/* Tasks/Description toggle */}
-            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/list`)}>
-              {t('tabs.tasks', 'Tasks')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
-              {t('tabs.description', 'Description')}
-            </DropdownMenuItem>
+            {/* View mode options */}
+            {([
+              { value: "list", label: "List", icon: List },
+              { value: "board", label: "Board", icon: Columns3 },
+              { value: "timeline", label: "Timeline", icon: CalendarRange },
+              { value: "graph", label: "Graph", icon: Network },
+            ] as const).map(({ value, label, icon: Icon }) => (
+              <DropdownMenuItem key={value} onClick={() => navigate(`/project/${project.id}/${value}`)}>
+                <Icon className={cn("h-3.5 w-3.5 mr-2", viewMode === value && "text-primary")} />
+                <span className={cn(viewMode === value && "font-medium")}>{label}</span>
+              </DropdownMenuItem>
+            ))}
             {isGitHubProject && (
               <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/repo`)}>
+                <GitBranch className="h-3.5 w-3.5 mr-2" />
                 {t('tabs.repo', 'Repo Explorer')}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            {/* Rename */}
+            {/* Actions */}
             <DropdownMenuItem onClick={() => setIsRenaming(true)}>
               <Pencil className="h-3.5 w-3.5 mr-2" />
               Rename
             </DropdownMenuItem>
-            {/* Display settings on mobile */}
-            {activeTab === "plan" && (
-              <>
-                <DropdownMenuSeparator />
-                <div className="px-2 py-1.5">
-                  <DisplayPopover config={{
-                    ...(viewMode === "list" ? planListDisplayConfig
-                      : viewMode === "timeline" ? planTimelineDisplayConfig
-                      : viewMode === "board" ? planBoardDisplayConfig
-                      : planListDisplayConfig),
-                    viewAsOptions: PLAN_VIEW_AS_OPTIONS,
-                    activeViewAs: viewMode,
-                    onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
-                  }} />
-                </div>
-              </>
-            )}
+            <DropdownMenuItem onClick={() => toggleFastEdit()}>
+              <Pencil className={cn("h-3.5 w-3.5 mr-2", fastEdit && "text-primary")} />
+              {fastEdit ? "Exit Fast Edit" : "Fast Edit"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadBundle(exportProject(project.id))}>
+              <Download className="h-3.5 w-3.5 mr-2" />
+              Export
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={async () => {
+              try {
+                const bundle = exportProject(project.id)
+                const res = await fetch(apiUrl("/api/share"), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(bundle),
+                })
+                if (!res.ok) throw new Error("Failed to create share link")
+                const { id: shareId } = await res.json()
+                const url = `${window.location.origin}/share/${shareId}`
+                await navigator.clipboard.writeText(url)
+              } catch (err) {
+                console.error("[share] Failed:", err)
+              }
+            }}>
+              <Link2 className="h-3.5 w-3.5 mr-2" />
+              Share
+            </DropdownMenuItem>
             {canSyncGitHub ? (
               <>
                 <DropdownMenuSeparator />
@@ -2328,9 +2658,6 @@ export function PlanView() {
         </DropdownMenu>
       </header>
 
-      {/* Working directory bar */}
-      <WorkdirBar project={project} />
-
       {/* Fork source lineage banner (if forked from community plan) */}
       <ForkSourceBanner project={project} />
 
@@ -2338,13 +2665,11 @@ export function PlanView() {
       {showHelpTip && activeTab === "plan" && (
         <div className="flex items-center gap-2 px-3 md:px-6 py-1.5 bg-primary/5 border-b border-primary/10 text-xs text-muted-foreground">
           <span>
-            Press <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> to toggle fast edit,{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> to confirm,{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit.{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">2</kbd>{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">3</kbd>{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> to switch views
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> navigate nodes,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> fast edit,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> confirm,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> exit.{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>–<kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> switch views
           </span>
           <button
             type="button"
@@ -2357,14 +2682,13 @@ export function PlanView() {
       )}
 
       {/* Canvas/List + Detail/Chat pane */}
-      <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-row" : "flex-col")}>
-        <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-col" : "")}>
+      <div className="flex flex-1 overflow-hidden flex-col">
+        {/* Collapsible project info section */}
+        {activeTab === "plan" && <ProjectInfoSection project={project} />}
+
+        <div className="flex flex-1 overflow-hidden">
           <div className="flex flex-1 overflow-hidden relative">
-            {activeTab === "overview" ? (
-              <OverviewTab project={project} />
-            ) : activeTab === "knowledge" ? (
-              <KnowledgePanel projectId={project.id} />
-            ) : activeTab === "repo" ? (
+            {activeTab === "repo" ? (
               isGitHubProject ? (
                 <RepoExplorer project={project} />
               ) : (
@@ -2392,27 +2716,35 @@ export function PlanView() {
               </div>
             )}
 
-            {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
-            {inspectorProps && (
+            {/* Node inspector pane — full-screen sheet on mobile, right sidebar on desktop */}
+            {inspectorOpen && inspectorProps && (
               <>
                 {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
                 {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
               </>
             )}
+            {inspectorOpen && !inspectorProps && !isMobile && (
+              <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
+                <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
+                <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Chat panel — resizable, toggleable between bottom and right */}
-        {chatPanelVisible && (
-          <ResizableChatPanel
-            projectId={project.id}
-            visionDoc={project.visionDoc}
-            initialMessage={chatInitialMessage}
-            onNodeSelect={handleChatNodeSelect}
-            onClose={() => setChatPanelVisible(false)}
-          />
-        )}
       </div>
+
+      {/* Working directory bar — bottom of plan view */}
+      <WorkdirBar project={project} />
+
+      {/* Floating chat bubble — always visible */}
+      <FloatingChat
+        projectId={project.id}
+        visionDoc={project.visionDoc}
+        initialMessage={chatInitialMessage}
+        onNodeSelect={handleChatNodeSelect}
+        isMobile={isMobile}
+      />
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />

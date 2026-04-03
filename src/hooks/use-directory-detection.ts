@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
 import type { RemoteType, DeliveryMode } from '@/types'
@@ -33,6 +33,7 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
   const [isDetecting, setIsDetecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const trimmed = path.trim()
@@ -101,7 +102,9 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
       clearTimeout(timer)
       abortRef.current?.abort()
     }
-  }, [path, machineId, delay])
+  }, [path, machineId, delay, refreshKey])
 
-  return { detection, isDetecting, error }
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
+
+  return { detection, isDetecting, error, refresh }
 }

@@ -119,6 +119,20 @@ export interface BranchListRelayResult {
   error?: string;
 }
 
+/** Result from remote git checkout relayed from agent runner */
+export interface GitCheckoutRelayResult {
+  success: boolean;
+  branch?: string;
+  error?: string;
+}
+
+/** Result from remote git create-branch relayed from agent runner */
+export interface GitCreateBranchRelayResult {
+  success: boolean;
+  branch?: string;
+  error?: string;
+}
+
 /** Result from remote git init relayed from agent runner */
 export interface GitInitRelayResult {
   success: boolean;
@@ -464,6 +478,30 @@ interface AgentRunnerBranchListResponseMessage {
   };
 }
 
+/** Agent runner's git checkout response message format */
+interface AgentRunnerGitCheckoutResponseMessage {
+  type: 'git_checkout_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    branch?: string;
+    error?: string;
+  };
+}
+
+/** Agent runner's git create-branch response message format */
+interface AgentRunnerGitCreateBranchResponseMessage {
+  type: 'git_create_branch_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    branch?: string;
+    error?: string;
+  };
+}
+
 /** Agent runner's sessions list response message format */
 interface AgentRunnerSessionsListResponseMessage {
   type: 'sessions_list_response';
@@ -600,6 +638,8 @@ export interface RelayServerEvents {
   'repo_detect:response': (data: { correlationId: string; result: RepoDetectRelayResult }) => void;
   'git_init:response': (data: { correlationId: string; result: GitInitRelayResult }) => void;
   'branch_list:response': (data: { correlationId: string; result: BranchListRelayResult }) => void;
+  'git_checkout:response': (data: { correlationId: string; result: GitCheckoutRelayResult }) => void;
+  'git_create_branch:response': (data: { correlationId: string; result: GitCreateBranchRelayResult }) => void;
   'error': (error: Error) => void;
 }
 
@@ -739,11 +779,6 @@ export class RelayServer extends EventEmitter {
   ): void {
     try {
       const secret = this.config.jwtSecret || process.env.RELAY_JWT_SECRET;
-
-      console.log('[relay] Verifying client connection');
-      console.log('[relay] Config jwtSecret:', this.config.jwtSecret ? 'SET' : 'NOT SET');
-      console.log('[relay] Env RELAY_JWT_SECRET:', process.env.RELAY_JWT_SECRET ? 'SET' : 'NOT SET');
-      console.log('[relay] Using secret:', secret ? 'YES' : 'NO');
 
       // ONLY accept Authorization header (no query params for security)
       const authHeader = info.req.headers['authorization'];
@@ -1144,6 +1179,24 @@ export class RelayServer extends EventEmitter {
 
       case 'branch_list_response':
         this.handleAgentRunnerBranchListResponse(message as unknown as AgentRunnerBranchListResponseMessage);
+        break;
+
+      // Git checkout response from agent runner
+      case 'git_checkout.response':
+        this.handleGitCheckoutResponse(message as unknown as { type: 'git_checkout.response'; correlationId: string; result: GitCheckoutRelayResult });
+        break;
+
+      case 'git_checkout_response':
+        this.handleAgentRunnerGitCheckoutResponse(message as unknown as AgentRunnerGitCheckoutResponseMessage);
+        break;
+
+      // Git create-branch response from agent runner
+      case 'git_create_branch.response':
+        this.handleGitCreateBranchResponse(message as unknown as { type: 'git_create_branch.response'; correlationId: string; result: GitCreateBranchRelayResult });
+        break;
+
+      case 'git_create_branch_response':
+        this.handleAgentRunnerGitCreateBranchResponse(message as unknown as AgentRunnerGitCreateBranchResponseMessage);
         break;
 
       // Sessions list response from agent runner (Claude Code session discovery)
@@ -3102,7 +3155,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file list request`);
+    console.debug(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file list request`);
     return false;
   }
 
@@ -3807,6 +3860,90 @@ export class RelayServer extends EventEmitter {
       correlationId,
       result,
     });
+  }
+
+  // ============================================================================
+  // Git Checkout / Create-Branch Handlers
+  // ============================================================================
+
+  requestGitCheckout(machineId: string, path: string, branch: string, correlationId: string, stash?: boolean): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'git_checkout_request',
+        timestamp: new Date().toISOString(),
+        payload: { path, branch, correlationId, ...(stash && { stash }) },
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'git_checkout_request',
+        payload: { path, branch, correlationId, ...(stash && { stash }) },
+      }).catch((err) => console.error('[relay] Redis proxy git_checkout_request failed:', err));
+      return true;
+    }
+
+    console.error(`[relay] Machine ${machineId} not reachable for git checkout request`);
+    return false;
+  }
+
+  requestGitCreateBranch(machineId: string, path: string, branch: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'git_create_branch_request',
+        timestamp: new Date().toISOString(),
+        payload: { path, branch, correlationId },
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'git_create_branch_request',
+        payload: { path, branch, correlationId },
+      }).catch((err) => console.error('[relay] Redis proxy git_create_branch_request failed:', err));
+      return true;
+    }
+
+    console.error(`[relay] Machine ${machineId} not reachable for git create-branch request`);
+    return false;
+  }
+
+  private handleGitCheckoutResponse(message: { correlationId: string; result: GitCheckoutRelayResult }): void {
+    this.emit('git_checkout:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  private handleAgentRunnerGitCheckoutResponse(message: AgentRunnerGitCheckoutResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('git_checkout:response', { correlationId, result });
+  }
+
+  private handleGitCreateBranchResponse(message: { correlationId: string; result: GitCreateBranchRelayResult }): void {
+    this.emit('git_create_branch:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  private handleAgentRunnerGitCreateBranchResponse(message: AgentRunnerGitCreateBranchResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('git_create_branch:response', { correlationId, result });
   }
 
   // ============================================================================

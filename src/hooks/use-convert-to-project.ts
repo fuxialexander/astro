@@ -111,7 +111,7 @@ export function useConvertToProject() {
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const removeNodes = usePlanStore((s) => s.removeNodes)
-  const startPlanGenerationForProject = useExecutionStore((s) => s.startPlanGenerationForProject)
+  const startSessionForProject = useExecutionStore((s) => s.startSessionForProject)
   const addToast = useToastStore((s) => s.add)
 
   const convert = useCallback(async ({ node, projectName }: ConvertOptions): Promise<boolean> => {
@@ -197,7 +197,7 @@ export function useConvertToProject() {
         githubRepo: sourceProject.githubRepo,
         deliveryMode: sourceProject.deliveryMode || (source ? deriveDeliveryMode(source) : undefined),
         defaultMachineId: sourceProject.defaultMachineId,
-        projectType: "plan",
+        projectType: "default",
         createdAt: now,
         updatedAt: now,
         ...(source ? { source } : {}),
@@ -207,7 +207,7 @@ export function useConvertToProject() {
       createdProjectId = newProjectId
 
       // 5. Start plan generation (before deleting node — if this fails, node remains)
-      await startPlanGenerationForProject(newProjectId, enrichedDescription, {
+      await startSessionForProject(newProjectId, enrichedDescription, {
         workingDirectory: sourceProject.workingDirectory || undefined,
         targetMachineId: sourceProject.defaultMachineId || undefined,
         visionDoc: sourceProject.visionDoc || undefined,
@@ -291,7 +291,7 @@ export function useConvertToProject() {
     } finally {
       setIsConverting(false)
     }
-  }, [navigate, addProject, updateProject, deleteProject, removeNodes, startPlanGenerationForProject, addToast])
+  }, [navigate, addProject, updateProject, deleteProject, removeNodes, startSessionForProject, addToast])
 
   return { convert, isConverting, error }
 }

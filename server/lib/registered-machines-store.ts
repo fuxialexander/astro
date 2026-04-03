@@ -439,10 +439,15 @@ export async function unshareMachineFromTeam(machineId: string, teamId: string):
  */
 export async function getTeamSharedMachineIds(teamIds: string[]): Promise<Set<string>> {
   if (teamIds.length === 0) return new Set()
-  const rows = await db.select({ machineId: machineTeamShares.machineId })
-    .from(machineTeamShares)
-    .where(sql`${machineTeamShares.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`)
-  return new Set(rows.map(r => r.machineId))
+  try {
+    const rows = await db.select({ machineId: machineTeamShares.machineId })
+      .from(machineTeamShares)
+      .where(sql`${machineTeamShares.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`)
+    return new Set(rows.map(r => r.machineId))
+  } catch {
+    // Table may not exist yet in PGlite if migration hasn't run
+    return new Set()
+  }
 }
 
 /**

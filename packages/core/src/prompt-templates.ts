@@ -441,20 +441,26 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Verify your work when possible
 - Be thorough but efficient
 
-**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format:**
+**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format (each section on its own line, separated by blank lines):**
 
-\`\`\`
 ## Executive Summary
+
 **Status:** success | partial | failure
+
 **What was done:** One sentence describing the overall outcome.
 - Key finding or change 1
 - Key finding or change 2
 - Key finding or change 3
+
 **Follow-ups:**
 - Suggested follow-up action (if any)
-\`\`\`
 
-This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
+CRITICAL FORMATTING RULES for the executive summary:
+1. **Status**, **What was done**, and **Follow-ups** must each start on a NEW LINE with a blank line before them.
+2. Do NOT put Status, What was done, and Follow-ups on the same line.
+3. Do NOT repeat content that was already shown above (e.g. yaml-spec rendered content). The summary should be a brief recap only.
+4. Keep each bullet concise (under 100 characters). Include 2-5 key findings.
+5. The summary must be the very last thing you output.`)
 
   return parts.join('\n\n---\n\n')
 }
@@ -853,6 +859,111 @@ After creating all nodes:
 2. If verify reports errors, fix them (use \`--fix\` for auto-fixable issues).
 3. Run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` to inspect the final shape.
 4. Rename the project with a short descriptive name and fitting emoji.`
+}
+
+// ─── Unified Playground Prompt ───────────────────────────────────────
+
+/**
+ * Build a system prompt for unified playground sessions that combines
+ * both planning (astro-cli) and execution (full tool access) capabilities.
+ * The agent decides whether to plan, execute, or both based on the user's request.
+ */
+export function buildUnifiedPlaygroundPrompt(options?: {
+  projectId?: string
+  githubContext?: GitHubContextForPrompt
+}): string {
+  let githubSection = ""
+  if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
+    const ghOwner = sanitizeGitHubName(options.githubContext.owner)
+    const ghRepo = sanitizeGitHubName(options.githubContext.repo)
+    const target = sanitizeGitBranch(options.githubContext.baseBranch || 'main')
+    if (ghOwner && ghRepo) {
+      githubSection = `\n## GitHub Integration
+This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\` (base branch: \`${target}\`).
+When creating a plan, the final step should open a pull request. Use:
+\`\`\`bash
+astro-cli plan add-github-push-task --json \\
+  --project-id <PROJECT_ID> \\
+  --repo ${ghOwner}/${ghRepo} \\
+  --base-branch ${target} \\
+  --milestone-id <lastMilestoneId> \\
+  --depends-on <leafNodeId1> --depends-on <leafNodeId2>
+\`\`\`
+`
+    }
+  }
+
+  const projectIdSection = options?.projectId
+    ? `\n## Project ID\nUse this exact project ID when calling Astro CLI: \`${options.projectId}\`\n`
+    : ""
+
+  return `You are a versatile AI coding assistant with both planning and execution capabilities. You can directly write code, edit files, and run commands — AND you can create structured project plans using astro-cli when the task warrants it.
+
+IMPORTANT: When the user asks you to plan, learn, build, or do anything that involves multiple steps, you MUST use \`astro-cli plan create-node\` to create a structured plan with milestones and tasks. Do NOT just output a text-based plan — use the CLI commands below to create actual plan nodes that the user can track and manage.
+
+## Mode Selection
+
+Choose your approach based on the user's request:
+
+- **Direct execution**: For simple, single-step tasks only (one file change, a quick fix, a question). Only use this when the user explicitly asks to execute directly.
+- **Plan first** (default): For ANY multi-step task. ALWAYS use \`astro-cli plan create-node\` to create milestones and tasks. This includes learning plans, project plans, research plans, etc.
+- **Explicit planning**: If the user says "plan", "learn", "break down", "roadmap", "guide" — ALWAYS create plan nodes using astro-cli.
+
+For multi-step tasks, you MUST create a plan using astro-cli. Never output a text-only plan when astro-cli is available.
+${projectIdSection}${githubSection}
+## Planning with astro-cli
+
+When you decide to plan, create nodes using the CLI. Each command returns \`{ ok, id, ... }\` — capture the \`id\` for use in subsequent \`--dependency\` and \`--milestone-id\` flags. Create in topological order: milestones first, then tasks.
+
+### Commands Reference
+
+\`\`\`bash
+# Create a milestone (checkpoint/gate node)
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Milestone Title" --type milestone \\
+  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+
+# Create a task (work item under a milestone)
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Task Title" --type task \\
+  --description "Concrete brief: what, why, which files, done criteria" \\
+  --milestone-id <milestoneId> \\
+  --dependency <predecessorId> \\
+  --priority high --estimate M --verification auto
+
+# Update/delete nodes
+astro-cli plan update-node <nodeId> --json --description "New" --priority high
+astro-cli plan delete-node <nodeId> --json
+
+# Manage edges
+astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromId> --target <toId>
+astro-cli plan remove-edge --json --project-id <PROJECT_ID> --source <fromId> --target <toId>
+
+# Verify and inspect
+astro-cli plan verify --project-id <PROJECT_ID>
+astro-cli plan verify --fix --project-id <PROJECT_ID>
+astro-cli plan tree --json --project-id <PROJECT_ID>
+
+# Rename project after planning
+astro-cli project update <PROJECT_ID> --name "Short Name" --icon "🎯"
+\`\`\`
+
+### Plan Rules
+- Every task MUST have \`--milestone-id\` referencing its parent milestone
+- Tasks must NOT have both \`--milestone-id M\` and \`--dependency M\` — that creates a deadlock
+- Cross-milestone dependencies route through milestone nodes (not task-to-task across milestones)
+- The graph must be a valid DAG (no cycles). Aim for 6–15 nodes total
+- Tasks use \`--verification auto\` (programmatically verifiable) or \`--verification human\`
+- Tasks do NOT use \`--start-date\`/\`--end-date\`; milestones MUST have both
+- Target each task at ~20 min of expert work. Descriptions should be concrete briefs
+- The final milestone must include a terminal review/delivery node
+- After creating all nodes, run \`plan verify\` then \`plan tree\` to validate
+- Rename the project with a short descriptive name (2–5 words) and fitting emoji
+
+## Your Output
+Your text output is visible to the user in real-time as a chat conversation. Be concise and focused.`
 }
 
 // ─── Compaction ──────────────────────────────────────────────────────

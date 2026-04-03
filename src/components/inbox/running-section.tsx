@@ -77,7 +77,7 @@ export function RunningSection() {
       })
 
     const playgroundTasks = [...allExecutions.values()]
-      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-"))
+      .filter((e) => (e.status === "running" || e.status === "pending") && (e.nodeId.startsWith("playground-") || e.nodeId.startsWith("session-")))
       .map((exec) => {
         const project = projects.find((p) => p.id === exec.projectId)
         const machine = machines.get(project?.defaultMachineId || "")
@@ -149,7 +149,7 @@ export function RunningSection() {
 
         <div className="flex-1 min-w-0">
           <h3 className="text-[10px] font-semibold tracking-wider text-muted-foreground/40 uppercase mb-3">Tasks</h3>
-          <div className="rounded-xl glass-panel p-3 max-h-[min(50vh,400px)] overflow-y-auto">
+          <div className="rounded-xl border border-border/50 p-3 max-h-[min(50vh,400px)] overflow-y-auto">
             {activeTasksWithContext.length === 0 ? (
               <div className="flex items-center justify-center py-8 text-muted-foreground/30 text-[13px]">All quiet</div>
             ) : (

@@ -10,25 +10,16 @@ import {
   Users,
   MessageSquare,
   FolderGit2,
-  Diamond,
   Loader2,
   Download,
   Link2,
   Check,
   RotateCcw,
-  GitPullRequest,
-  GitBranch,
-  ListPlus,
-  Laptop,
-  Bot,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { EditorOpenControls } from "@/components/ui/editor-open-controls"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
-import { MilestoneDialog } from "@/components/milestone-dialog"
-import { MilestoneTaskPopover } from "@/components/milestone-task-popover"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -37,20 +28,12 @@ import { useTeamStore } from "@/stores/team-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useMachinesStore } from "@/stores/machines-store"
 import { cn } from "@/lib/utils"
-import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
 import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
-import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
-import { InstructionPicker } from "@/components/execution/instruction-picker"
-import { ScheduleList } from "@/components/schedule/schedule-list"
-import { useExecutionStore } from "@/stores/execution-store"
-import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
-import { useSettingsStore } from "@/stores/settings-store"
-import type { Project, PlanNode } from "@/types"
+import type { Project } from "@/types"
 
 const healthLabels: Record<string, string> = {
   on_track: "On Track",
@@ -74,42 +57,25 @@ export function OverviewTab({
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
-  const addNode = usePlanStore((s) => s.addNode)
-  const updateNode = usePlanStore((s) => s.updateNode)
-  const removeNodes = usePlanStore((s) => s.removeNodes)
   const updateProject = useProjectStore((s) => s.updateProject)
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const addActivity = useActivityStore((s) => s.addActivity)
   const activities = useActivityStore((s) => s.activities)
-  const machines = useMachinesStore((s) => s.machines)
-  const fetchMachines = useMachinesStore((s) => s.fetchMachines)
-  const liveMachines = useExecutionStore((s) => s.machines)
-  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
-  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const teams = useTeamStore((s) => s.teams)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const projectTeamId = project.teamId || activeTeamId
   const teamMemberCount = useTeamStore((s) => (projectTeamId ? (s.teamMembers[projectTeamId]?.length ?? 0) : 0))
   const isSoloWorkspace = teamMemberCount <= 1
   const teamMembers = useTeamStore((s) => projectTeamId ? s.teamMembers[projectTeamId] ?? [] : [])
-  const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
     [activities, project.id]
   )
 
-  // Fetch machines on mount (for displaying machine hostname)
-  useEffect(() => {
-    if (machines.length === 0) {
-      fetchMachines()
-    }
-  }, [machines.length, fetchMachines])
   const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
   const [visionOpen, setVisionOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
   const [activityDialogOpen, setActivityDialogOpen] = useState(false)
-  const [milestoneDialogOpen, setMilestoneDialogOpen] = useState(false)
-  const [editingMilestone, setEditingMilestone] = useState<PlanNode | undefined>(undefined)
   const [editingStatus, setEditingStatus] = useState(false)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [editingStartDate, setEditingStartDate] = useState(false)
@@ -135,89 +101,6 @@ export function OverviewTab({
     return Math.round((completed.length / tasks.length) * 100)
   }, [allNodes])
 
-  // Get milestones for this project
-  const milestones = useMemo(() => allNodes.filter((n) => n.type === "milestone"), [allNodes])
-
-  const handleMilestoneAdd = () => {
-    setEditingMilestone(undefined)
-    setMilestoneDialogOpen(true)
-  }
-
-  const handleMilestoneEdit = (milestone: PlanNode) => {
-    setEditingMilestone(milestone)
-    setMilestoneDialogOpen(true)
-  }
-
-  const handleMilestoneSave = (data: { title: string; description: string; dueDate?: string }) => {
-    if (editingMilestone) {
-      // Update existing milestone
-      updateNode(editingMilestone.id, {
-        title: data.title,
-        description: data.description,
-        dueDate: data.dueDate,
-      })
-      addActivity({
-        projectId: project.id,
-        type: "milestone.updated",
-        title: `Updated milestone: ${data.title}`,
-        nodeId: editingMilestone.id,
-      })
-    } else {
-      // Create new milestone
-      const newMilestone: PlanNode = {
-        id: crypto.randomUUID(),
-        projectId: project.id,
-        type: "milestone",
-        title: data.title,
-        description: data.description,
-        dueDate: data.dueDate,
-        status: "planned",
-        parentId: null,
-        dependencies: [],
-        verification: "human",
-        position: { x: 0, y: 0 }, // Will be calculated by layout algorithm
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      addNode(newMilestone)
-      addActivity({
-        projectId: project.id,
-        type: "milestone.created",
-        title: `Created milestone: ${data.title}`,
-        description: data.description,
-        nodeId: newMilestone.id,
-      })
-    }
-  }
-
-  const handleMilestoneDelete = (milestoneId: string) => {
-    // Check if any tasks are assigned to this milestone
-    const milestone = allNodes.find((n) => n.id === milestoneId)
-    const assignedTasks = allNodes.filter((n) => n.milestoneId === milestoneId && n.type !== "milestone")
-
-    if (assignedTasks.length > 0) {
-      const confirmDelete = window.confirm(
-        `This milestone has ${assignedTasks.length} assigned task(s). Deleting it will unassign these tasks. Continue?`
-      )
-      if (!confirmDelete) return
-
-      // Unassign tasks from this milestone
-      for (const task of assignedTasks) {
-        updateNode(task.id, { milestoneId: undefined })
-      }
-    }
-
-    removeNodes([milestoneId])
-
-    if (milestone) {
-      addActivity({
-        projectId: project.id,
-        type: "milestone.deleted",
-        title: `Deleted milestone: ${milestone.title}`,
-        nodeId: milestoneId,
-      })
-    }
-  }
 
   // Handle description changes from rich text editor with debounced autosave
   const handleDescriptionChange = useCallback((html: string) => {
@@ -256,24 +139,12 @@ export function OverviewTab({
     }
   }, [project.id])
 
-  // Machine info for editor URL construction
-  const defaultMachine = project.defaultMachineId
-    ? machines.find((m) => m.id === project.defaultMachineId)
-    : (machines.length === 1 ? machines[0] : undefined)
-
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       <ActivityDialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen} projectId={project.id} />
       <LabelManagerDialog open={labelManagerOpen} onOpenChange={setLabelManagerOpen} projectId={project.id} />
-      <MilestoneDialog
-        open={milestoneDialogOpen}
-        onOpenChange={setMilestoneDialogOpen}
-        milestone={editingMilestone}
-        onSave={handleMilestoneSave}
-        onDelete={editingMilestone ? () => handleMilestoneDelete(editingMilestone.id) : undefined}
-      />
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
@@ -305,341 +176,66 @@ export function OverviewTab({
           />
         </div>
 
-        {/* Milestones Section */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Milestones</h3>
-            <Plus
-              className="h-4 w-4 text-muted-foreground cursor-pointer hover:text-foreground"
-              onClick={handleMilestoneAdd}
-            />
+        {/* Skill Context */}
+        <div
+          className="flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
+          onClick={() => setVisionOpen(true)}
+        >
+          <FileText className="h-[18px] w-[18px] text-primary" />
+          <div className="flex-1 flex flex-col gap-0.5">
+            <span className="text-sm font-medium">skill.md</span>
+            <span className="text-xs text-muted-foreground">
+              {project.visionDoc ? "Skill context for agents" : "Click to add skill context for agents"}
+            </span>
           </div>
-          {milestones.length === 0 ? (
-            <div className="flex items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/20 p-6">
-              <div className="flex flex-col items-center gap-2 text-center">
-                <Diamond className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium text-muted-foreground">No milestones yet</p>
-                <p className="text-xs text-muted-foreground">Click the + icon to create your first milestone</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {milestones.map((milestone) => {
-                const tasks = allNodes.filter((n) => n.milestoneId === milestone.id && n.type !== "milestone")
-                const completed = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
-                const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
-
-                return (
-                  <div
-                    key={milestone.id}
-                    className="flex items-start gap-3 rounded-xl bg-muted/50 border border-border/40 p-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
-                    onClick={() => handleMilestoneEdit(milestone)}
-                  >
-                    <Diamond className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                    <div className="flex-1 flex flex-col gap-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium truncate">{milestone.title}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <MilestoneTaskPopover
-                            milestoneId={milestone.id}
-                            allNodes={allNodes}
-                            onToggleTask={(taskId, mId) => updateNode(taskId, { milestoneId: mId })}
-                          >
-                            <button
-                              type="button"
-                              className="p-0.5 rounded hover:bg-background/60 text-muted-foreground hover:text-foreground transition-colors"
-                              onClick={(e) => e.stopPropagation()}
-                              title="Manage tasks"
-                            >
-                              <ListPlus className="h-3.5 w-3.5" />
-                            </button>
-                          </MilestoneTaskPopover>
-                          {milestone.dueDate && (
-                            <span className="text-xs text-muted-foreground">
-                              Due {formatDate(milestone.dueDate)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {milestone.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{milestone.description}</p>
-                      )}
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-primary transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-medium text-muted-foreground shrink-0">
-                          {completed}/{tasks.length}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <span className="text-xs font-medium text-primary">
+            {project.visionDoc ? "Edit" : "Add"}
+          </span>
         </div>
 
-        {/* Schedules Section */}
-        <ScheduleList projectId={project.id} />
-
-        {/* Resources Section */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Resources</h3>
-            <Plus className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="flex flex-col gap-2">
-            <div
-              className="flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
-              onClick={() => setVisionOpen(true)}
-            >
-              <FileText className="h-[18px] w-[18px] text-primary" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">skill.md</span>
-                <span className="text-xs text-muted-foreground">
-                  {project.visionDoc ? "Skill context for agents" : "Click to add skill context for agents"}
-                </span>
-              </div>
-              <span className="text-xs font-medium text-primary">
-                {project.visionDoc ? "Edit" : "Add"}
-              </span>
-            </div>
-            {/* Unified Execution Environment card */}
-            {(project.workingDirectory || project.repository || machines.length > 0 || liveMachines.length > 0) && (
-              <div className="flex flex-col gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
-                {/* Working Directory */}
-                {(project.workingDirectory || project.repository) && (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <FolderGit2 className="h-[18px] w-[18px] text-primary shrink-0" />
-                      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
-                        <span className="text-sm font-medium shrink-0">Working Directory</span>
-                        <span className="text-xs text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
-                          {project.workingDirectory || project.repository}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => setRepoOpen(true)}
-                        className="text-xs font-medium text-primary hover:underline shrink-0"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    {/* Source detection & delivery mode badges */}
-                    {project.source && (
-                      <div className="flex flex-wrap items-center gap-1.5 pl-[30px]">
-                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1">
-                          {project.source.isGit ? (
-                            <>
-                              <FolderGit2 className="h-3 w-3" />
-                              {project.source.remoteType !== 'none' ? remoteTypeLabel(project.source.remoteType) : 'Local Git'}
-                            </>
-                          ) : (
-                            'No Git'
-                          )}
-                        </Badge>
-                        {project.deliveryMode && (
-                          <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                            {deliveryModeLabel(project.deliveryMode)}
-                          </Badge>
-                        )}
-                        {project.source.baseBranch && project.source.baseBranch !== 'main' && (
-                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-mono">
-                            {project.source.baseBranch}
-                          </Badge>
-                        )}
-                        {project.projectPrUrl ? (
-                          <a
-                            href={project.projectPrUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex"
-                          >
-                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-primary hover:bg-primary/10 transition-colors">
-                              <GitPullRequest className="h-3 w-3" />
-                              PR #{project.projectPrNumber}
-                            </Badge>
-                          </a>
-                        ) : project.projectBranch && project.source?.remoteType === 'none' ? (
-                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 font-mono" title={`Results on branch: ${project.projectBranch}\ngit checkout ${project.projectBranch}`}>
-                            <GitBranch className="h-3 w-3" />
-                            {project.projectBranch}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    )}
-                    {project.workingDirectory && (
-                      <div className="pl-[30px]">
-                        <EditorOpenControls
-                          path={project.workingDirectory}
-                          machine={defaultMachine}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Separator between working dir and machine sections */}
-                {(project.workingDirectory || project.repository) && (machines.length > 0 || liveMachines.length > 0) && (
-                  <div className="h-px bg-border/60" />
-                )}
-
-                {/* Machine selection */}
-                {(machines.length > 0 || liveMachines.length > 0) && (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Laptop className="h-3.5 w-3.5" />
-                      Machine
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {machines.map((m) => {
-                        const isDefault = m.id === project.defaultMachineId
-                        const live = liveMachines.find((lm) => lm.machineId === m.id)
-                        const isOnline = !!live || m.isConnected
-                        return (
-                          <div key={m.id} className="flex items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => updateProject(project.id, { defaultMachineId: isDefault ? undefined : m.id })}
-                              className={cn(
-                                "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-colors cursor-pointer",
-                                isDefault
-                                  ? "border-primary bg-primary/10 text-primary"
-                                  : "border-border hover:bg-muted"
-                              )}
-                            >
-                              <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-success" : "bg-muted-foreground/40")} />
-                              {m.name}
-                            </button>
-                            <InstructionPicker
-                              currentInstructionId={m.defaultInstructionId}
-                              onSelect={(id) => miAssign(m.id, id)}
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* AI Agent (provider) for the selected machine */}
-                {(() => {
-                  const selectedMachineId = project.defaultMachineId
-                  const live = liveMachines.find((lm) => lm.machineId === selectedMachineId)
-                  const reg = machines.find((m) => m.id === selectedMachineId)
-                  const providerIds = live?.providers?.map((p) => p.type) ?? reg?.providers ?? []
-                  if (providerIds.length === 0) return null
-                  return (
-                    <>
-                      <div className="h-px bg-border/60" />
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <Bot className="h-3.5 w-3.5" />
-                          AI Agent
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {providerIds.map((pid) => (
-                            <button
-                              key={pid}
-                              type="button"
-                              onClick={() => setDefaultProvider(pid === defaultProvider ? "" : pid)}
-                              className={cn(
-                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors",
-                                pid === defaultProvider
-                                  ? "bg-primary/10 text-primary border border-primary/30"
-                                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-                              )}
-                            >
-                              {PROVIDER_NAMES[pid] || pid}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )
-                })()}
-              </div>
+        {/* Export & Share */}
+        <div className="flex items-center gap-2">
+          <button
+            className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+            onClick={() => {
+              const bundle = exportProject(project.id)
+              downloadBundle(bundle)
+            }}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs transition-colors",
+              sharing ? "opacity-60 cursor-wait text-muted-foreground" : "text-muted-foreground hover:bg-muted/50"
             )}
-            {/* Show repository warning when NOT configured */}
-            {!(project.workingDirectory || project.repository) && (
-              <div
-                className="flex items-center gap-3 rounded-xl bg-warning/10 border border-warning/20 p-3 px-4 cursor-pointer hover:bg-warning/15 transition-all duration-200"
-                onClick={() => setRepoOpen(true)}
-              >
-                <FolderGit2 className="h-[18px] w-[18px] text-warning" />
-                <div className="flex-1 flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-foreground">Repository Not Configured</span>
-                  <span className="text-xs text-warning">
-                    Click to configure working directory for agents
-                  </span>
-                </div>
-                <span className="text-xs font-medium text-warning">
-                  Add
-                </span>
-              </div>
-            )}
-            {/* Export project */}
-            <div
-              className="flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
-              onClick={() => {
+            onClick={async () => {
+              if (sharing) return
+              setSharing(true)
+              try {
                 const bundle = exportProject(project.id)
-                downloadBundle(bundle)
-              }}
-            >
-              <Download className="h-[18px] w-[18px] text-primary" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Export as JSON</span>
-                <span className="text-xs text-muted-foreground">Download project plan as a file</span>
-              </div>
-            </div>
-            {/* Share as link */}
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 transition-all duration-200",
-                sharing ? "opacity-60 cursor-wait" : "cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)]"
-              )}
-              onClick={async () => {
-                if (sharing) return
-                setSharing(true)
-                try {
-                  const bundle = exportProject(project.id)
-                  const res = await fetch(apiUrl("/api/share"), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(bundle),
-                  })
-                  if (!res.ok) throw new Error("Failed to create share link")
-                  const { id: shareId } = await res.json()
-                  const url = `${window.location.origin}/share/${shareId}`
-                  await navigator.clipboard.writeText(url)
-                  setShareCopied(true)
-                  setTimeout(() => setShareCopied(false), 2000)
-                } catch (err) {
-                  console.error("[share] Failed:", err)
-                } finally {
-                  setSharing(false)
-                }
-              }}
-            >
-              {shareCopied ? (
-                <Check className="h-[18px] w-[18px] text-success" />
-              ) : (
-                <Link2 className="h-[18px] w-[18px] text-primary" />
-              )}
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">
-                  {shareCopied ? "Link copied!" : "Share as link"}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {shareCopied ? "Anyone with the link can import this project" : "Create a shareable link to this plan"}
-                </span>
-              </div>
-            </div>
-          </div>
+                const res = await fetch(apiUrl("/api/share"), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(bundle),
+                })
+                if (!res.ok) throw new Error("Failed to create share link")
+                const { id: shareId } = await res.json()
+                const url = `${window.location.origin}/share/${shareId}`
+                await navigator.clipboard.writeText(url)
+                setShareCopied(true)
+                setTimeout(() => setShareCopied(false), 2000)
+              } catch (err) {
+                console.error("[share] Failed:", err)
+              } finally {
+                setSharing(false)
+              }
+            }}
+          >
+            {shareCopied ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
+            {shareCopied ? "Copied!" : "Share"}
+          </button>
         </div>
       </div>
 
@@ -697,10 +293,12 @@ export function OverviewTab({
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Est. Completion</span>
-            <span className="text-[13px]">{formatDate(project.targetDate)}</span>
-          </div>
+          {project.targetDate && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Est. Completion</span>
+              <span className="text-[13px]">{formatDate(project.targetDate)}</span>
+            </div>
+          )}
 
           {!isSoloWorkspace && (
             <div className="flex items-center justify-between">
@@ -757,86 +355,92 @@ export function OverviewTab({
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Start Date</span>
-            {editingStartDate ? (
-              <input
-                type="date"
-                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
-                value={project.startDate || ""}
-                onChange={(e) => {
-                  updateProject(project.id, { startDate: e.target.value })
-                }}
-                onBlur={() => setEditingStartDate(false)}
-                autoFocus
-              />
-            ) : (
-              <span
-                className="text-[13px] cursor-pointer hover:underline"
-                onClick={() => setEditingStartDate(true)}
-              >
-                {formatDate(project.startDate)}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Target Date</span>
-            {editingTargetDate ? (
-              <input
-                type="date"
-                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
-                value={project.targetDate || ""}
-                onChange={(e) => {
-                  updateProject(project.id, { targetDate: e.target.value })
-                }}
-                onBlur={() => setEditingTargetDate(false)}
-                autoFocus
-              />
-            ) : (
-              <span
-                className="text-[13px] cursor-pointer hover:underline"
-                onClick={() => setEditingTargetDate(true)}
-              >
-                {formatDate(project.targetDate)}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Initiative</span>
-            {editingInitiative ? (
-              <select
-                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
-                value={project.initiativeId || ""}
-                onChange={(e) => {
-                  updateProject(project.id, { initiativeId: e.target.value || undefined })
-                  setEditingInitiative(false)
-                }}
-                onBlur={() => setEditingInitiative(false)}
-                autoFocus
-              >
-                <option value="">No initiative</option>
-                {initiatives
-                  .filter(i => i.status === "active")
-                  .map((initiative) => (
-                    <option key={initiative.id} value={initiative.id}>
-                      {initiative.name}
-                    </option>
-                  ))}
-              </select>
-            ) : (
-              <div
-                className="flex items-center gap-1 cursor-pointer hover:opacity-80"
-                onClick={() => setEditingInitiative(true)}
-              >
-                <Rocket className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[13px]">
-                  {initiatives.find(i => i.id === project.initiativeId)?.name ?? "—"}
+          {(project.startDate || editingStartDate) && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Start Date</span>
+              {editingStartDate ? (
+                <input
+                  type="date"
+                  className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                  value={project.startDate || ""}
+                  onChange={(e) => {
+                    updateProject(project.id, { startDate: e.target.value })
+                  }}
+                  onBlur={() => setEditingStartDate(false)}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="text-[13px] cursor-pointer hover:underline"
+                  onClick={() => setEditingStartDate(true)}
+                >
+                  {formatDate(project.startDate)}
                 </span>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
+
+          {(project.targetDate || editingTargetDate) && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Target Date</span>
+              {editingTargetDate ? (
+                <input
+                  type="date"
+                  className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                  value={project.targetDate || ""}
+                  onChange={(e) => {
+                    updateProject(project.id, { targetDate: e.target.value })
+                  }}
+                  onBlur={() => setEditingTargetDate(false)}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="text-[13px] cursor-pointer hover:underline"
+                  onClick={() => setEditingTargetDate(true)}
+                >
+                  {formatDate(project.targetDate)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {(project.initiativeId || editingInitiative) && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Initiative</span>
+              {editingInitiative ? (
+                <select
+                  className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                  value={project.initiativeId || ""}
+                  onChange={(e) => {
+                    updateProject(project.id, { initiativeId: e.target.value || undefined })
+                    setEditingInitiative(false)
+                  }}
+                  onBlur={() => setEditingInitiative(false)}
+                  autoFocus
+                >
+                  <option value="">No initiative</option>
+                  {initiatives
+                    .filter(i => i.status === "active")
+                    .map((initiative) => (
+                      <option key={initiative.id} value={initiative.id}>
+                        {initiative.name}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <div
+                  className="flex items-center gap-1 cursor-pointer hover:opacity-80"
+                  onClick={() => setEditingInitiative(true)}
+                >
+                  <Rocket className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[13px]">
+                    {initiatives.find(i => i.id === project.initiativeId)?.name ?? "—"}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Merge Queue (visible when repository is configured) */}
           {project.repository && (

@@ -128,14 +128,16 @@ ingress:
   - service: http_status:404
 EOF
 
-# ── 4. Kill stale port processes ────────────────────────────────────
-for port in 5173 3001 3002; do
-  pids=$(lsof -ti ":$port" 2>/dev/null || true)
-  if [[ -n "$pids" ]]; then
-    echo "Killing stale process on port $port"
-    echo "$pids" | xargs kill -9 2>/dev/null || true
-  fi
-done
+# ── 4. Kill stale port processes (opt-in to avoid killing prod runners) ──
+if [[ "${KILL_PORTS:-0}" == "1" ]]; then
+  for port in 5173 3001 3002; do
+    pids=$(lsof -ti ":$port" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      echo "Killing stale process on port $port"
+      echo "$pids" | xargs kill -9 2>/dev/null || true
+    fi
+  done
+fi
 
 # ── 5. Start everything with concurrently ───────────────────────────
 echo ""

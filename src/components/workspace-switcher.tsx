@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { ChevronsUpDown, Globe, Check, Plus, Crown, ShieldCheck, User, Loader2 } from "lucide-react"
+import { ChevronsUpDown, Globe, Check, Plus, Crown, ShieldCheck, User, Users, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTeamStore } from "@/stores/team-store"
 import { useAuthStore } from "@/stores/auth-store"
@@ -46,7 +46,7 @@ const roleConfig: Record<string, { icon: React.ElementType; label: string; class
   member: { icon: User,         label: "member", classes: "bg-muted text-muted-foreground border-border/50" },
 }
 
-export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }) {
+export function WorkspaceSwitcher({ collapsed = false, iconOnly = false }: { collapsed?: boolean; iconOnly?: boolean }) {
   const teams = useTeamStore((s) => s.teams)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const setActiveTeam = useTeamStore((s) => s.setActiveTeam)
@@ -140,34 +140,30 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   }, [newTeamName, newTeamDescription, addTeam, handleSelect])
 
   /** Icon shown in collapsed mode */
-  const triggerIcon = workspaceFilter === "all"
-    ? <Globe className="h-4 w-4 text-muted-foreground" />
-    : (() => {
-        const team = teams.find((t) => t.id === workspaceFilter)
-        return team ? <TeamAvatar name={team.name} size="sm" /> : <Globe className="h-4 w-4 text-muted-foreground" />
-      })()
+  const triggerIcon = <Users className="h-4 w-4 text-muted-foreground" />
 
-  if (collapsed) {
+  if (collapsed || iconOnly) {
+    const popoverSide = iconOnly ? "bottom" : "right"
+    const popoverAlign = iconOnly ? "end" : "start"
     return (
-      <div className="flex justify-center py-1">
+      <div className={cn(iconOnly ? "flex" : "flex justify-center py-1")}>
         <Popover open={open} onOpenChange={setOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <button className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-muted/50 transition-colors">
+                <button className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted/50 transition-colors">
                   {switching ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" /> : triggerIcon}
                 </button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent side="right">{selected.label}</TooltipContent>
+            <TooltipContent side={popoverSide}>{selected.label}</TooltipContent>
           </Tooltip>
-          <PopoverContent side="right" align="start" className="w-56 p-1">
+          <PopoverContent side={popoverSide} align={popoverAlign} className="w-56 p-1">
             <OptionList
               options={options}
               selected={workspaceFilter}
               onSelect={handleSelect}
               getUserRole={getUserRole}
-
               onCreateClick={() => { setOpen(false); setCreateDialogOpen(true) }}
             />
           </PopoverContent>

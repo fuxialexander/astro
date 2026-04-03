@@ -224,11 +224,16 @@ function ProjectBatchPicker({
   const projects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const initiatives = useInitiativeStore((s) => s.initiatives)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const liveNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [search, setSearch] = useState("")
 
   const activeProjects = useMemo(
-    () => projects.filter((p) => p.status === "active" && p.projectType !== "playground" && p.projectType !== "plan"),
-    [projects],
+    () => {
+      const idsWithNodes = new Set(liveNodes.map((n) => n.projectId))
+      return projects.filter((p) => p.status === "active" && idsWithNodes.has(p.id))
+    },
+    [projects, liveNodes],
   )
 
   const filtered = useMemo(() => {

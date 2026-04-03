@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
     } : undefined,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: `http://localhost:${env.PORT || '3001'}`,
         changeOrigin: true,
         timeout: 0,       // disable proxy timeout for SSE streams
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

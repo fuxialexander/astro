@@ -264,6 +264,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
                 target: (e.target as string) || '',
               })),
               projectName: (data.projectName as string) || undefined,
+              projectId: (data.projectId as string) || undefined,
               timestamp,
             })
           }

@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
-import { MobileLayout } from "@/components/layout/mobile-layout"
 import { CommandPalette } from "@/components/command-palette"
 import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
@@ -48,6 +47,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
+import { StatsPage } from "@/pages/stats"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
@@ -89,23 +89,14 @@ function FeatureFlagRoute({ flag, children }: { flag: string; children: React.Re
 }
 
 /**
- * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
- * Uses CSS media queries at the md breakpoint (768px) to show/hide appropriate chrome.
- *
- * Both AppLayout and MobileLayout contain their own <Outlet />, but CSS ensures only one
- * is visible at a time, so routing works correctly.
+ * ResponsiveLayout renders AppLayout which handles both desktop and mobile.
+ * On mobile, the sidebar is always collapsed (icon rail) and a bottom tab bar is shown.
  */
 function ResponsiveLayout() {
   return (
-    <>
-      {/* Desktop layout - shown on md breakpoint and up */}
-      <div className="hidden md:block h-dvh">
-        <AppLayout />
-      </div>
-
-      {/* Mobile layout - shown below md breakpoint, has md:hidden built-in */}
-      <MobileLayout />
-    </>
+    <div className="h-dvh">
+      <AppLayout />
+    </div>
   )
 }
 
@@ -348,7 +339,7 @@ function RootRedirect() {
   }, [local, initialized, session])
 
   if (local) {
-    return <Navigate to="/plan" replace />
+    return <Navigate to="/dashboard" replace />
   }
 
   if (!initialized || !session) {
@@ -361,7 +352,7 @@ function RootRedirect() {
     )
   }
 
-  return <Navigate to="/plan" replace />
+  return <Navigate to="/dashboard" replace />
 }
 
 export default function App() {
@@ -379,7 +370,7 @@ export default function App() {
     <AppErrorBoundary>
     <Suspense fallback={null}>
     <ThemeProvider defaultTheme="system">
-      <TooltipProvider>
+      <TooltipProvider delayDuration={125}>
         <BrowserRouter>
           {/* Public routes that must render immediately (no DataLoader dependency) */}
           <Routes>
@@ -426,6 +417,7 @@ export default function App() {
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="stats" element={<StatsPage />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />
                 <Route path="demo/plan-node-list" element={<DemoPlanNodeList />} />
               </Route>

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, Children } from 'react'
 import { defineRegistry } from '@json-render/react'
 import { astroCatalog } from './catalog'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -540,6 +540,8 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
     TabView: ({ props, children }) => {
       const tabs = props.tabs ?? []
       if (tabs.length === 0) return null
+      // Map each tab to its corresponding child by index
+      const childArray = Children.toArray(children)
       return (
       <Tabs defaultValue={props.defaultTab || tabs[0]?.value}>
         <TabsList>
@@ -549,9 +551,9 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
             </TabsTrigger>
           ))}
         </TabsList>
-        {tabs.map((tab) => (
+        {tabs.map((tab, i) => (
           <TabsContent key={tab.value} value={tab.value}>
-            {children}
+            {childArray[i] ?? null}
           </TabsContent>
         ))}
       </Tabs>
