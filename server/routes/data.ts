@@ -539,6 +539,7 @@ app.get('/plan', async (c) => {
       loopBestMetricValue: n.loopBestMetricValue,
       loopBestIteration: n.loopBestIteration,
       loopStatus: n.loopStatus,
+      metadata: (n.metadata as Record<string, unknown>) ?? {},
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -611,6 +612,7 @@ app.get('/plan/nodes/:nodeId', async (c) => {
     mergeQueueStatus: row.mergeQueueStatus,
     autoPr: row.autoPr,
     acceptanceCriteria: row.acceptanceCriteria,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   })
@@ -666,6 +668,7 @@ app.get('/plan/:projectId', async (c) => {
     loopBestMetricValue: n.loopBestMetricValue,
     loopBestIteration: n.loopBestIteration,
     loopStatus: n.loopStatus,
+    metadata: (n.metadata as Record<string, unknown>) ?? {},
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))
@@ -770,6 +773,7 @@ app.put('/plan/:projectId', async (c) => {
         links: (n.links as unknown[]) ?? [],
         acceptanceCriteria: (n.acceptanceCriteria as unknown[]) ?? [],
         loopConfig: (n.loopConfig as Record<string, unknown>) ?? null,
+        metadata: (n.metadata as Record<string, unknown>) ?? {},
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -807,6 +811,7 @@ app.put('/plan/:projectId', async (c) => {
           links: row.links,
           acceptanceCriteria: row.acceptanceCriteria,
           loopConfig: row.loopConfig,
+          metadata: row.metadata,
           updatedAt: row.updatedAt,
         },
       })
@@ -969,6 +974,7 @@ app.post('/plan/nodes', async (c) => {
       links: body.links ?? [],
       acceptanceCriteria: body.acceptanceCriteria ?? [],
       loopConfig: body.loopConfig ?? null,
+      metadata: body.metadata ?? {},
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     })
@@ -1030,6 +1036,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.acceptanceCriteria !== undefined) patch.acceptanceCriteria = body.acceptanceCriteria ?? []
   if (body.type !== undefined) patch.type = body.type
   if (body.loopConfig !== undefined) patch.loopConfig = body.loopConfig || null
+  if (body.metadata !== undefined) patch.metadata = body.metadata ?? {}
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
 

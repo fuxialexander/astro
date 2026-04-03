@@ -230,8 +230,9 @@ export async function syncNodeToGitHub(
     }
 
     // ── Sync assignee ──
-    // TODO: assignee sync requires a dedicated column or metadata on planNodes
-    // Currently planNodes has no metadata column, so assignee sync is skipped
+    // TODO: sync GitHub assignee to planNodes.metadata.assignees (JSONB column now exists).
+    // Implementation: store assignee login(s) in metadata, expose via GET responses,
+    // and map to a user profile in the team for display in the UI.
 
     console.log(
       `${LOG_PREFIX} Synced node '${nodeId}' → issue #${issueNumber} in ${owner}/${repo} ` +

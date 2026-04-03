@@ -13,8 +13,14 @@ export function isLive<T extends { deletedAt?: Date }>(item: T): boolean {
 
 const COMPLETED_STATUSES: PlanNode["status"][] = ["completed", "auto_verified"]
 
-/** Pattern for detecting "Push to GitHub" / "Publish to GitHub" task nodes */
-const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github/i
+/** Pattern for detecting "Push to GitHub" / "Publish to GitHub" task nodes (fallback for legacy nodes) */
+const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github|create\s+pr\s+and\s+run\s+(code\s+review|shepherd)/i
+
+/** Check if a plan node is a "Push to GitHub" node via metadata flag or title regex fallback */
+function isPushToGithubNode(node: Pick<PlanNode, 'title' | 'metadata'>): boolean {
+  return (node.metadata as Record<string, unknown> | undefined)?.pushToGithub === true
+    || PUSH_TO_GITHUB_RE.test(node.title)
+}
 
 /**
  * Recompute milestone node statuses based on their upstream dependencies.
@@ -433,9 +439,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     // Auto-wire: if a "Push to GitHub" node exists and the new node isn't it,
     // add the new node as a dependency of the Push node (keeps it as the final task).
-    if (node.type === 'task' && !PUSH_TO_GITHUB_RE.test(node.title)) {
+    if (node.type === 'task' && !isPushToGithubNode(node)) {
       const pushNode = get().nodes.find(
-        (n) => n.type === 'task' && PUSH_TO_GITHUB_RE.test(n.title) && !n.deletedAt
+        (n) => n.type === 'task' && isPushToGithubNode(n) && !n.deletedAt
       )
       if (pushNode) {
         // Add edge: new node → Push node (so Push depends on this node)

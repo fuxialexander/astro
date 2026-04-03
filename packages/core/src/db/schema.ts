@@ -188,6 +188,8 @@ export const planNodes = pgTable('plan_nodes', {
   loopBestMetricValue: real('loop_best_metric_value'),
   loopBestIteration: integer('loop_best_iteration'),
   loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
+  /** Structured metadata flags for this node (e.g. { pushToGithub: true } marks a GitHub delivery node) */
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
