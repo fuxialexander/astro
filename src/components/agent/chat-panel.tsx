@@ -18,6 +18,7 @@ import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 
 import { useProjectStore } from "@/stores/project-store"
+import { useReferenceStore } from "@/stores/reference-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
@@ -28,6 +29,7 @@ import { usePlanContext } from "@/hooks/use-plan-context"
 import { useAutoScroll } from "@/hooks/use-auto-scroll"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
+import { buildCitationContext } from "@/lib/citation/context"
 
 interface Message {
   role: "user" | "assistant"
@@ -239,6 +241,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const resolvedMachineId = useProjectMachineId(project)
 
+  // Reference store — bibliographic references for [@key] citations
+  const loadReferences = useReferenceStore((s) => s.loadReferences)
+  const projectReferences = useReferenceStore((s) => s.referencesByProject.get(projectId) || [])
+  useEffect(() => {
+    loadReferences(projectId)
+  }, [projectId, loadReferences])
+
   // Plan context — shared hook
   const { planNodes, planNodeContext, planEdgeContext } = usePlanContext(projectId)
 
@@ -337,11 +346,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
+    // Expand citation markers into full metadata for LLM context
+    const citationContext = projectReferences.length > 0
+      ? buildCitationContext(text, projectReferences)
+      : ''
+
     sendChatMessage({
       sessionId: sid,
       projectId,
       message: text,
-      visionDoc,
+      visionDoc: visionDoc ? visionDoc + citationContext : citationContext || undefined,
       model: effectiveModel,
       providerId: effectiveProviderId,
       planNodes: planNodeContext,
@@ -349,7 +363,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       messages: historyMessages,
       imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
     })
-  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages, editingMessageId])
+  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages, editingMessageId, projectReferences])
 
   const handleEditMessage = useCallback((msg: string, timestamp: Date) => {
     const session = useSessionStore.getState().sessions.get(
@@ -736,6 +750,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             fileTree={project?.fileTree}
             slashCommands={slashCmds}
             mentionItems={mentionItems}
+            references={projectReferences}
             value={input}
             onChange={setInput}
             placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}

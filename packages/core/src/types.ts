@@ -173,6 +173,24 @@ export interface ProjectSource {
   isGit: boolean
 }
 
+/** A bibliographic reference (paper, article, book, etc.) stored per-project. */
+export interface Reference {
+  id: string
+  title: string
+  authors: string[]
+  year: number
+  venue?: string
+  doi?: string
+  url?: string
+  abstract?: string
+  entryType?: string
+  volume?: string
+  issue?: string
+  pages?: string
+  publisher?: string
+  tags?: string[]
+}
+
 export interface Project {
   id: string;
   number?: number;
@@ -202,6 +220,7 @@ export interface Project {
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
   source?: ProjectSource
   deliveryMode?: DeliveryMode
+  references?: Reference[]
   agentDir?: string
   worktreeStrategy?: WorktreeStrategy
   projectType?: 'default' | 'playground' | 'github' | 'plan'
