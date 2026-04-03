@@ -11,6 +11,17 @@
  */
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Fetch with timeout (default 15s). Prevents hanging requests to external APIs. */
+function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 15_000): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeoutId))
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -117,11 +128,11 @@ async function lookupViaTranslationServer(
       break
   }
 
-  const resp = await fetch(searchUrl, {
+  const resp = await fetchWithTimeout(searchUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: query,
-  })
+  }, 30_000)
 
   if (!resp.ok) {
     throw new Error(`Translation server returned ${resp.status}: ${await resp.text()}`)
@@ -132,11 +143,11 @@ async function lookupViaTranslationServer(
 
   // Use the export endpoint to get CSL-JSON
   const exportUrl = `${serverUrl.replace(/\/$/, '')}/export?format=csljson`
-  const exportResp = await fetch(exportUrl, {
+  const exportResp = await fetchWithTimeout(exportUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(items),
-  })
+  }, 30_000)
 
   if (!exportResp.ok) {
     throw new Error(`Translation server export returned ${exportResp.status}: ${await exportResp.text()}`)
@@ -157,7 +168,7 @@ async function lookupViaTranslationServer(
  */
 async function lookupDoi(doi: string): Promise<CslJsonItem[]> {
   const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'Astro/1.0 (https://astroanywhere.com; mailto:support@astroanywhere.com)',
@@ -219,7 +230,7 @@ function crossrefTypeToCsl(crType: string): string {
 async function lookupPmid(pmid: string): Promise<CslJsonItem[]> {
   // Use ESummary JSON API for cleaner parsing
   const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${pmid}&retmode=json`
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: {
       'User-Agent': 'Astro/1.0 (https://astroanywhere.com; mailto:support@astroanywhere.com)',
     },
@@ -284,7 +295,7 @@ function parsePubmedDate(dateStr: string): number[] | null {
  */
 async function lookupArxiv(arxivId: string): Promise<CslJsonItem[]> {
   const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: {
       'User-Agent': 'Astro/1.0 (https://astroanywhere.com; mailto:support@astroanywhere.com)',
     },
@@ -378,7 +389,7 @@ function extractXmlAttr(
 async function lookupIsbn(isbn: string): Promise<CslJsonItem[]> {
   // Open Library Books API
   const url = `https://openlibrary.org/isbn/${isbn}.json`
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: {
       'User-Agent': 'Astro/1.0 (https://astroanywhere.com; mailto:support@astroanywhere.com)',
     },
@@ -390,25 +401,29 @@ async function lookupIsbn(isbn: string): Promise<CslJsonItem[]> {
 
   const data = await resp.json()
 
-  // For authors, we need to make additional calls to resolve /authors/OLID
+  // Resolve authors in parallel (capped at 10 to avoid excessive requests)
   const authors: CslJsonItem['author'] = []
   if (data.authors) {
-    for (const authorRef of data.authors) {
-      const key = authorRef.key
-      if (key) {
-        try {
-          const authorResp = await fetch(`https://openlibrary.org${key}.json`)
-          if (authorResp.ok) {
-            const authorData = await authorResp.json()
-            const name = authorData.name ?? ''
-            const parts = name.split(/\s+/)
-            const family = parts.pop() ?? ''
-            const given = parts.join(' ')
-            authors.push({ family, given })
-          }
-        } catch {
-          // skip unresolvable author
-        }
+    const authorKeys = data.authors
+      .map((a: { key?: string }) => a.key)
+      .filter(Boolean)
+      .slice(0, 10) as string[]
+
+    const results = await Promise.allSettled(
+      authorKeys.map(async (key) => {
+        const authorResp = await fetchWithTimeout(`https://openlibrary.org${key}.json`, undefined, 10_000)
+        if (!authorResp.ok) return null
+        const authorData = await authorResp.json()
+        const name = (authorData.name as string) ?? ''
+        const parts = name.split(/\s+/)
+        const family = parts.pop() ?? ''
+        const given = parts.join(' ')
+        return { family, given }
+      }),
+    )
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        authors.push(result.value)
       }
     }
   }
