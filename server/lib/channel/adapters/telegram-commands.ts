@@ -187,6 +187,10 @@ async function resolveNode(
   description: string
   executionId: string | null
 } | null> {
+  // Guard: if teamIds is empty, the team filter would be dropped entirely,
+  // exposing nodes from all teams. Return null instead.
+  if (teamIds.length === 0) return null
+
   // First try exact match on clientId
   const rows = await db
     .select({
@@ -204,7 +208,7 @@ async function resolveNode(
       and(
         eq(planNodes.clientId, partialId),
         isNull(planNodes.deletedAt),
-        teamIds.length > 0 ? inArray(projects.teamId, teamIds) : undefined,
+        inArray(projects.teamId, teamIds),
       ),
     )
     .limit(1)
@@ -230,7 +234,7 @@ async function resolveNode(
         and(
           eq(planNodes.number, num),
           isNull(planNodes.deletedAt),
-          teamIds.length > 0 ? inArray(projects.teamId, teamIds) : undefined,
+          inArray(projects.teamId, teamIds),
         ),
       )
       .limit(1)

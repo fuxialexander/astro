@@ -151,6 +151,16 @@ class TelegramChannelAdapter {
     // Register slash commands with Telegram Bot API
     await commandRegistry.registerWithTelegram(token)
 
+    // Warn if webhook secret is not configured — the webhook endpoint will accept
+    // any POST from the internet without verification in that case.
+    if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
+      console.warn(
+        '[telegram] WARNING: TELEGRAM_WEBHOOK_SECRET is not set. ' +
+        'The /api/telegram/webhook endpoint will accept unauthenticated requests. ' +
+        'Set this variable and re-register the webhook to secure the endpoint.',
+      )
+    }
+
     this._started = true
     console.log(`[telegram] Adapter started — bot @${this.botUsername}`)
   }
@@ -257,8 +267,9 @@ class TelegramChannelAdapter {
         return
       }
 
-      // Handle /status command (connection status, not execution status)
-      if (text === '/status') {
+      // Handle /connection command (Telegram connection status).
+      // Note: /status is handled by the command registry (execution status).
+      if (text === '/connection') {
         await this.handleStatusCommand(chatId)
         return
       }
@@ -348,6 +359,46 @@ class TelegramChannelAdapter {
 
     const senderName =
       [from?.first_name, from?.last_name].filter(Boolean).join(' ') || 'Unknown'
+
+    // Verify the sender has a connected Astro account and is a member of the project's team.
+    // Silently drop messages from unauthorized group members rather than routing them to agents.
+    if (from?.id) {
+      const senderId = String(from.id)
+      const [connectedAccount] = await db
+        .select({ userId: connectedAccounts.userId })
+        .from(connectedAccounts)
+        .where(
+          and(
+            eq(connectedAccounts.channel, 'telegram'),
+            eq(connectedAccounts.externalId, senderId),
+            eq(connectedAccounts.enabled, true),
+          ),
+        )
+        .limit(1)
+
+      if (!connectedAccount) {
+        // Sender is not a registered Astro user — silently drop
+        return
+      }
+
+      // Check the sender is a team member for the project
+      const [membership] = await db
+        .select({ id: teamMembers.id })
+        .from(teamMembers)
+        .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
+        .where(
+          and(
+            eq(teamMembers.userId, connectedAccount.userId),
+            eq(projects.id, projectId),
+          ),
+        )
+        .limit(1)
+
+      if (!membership) {
+        // Sender is not a member of this project's team — silently drop
+        return
+      }
+    }
 
     try {
       const response = await channelRouter.routeMessage({
@@ -470,10 +521,37 @@ class TelegramChannelAdapter {
     const message = query.message as Record<string, unknown> | undefined
     const chatId = message ? String((message.chat as Record<string, unknown>).id) : null
     const messageId = message?.message_id as number | undefined
+    // Identify the user who tapped the button (from.id is the button-tapper's Telegram ID)
+    const fromId = query.from ? String((query.from as Record<string, unknown>).id) : null
 
     if (!data || !chatId) {
       await answerCallbackQuery(this.botToken, callbackId, 'Invalid request')
       return
+    }
+
+    // Verify the button tapper has a connected Astro account — prevents replay attacks
+    // and anonymous users from responding to approvals.
+    if (fromId) {
+      const [account] = await db
+        .select({ id: connectedAccounts.id })
+        .from(connectedAccounts)
+        .where(
+          and(
+            eq(connectedAccounts.channel, 'telegram'),
+            eq(connectedAccounts.externalId, fromId),
+            eq(connectedAccounts.enabled, true),
+          ),
+        )
+        .limit(1)
+
+      if (!account) {
+        await answerCallbackQuery(
+          this.botToken,
+          callbackId,
+          'Your Telegram account is not connected to Astro. Use /start to link it.',
+        )
+        return
+      }
     }
 
     // Parse callback data
@@ -652,10 +730,18 @@ class TelegramChannelAdapter {
 
         if (approvalId) {
           if (options && options.length > 0) {
-            // Show each option as a button
+            // Show each option as a button.
+            // Telegram's callback_data limit is 64 bytes. We preserve the full approvalId
+            // (UUID, 36 chars) and truncate only the option text: "option:" (7) + uuid (36) + ":" (1) = 44 chars overhead.
+            const MAX_CB = 64
+            const prefix = `option:${approvalId}:`
+            const maxOptLen = MAX_CB - prefix.length
             replyMarkup = {
               inline_keyboard: options.map((opt) => ([
-                { text: opt, callback_data: `option:${approvalId}:${opt}`.slice(0, 64) },
+                {
+                  text: opt,
+                  callback_data: `${prefix}${opt.slice(0, Math.max(1, maxOptLen))}`,
+                },
               ])),
             }
           } else {
