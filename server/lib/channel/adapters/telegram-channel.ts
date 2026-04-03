@@ -46,7 +46,12 @@ async function sendMessage(
   token: string,
   chatId: string,
   text: string,
-  options?: { parseMode?: 'HTML' | 'MarkdownV2'; replyMarkup?: unknown }
+  options?: {
+    parseMode?: 'HTML' | 'MarkdownV2'
+    replyMarkup?: unknown
+    /** message_thread_id — send the message inside a forum topic */
+    threadId?: string | number
+  }
 ): Promise<TelegramApiResponse> {
   const body: Record<string, unknown> = {
     chat_id: chatId,
@@ -55,6 +60,12 @@ async function sendMessage(
   }
   if (options?.replyMarkup) {
     body.reply_markup = options.replyMarkup
+  }
+  if (options?.threadId !== undefined) {
+    body.message_thread_id =
+      typeof options.threadId === 'string'
+        ? parseInt(options.threadId, 10)
+        : options.threadId
   }
   return telegramApi(token, 'sendMessage', body)
 }
@@ -214,56 +225,156 @@ class TelegramChannelAdapter {
     if (!msg?.text) return
 
     const text = msg.text as string
-    const chatId = String((msg.chat as Record<string, unknown>).id)
+    const chatObj = msg.chat as Record<string, unknown>
+    const chatId = String(chatObj.id)
+    const chatType = chatObj.type as string // 'private', 'group', 'supergroup', 'channel'
     const from = msg.from as Record<string, unknown> | undefined
 
     // Ignore bot messages
     if (from?.is_bot) return
 
-    // Handle /start <token> command
-    if (text.startsWith('/start ')) {
-      const token = text.slice(7).trim()
-      await this.handleStartCommand(token, chatId)
-      return
-    }
+    const fromId = from?.id ? String(from.id) : undefined
+    // message_thread_id is set for messages inside forum topics
+    const threadId = msg.message_thread_id ? String(msg.message_thread_id) : undefined
+    const isGroupChat = chatType === 'group' || chatType === 'supergroup'
 
-    // Handle /start without token (user just opened the bot)
-    if (text === '/start') {
-      await sendMessage(
-        this.botToken,
-        chatId,
-        'Welcome! To connect your Telegram to Astro, use the link from your Astro Settings page.',
-      )
-      return
-    }
+    // ── Private chat built-in commands ──────────────────────────────────────
+    if (!isGroupChat) {
+      // Handle /start <token> command
+      if (text.startsWith('/start ')) {
+        const token = text.slice(7).trim()
+        await this.handleStartCommand(token, chatId)
+        return
+      }
 
-    // Handle /status command (connection status, not execution status)
-    if (text === '/status') {
-      await this.handleStatusCommand(chatId)
-      return
-    }
+      // Handle /start without token (user just opened the bot)
+      if (text === '/start') {
+        await sendMessage(
+          this.botToken,
+          chatId,
+          'Welcome! To connect your Telegram to Astro, use the link from your Astro Settings page.',
+        )
+        return
+      }
 
-    // Handle /disconnect command
-    if (text === '/disconnect') {
-      await this.handleDisconnectCommand(chatId)
-      return
-    }
+      // Handle /status command (connection status, not execution status)
+      if (text === '/status') {
+        await this.handleStatusCommand(chatId)
+        return
+      }
 
-    // Route slash commands through the command registry
-    if (text.startsWith('/')) {
-      const response = await handleCommand(text, chatId, this.botToken)
-      if (response) {
-        await sendMessage(this.botToken, chatId, response)
+      // Handle /disconnect command
+      if (text === '/disconnect') {
+        await this.handleDisconnectCommand(chatId)
         return
       }
     }
 
-    // For any other message, let them know this is a notification bot
-    await sendMessage(
-      this.botToken,
-      chatId,
-      'I send Astro notifications here. Use /help for available commands or /disconnect to unlink.',
-    )
+    // ── Slash command routing (both private and group chats) ─────────────────
+    if (text.startsWith('/')) {
+      const response = await handleCommand(text, chatId, this.botToken, {
+        fromId: isGroupChat ? fromId : undefined,
+        threadId,
+        isGroupChat,
+      })
+      if (response !== null) {
+        await sendMessage(this.botToken, chatId, response, { threadId })
+        return
+      }
+    }
+
+    // ── Forum topic chat routing (group messages in a bound topic) ───────────
+    if (isGroupChat && threadId) {
+      const projectId = await this.resolveTopicProject(chatId, threadId)
+      if (projectId) {
+        await this.handleTopicChatMessage(chatId, threadId, text, projectId, from)
+        return
+      }
+      // Message in an unbound topic — silently ignore (don't spam the group)
+      return
+    }
+
+    // ── Private chat fallback ────────────────────────────────────────────────
+    if (!isGroupChat) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        'I send Astro notifications here. Use /help for available commands or /disconnect to unlink.',
+      )
+    }
+  }
+
+  /**
+   * Look up which Astro project a forum topic is bound to.
+   * Returns the project ID if a binding exists, null otherwise.
+   */
+  private async resolveTopicProject(groupChatId: string, threadId: string): Promise<string | null> {
+    const mappingKey = `${groupChatId}:topic:${threadId}`
+
+    // Fetch all enabled telegram connected accounts and scan mappings.
+    // In practice, the number of Telegram-connected accounts is small.
+    const accounts = await db
+      .select({ mappings: connectedAccounts.mappings })
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+
+    for (const account of accounts) {
+      const mappings = (account.mappings ?? {}) as Record<string, string>
+      if (mappings[mappingKey]) {
+        return mappings[mappingKey]
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Route a message from a bound forum topic through the channel router.
+   * Sends the AI agent's reply back to the same topic thread.
+   */
+  private async handleTopicChatMessage(
+    groupChatId: string,
+    threadId: string,
+    text: string,
+    projectId: string,
+    from: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (!this.botToken) return
+
+    const senderName =
+      [from?.first_name, from?.last_name].filter(Boolean).join(' ') || 'Unknown'
+
+    try {
+      const response = await channelRouter.routeMessage({
+        sourceMessageId: `tg-${groupChatId}-${threadId}-${Date.now()}`,
+        channel: 'telegram',
+        text,
+        sender: {
+          id: from?.id ? String(from.id) : 'unknown',
+          name: senderName,
+        },
+        conversationRef: {
+          channelId: groupChatId,
+          threadId,
+        },
+        projectId,
+      })
+
+      await sendMessage(this.botToken, groupChatId, response.text, { threadId })
+    } catch (err) {
+      console.error('[telegram] Error routing topic message:', err)
+      await sendMessage(
+        this.botToken,
+        groupChatId,
+        '⚠️ An error occurred while processing your message.',
+        { threadId },
+      )
+    }
   }
 
   private async handleStartCommand(token: string, chatId: string): Promise<void> {
@@ -485,9 +596,10 @@ class TelegramChannelAdapter {
 
       if (userIds.length === 0) return
 
-      // Get all Telegram-connected accounts for these users
+      // Get all Telegram-connected accounts for these users (including mappings for topic delivery)
       const accounts = await db.select({
         externalId: connectedAccounts.externalId,
+        mappings: connectedAccounts.mappings,
       })
         .from(connectedAccounts)
         .where(
@@ -558,16 +670,42 @@ class TelegramChannelAdapter {
         }
       }
 
-      // Send to each connected chat
-      const sendPromises = accounts
-        .filter((a) => a.externalId)
-        .map((a) =>
-          sendMessage(this.botToken!, a.externalId!, text, { replyMarkup }).catch((err) => {
-            console.warn(`[telegram] Failed to send to chat ${a.externalId}:`, err)
-          })
-        )
+      // ── Personal chat sends ──────────────────────────────────────────────
+      const personalChatIds = [...new Set(
+        accounts.filter((a) => a.externalId).map((a) => a.externalId!),
+      )]
 
-      await Promise.allSettled(sendPromises)
+      const personalSends = personalChatIds.map((chatId) =>
+        sendMessage(this.botToken!, chatId, text, { replyMarkup }).catch((err) => {
+          console.warn(`[telegram] Failed to send to personal chat ${chatId}:`, err)
+        })
+      )
+
+      // ── Group forum topic sends ──────────────────────────────────────────
+      // Collect unique group:topic destinations that map to this project.
+      const topicDestinations: Array<{ chatId: string; threadId: string }> = []
+      const TOPIC_KEY_RE = /^(-?\d+):topic:(\d+)$/
+
+      for (const account of accounts) {
+        const mappings = ((account.mappings ?? {}) as Record<string, string>)
+        for (const [key, projectId] of Object.entries(mappings)) {
+          if (projectId !== notification.projectId) continue
+          const m = TOPIC_KEY_RE.exec(key)
+          if (!m) continue
+          const [, groupChatId, threadId] = m
+          if (!topicDestinations.some((d) => d.chatId === groupChatId && d.threadId === threadId)) {
+            topicDestinations.push({ chatId: groupChatId, threadId })
+          }
+        }
+      }
+
+      const topicSends = topicDestinations.map(({ chatId, threadId }) =>
+        sendMessage(this.botToken!, chatId, text, { threadId, replyMarkup }).catch((err) => {
+          console.warn(`[telegram] Failed to send to group ${chatId} topic ${threadId}:`, err)
+        })
+      )
+
+      await Promise.allSettled([...personalSends, ...topicSends])
     } catch (err) {
       console.error('[telegram] Error sending notification:', err)
     }
