@@ -33,6 +33,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'delivery-branches': false,
   'parallel-execution': false,
   'inbox-home': true,
+  'references': false,
 }
 
 /**

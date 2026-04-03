@@ -203,6 +203,7 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
 
   'delivery-branches': true,
   'parallel-execution': true,
+  'references': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────

@@ -65,6 +65,7 @@ const defaultItems: SidebarItem[] = [
   { id: "community", to: "/community", icon: "Globe", label: "Community", visible: false, protected: false },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
+  { id: "references", to: "/references", icon: "BookOpen", label: "References", visible: false, protected: false, featureFlag: "references" },
 ]
 
 function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {

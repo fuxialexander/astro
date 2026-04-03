@@ -63,6 +63,7 @@ import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
+import { References } from "@/pages/references"
 
 const LazyInboxHome = lazy(() => import("@/pages/inbox-home").then((m) => ({ default: m.InboxHome })))
 
@@ -413,6 +414,7 @@ export default function App() {
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="examples" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
                 <Route path="templates" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
+                <Route path="references" element={<FeatureFlagRoute flag="references"><References /></FeatureFlagRoute>} />
                 <Route path="community" element={<Community />} />
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />
