@@ -2384,9 +2384,24 @@ app.delete('/activities/:projectId', async (c) => {
 
 const MAX_BLOB_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_BLOB_MIME_TYPES = new Set([
+  // Images
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
   'image/bmp', 'image/tiff', 'image/svg+xml',
+  // Documents
   'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/msword', // .doc
+  'application/vnd.ms-powerpoint', // .ppt
+  'application/vnd.ms-excel', // .xls
+  // Text / code
+  'text/plain', 'text/markdown', 'text/html', 'text/css', 'text/csv',
+  'text/x-python', 'text/x-r', 'text/x-java', 'text/x-c', 'text/x-c++',
+  'text/javascript', 'text/typescript', 'text/x-yaml', 'text/x-toml',
+  'application/json', 'application/xml',
+  'application/x-yaml', 'application/toml',
+  'application/octet-stream', // fallback for code files with no specific MIME
 ])
 
 app.post('/blobs', async (c) => {

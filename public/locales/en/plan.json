@@ -74,6 +74,6 @@
   "visionDocPlaceholder": "Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)...",
   "startFromExample": "Start from an Example",
   "resumeSession": "Resume a previous session",
-  "cmdEnterPlan": "⌘+Enter to start planning",
+  "cmdEnterPlan": "Enter to start planning",
   "starting": "Starting..."
 }

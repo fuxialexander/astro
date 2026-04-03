@@ -9,7 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, GitBranch, Info, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
+import { Sparkles, Loader2, GitBranch, Info, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -48,6 +48,8 @@ import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskAttachment, ProjectSource } from "@/types"
 import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 export function ProjectNewPlan() {
   const { t } = useTranslation('plan')
@@ -89,6 +91,8 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const goalFileInputRef = useRef<HTMLInputElement>(null)
   const [directMode, setDirectMode] = useState(false)
   const [directConfirmed, setDirectConfirmed] = useState(false)
   const autoExecute = useSettingsStore((s) => s.yoloMode)
@@ -498,84 +502,54 @@ export function ProjectNewPlan() {
     setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
   }, [])
 
-  // Handle paste in goal textarea (image paste support)
-  // Uploads pasted images to persistent blob storage so URLs survive page refresh.
-  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = e.clipboardData?.files
-    if (!files || files.length === 0) return
-
-    // Check if any pasted items are files (images)
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'))
-    if (imageFiles.length === 0) return
-
-    e.preventDefault() // Prevent pasting file name as text
-
-    // Auto-expand context section to show pasted images
-    setContextOpen(true)
-
-    // Client-side size limit: 10MB per file to prevent slow uploads and backend quota issues
-    const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
-
-    // Upload each image to persistent blob storage, tracking pending count
-    for (const file of imageFiles) {
-      // Check file size before attempting upload
-      if (file.size > MAX_IMAGE_SIZE) {
+  // Upload files to blob storage (images, documents, code files)
+  const uploadGoalFiles = useCallback((fileList: File[]) => {
+    if (fileList.length === 0) return
+    for (const file of fileList) {
+      if (file.size > MAX_FILE_SIZE) {
         const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-        useToastStore.getState().add({
-          type: 'error',
-          title: 'Image too large',
-          description: `${file.name || 'Image'} is ${sizeMB}MB (max 10MB)`,
-        })
-        continue // Skip this file but process others
+        useToastStore.getState().add({ type: 'error', title: 'File too large', description: `${file.name} is ${sizeMB}MB (max 5MB)` })
+        continue
       }
-
       setPendingUploads((prev) => prev + 1)
       const reader = new FileReader()
-      const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
+      const filename = file.name || `attachment-${crypto.randomUUID()}`
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1]
-          const blobId = await dataClient.uploadBlob(
-            base64,
-            file.type || 'image/png',
-            file.size,
-            filename,
-          )
+          const mimeType = file.type || 'application/octet-stream'
+          const blobId = await dataClient.uploadBlob(base64, mimeType, file.size, filename)
           const persistentUrl = dataClient.getBlobUrl(blobId)
           const attachment: TaskAttachment = {
             id: blobId,
             name: filename,
             url: persistentUrl,
-            mimeType: file.type || 'image/png',
+            mimeType,
             size: file.size,
             uploadedAt: new Date(),
-            thumbnailUrl: persistentUrl,
+            thumbnailUrl: mimeType.startsWith('image/') ? persistentUrl : undefined,
           }
           setAttachments((prev) => [...prev, attachment])
-        } catch (err) {
-          console.error('[plan-generation] Failed to upload pasted image:', err)
-          useToastStore.getState().add({
-            type: 'error',
-            title: 'Upload failed',
-            description: 'Could not upload pasted image. Check your connection.',
-          })
+        } catch {
+          useToastStore.getState().add({ type: 'error', title: 'Upload failed', description: `Could not upload ${filename}.` })
         } finally {
           setPendingUploads((prev) => Math.max(0, prev - 1))
         }
       }
-      // Handle FileReader errors (e.g., file access denied, read failure)
       reader.onerror = () => {
-        console.error('[plan-generation] FileReader error for:', filename)
         setPendingUploads((prev) => Math.max(0, prev - 1))
-        useToastStore.getState().add({
-          type: 'error',
-          title: 'Read failed',
-          description: `Could not read file: ${filename}`,
-        })
       }
       reader.readAsDataURL(file)
     }
   }, [])
+
+  // Handle paste in goal textarea
+  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (!files || files.length === 0) return
+    e.preventDefault()
+    uploadGoalFiles(Array.from(files))
+  }, [uploadGoalFiles])
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
@@ -894,12 +868,20 @@ export function ProjectNewPlan() {
           )}
 
           {/* Goal textarea + session resume */}
-          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200">
+          <div
+            className={cn(
+              "flex flex-col rounded-lg border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200",
+              isDragOver ? "border-primary ring-1 ring-primary/50" : "border-border"
+            )}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); uploadGoalFiles(Array.from(e.dataTransfer?.files || [])) }}
+          >
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault()
                   handleSubmit()
                 }
@@ -910,8 +892,58 @@ export function ProjectNewPlan() {
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
-            <div className="flex justify-end px-4 pb-1">
-              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: '⌘+Enter to start planning' })}</span>
+            {/* Attachment thumbnails */}
+            {(attachments.length > 0 || pendingUploads > 0) && (
+              <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+                {attachments.map((a) => (
+                  <div key={a.id} className="group relative h-12 w-12 rounded-md border border-border overflow-hidden bg-muted shrink-0">
+                    {a.mimeType.startsWith('image/') ? (
+                      <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex flex-col items-center justify-center gap-0.5">
+                        <span className="text-[9px] text-muted-foreground font-medium uppercase">{a.name.split('.').pop()}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((prev) => prev.filter((att) => att.id !== a.id))}
+                      className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {pendingUploads > 0 && (
+                  <div className="h-12 w-12 rounded-md border border-dashed border-border flex items-center justify-center bg-muted shrink-0">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Hidden file input */}
+            <input
+              ref={goalFileInputRef}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.html,.css,.csv,.py,.r,.R,.java,.c,.cpp,.js,.ts,.yaml,.yml,.toml,.json,.xml"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || [])
+                if (files.length) uploadGoalFiles(files)
+                e.target.value = ''
+              }}
+            />
+            <div className="flex items-center justify-between px-4 pb-1">
+              <button
+                type="button"
+                onClick={() => goalFileInputRef.current?.click()}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Attach files (images, documents, code — max 5MB)"
+              >
+                <Paperclip className="h-3 w-3" />
+                Attach
+              </button>
+              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: 'Enter to start planning' })}</span>
             </div>
 
             {/* OR divider + options */}

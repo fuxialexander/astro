@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Sparkles } from "lucide-react"
+import { Loader2, Play, Zap, Sparkles, Paperclip, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { NotificationCards } from "@/components/dashboard/notification-card"
 import { NeedsYouSection } from "@/components/inbox/needs-you-section"
@@ -19,6 +20,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { useExampleStore } from "@/stores/example-store"
+import { useToastStore } from "@/stores/toast-store"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
@@ -33,6 +35,7 @@ import type { UseCaseTemplateSummary } from "@astro/core/templates"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 export function InboxHome() {
   const navigate = useNavigate()
@@ -51,6 +54,42 @@ export function InboxHome() {
   const [examplesOpen, setExamplesOpen] = useState(false)
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  // Attachment state
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; url: string; mimeType: string; size: number }>>([])
+  const [pendingUploads, setPendingUploads] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const uploadFiles = useCallback((fileList: File[]) => {
+    if (fileList.length === 0) return
+    for (const file of fileList) {
+      if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        useToastStore.getState().add({ type: 'error', title: 'File too large', description: `${file.name} is ${sizeMB}MB (max 5MB)` })
+        continue
+      }
+      setPendingUploads((prev) => prev + 1)
+      const reader = new FileReader()
+      const filename = file.name || `attachment-${crypto.randomUUID()}`
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(',')[1]
+          const blobId = await dataClient.uploadBlob(base64, file.type, file.size, filename)
+          const url = dataClient.getBlobUrl(blobId)
+          setAttachments((prev) => [...prev, { id: blobId, name: filename, url, mimeType: file.type, size: file.size }])
+        } catch {
+          useToastStore.getState().add({ type: 'error', title: 'Upload failed', description: `Could not upload ${filename}.` })
+        } finally {
+          setPendingUploads((prev) => Math.max(0, prev - 1))
+        }
+      }
+      reader.onerror = () => {
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+      }
+      reader.readAsDataURL(file)
+    }
+  }, [])
 
   // Stores for session
   const startSession = useExecutionStore((s) => s.startSession)
@@ -111,7 +150,7 @@ export function InboxHome() {
 
   // Submit playground session
   const handleSubmit = useCallback(async () => {
-    if (!planGoal.trim() || isSubmitting || !selectedMachine) return
+    if (!planGoal.trim() || isSubmitting || !selectedMachine || pendingUploads > 0) return
     setIsSubmitting(true)
     try {
       const effectiveModel = selectedModel || getModelForProvider(selectedProvider || undefined)
@@ -126,8 +165,12 @@ export function InboxHome() {
         remoteUrl: detection.remoteUrl,
       } : undefined
 
+      const attachmentSection = attachments.length > 0
+        ? `\n\n## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
+        : ''
+
       const { projectId } = await startSession(
-        planGoal.trim(),
+        planGoal.trim() + attachmentSection,
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
         {
           targetMachineId: selectedMachine.machineId,
@@ -146,7 +189,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -265,22 +308,86 @@ export function InboxHome() {
 
       {/* Playground Landing */}
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200">
+        <div
+          className={cn(
+            "flex flex-col rounded-lg border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200",
+            isDragOver ? "border-primary ring-1 ring-primary/50" : "border-border"
+          )}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
+          onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
+          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); uploadFiles(Array.from(e.dataTransfer?.files || [])) }}
+        >
           <textarea
             value={planGoal}
             onChange={(e) => setPlanGoal(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
                 handleSubmit()
               }
+            }}
+            onPaste={(e) => {
+              const files = e.clipboardData?.files
+              if (!files || files.length === 0) return
+              e.preventDefault()
+              uploadFiles(Array.from(files))
             }}
             placeholder="Describe what you want to do, or say 'help me plan to ...' to generate a structured plan"
             rows={3}
             className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
           />
+          {/* Attachment thumbnails */}
+          {(attachments.length > 0 || pendingUploads > 0) && (
+            <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+              {attachments.map((a) => (
+                <div key={a.id} className="group relative h-12 w-12 rounded-md border border-border overflow-hidden bg-muted shrink-0">
+                  {a.mimeType.startsWith('image/') ? (
+                    <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="h-full w-full flex flex-col items-center justify-center gap-0.5">
+                      <span className="text-[9px] text-muted-foreground font-medium uppercase">{a.name.split('.').pop()}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((att) => att.id !== a.id))}
+                    className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+              {pendingUploads > 0 && (
+                <div className="h-12 w-12 rounded-md border border-dashed border-border flex items-center justify-center bg-muted shrink-0">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          )}
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.html,.css,.csv,.py,.r,.R,.java,.c,.cpp,.js,.ts,.yaml,.yml,.toml,.json,.xml"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || [])
+              if (files.length) uploadFiles(files)
+              e.target.value = ''
+            }}
+          />
           <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                title="Attach files (images, documents, code — max 5MB)"
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+                Attach
+              </button>
               {curatedExamples.length > 0 && (
                 <Popover open={examplesOpen} onOpenChange={setExamplesOpen}>
                   <PopoverTrigger asChild>
@@ -348,32 +455,40 @@ export function InboxHome() {
                   compact
                 />
               )}
-              <button
-                type="button"
-                onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
-                className={`flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer ${
-                  playgroundYolo
-                    ? "border-warning/50 bg-warning/10 text-warning"
-                    : "border-border hover:bg-muted text-muted-foreground"
-                }`}
-                title={playgroundYolo ? "YOLO ON — auto-approve all agent decisions" : "YOLO OFF — agent will ask before acting"}
-              >
-                <Zap className={`h-3.5 w-3.5 ${playgroundYolo ? "fill-warning" : ""}`} />
-                YOLO
-              </button>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
+                      className={`flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer ${
+                        playgroundYolo
+                          ? "border-warning/50 bg-warning/10 text-warning"
+                          : "border-border hover:bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Zap className={`h-3.5 w-3.5 ${playgroundYolo ? "fill-warning" : ""}`} />
+                      YOLO
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {playgroundYolo ? "YOLO ON — auto-approve all agent decisions" : "YOLO OFF — agent will ask before acting"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <Button
                 onClick={handleSubmit}
-                disabled={!planGoal.trim() || !selectedMachine || isSubmitting}
+                disabled={!planGoal.trim() || !selectedMachine || isSubmitting || pendingUploads > 0}
                 className="gap-2"
                 size="sm"
               >
-                {isSubmitting ? (
+                {isSubmitting || pendingUploads > 0 ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Play className="h-3.5 w-3.5 fill-current" />
                 )}
-                {isSubmitting ? "Starting..." : "Start"}
-                {!isSubmitting && <kbd className="ml-1 text-[10px] opacity-50 font-sans">⌘↵</kbd>}
+                {isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}
+                {!isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans">↵</kbd>}
               </Button>
             </div>
           </div>
