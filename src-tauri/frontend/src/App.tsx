@@ -14,6 +14,7 @@ import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useActivityStore } from '@/stores/activity-store'
 import { useExampleStore } from '@/stores/example-store'
+import { useRealtimeStore } from '@/stores/realtime-store'
 
 // Connect to the configured backend.
 // In dev mode, Vite proxies /api → localhost:4001, so use empty base (relative URLs).
@@ -61,6 +62,8 @@ function DataBootstrap({ children }: { children: ReactNode }) {
   const loadActivities = useActivityStore((s) => s.loadActivities)
   const examplesLoaded = useExampleStore((s) => s.loaded)
   const loadExamples = useExampleStore((s) => s.load)
+  const connectRealtime = useRealtimeStore((s) => s.connect)
+  const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
 
   useEffect(() => {
     if (!projectsLoaded) loadProjects()
@@ -77,6 +80,12 @@ function DataBootstrap({ children }: { children: ReactNode }) {
     activitiesLoaded, loadActivities,
     examplesLoaded, loadExamples,
   ])
+
+  // Connect to SSE realtime stream for machine status, task updates, etc.
+  useEffect(() => {
+    connectRealtime()
+    return () => disconnectRealtime()
+  }, [connectRealtime, disconnectRealtime])
 
   return <>{children}</>
 }

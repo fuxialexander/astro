@@ -61,9 +61,11 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
   )
 
   // Auto-create first terminal — ref guard prevents Strict Mode double-fire
+  // Skip if Tauri IPC is not available (e.g., running in a regular browser)
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const autoSpawnedRef = useRef(false)
   useEffect(() => {
-    if (sessions.length === 0 && !autoSpawnedRef.current) {
+    if (isTauri && sessions.length === 0 && !autoSpawnedRef.current) {
       autoSpawnedRef.current = true
       void handleNew()
     }
