@@ -1,0 +1,1 @@
+ALTER TABLE "plan_nodes" ADD COLUMN "metadata" jsonb DEFAULT '{}'::jsonb;

@@ -1159,8 +1159,14 @@ async function dispatchViaRelay(
   let relaySystemPrompt: string | undefined
   const promptParts: string[] = []
 
-  // Detect "Push to GitHub" task node — these get special dispatch instructions
-  const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
+  // Detect "Push to GitHub" task node — these get special dispatch instructions.
+  // Primary: check node metadata flag (set by CLI `add-github-push-task`).
+  // Fallback: regex on title for backward compatibility with existing nodes.
+  const PUSH_TO_GITHUB_TITLE_RE = /push\s+to\s+github|publish\s+to\s+github|create\s+pr\s+and\s+run\s+(code\s+review|shepherd)/i
+  const isPushToGithub = !isInteractivePlan && (
+    (dbNode?.metadata as Record<string, unknown> | null)?.pushToGithub === true
+    || PUSH_TO_GITHUB_TITLE_RE.test(title)
+  )
 
   // Look up machine instruction for prompt injection.
   // Flow: machineId → registeredMachines.defaultInstructionId → machineInstructions.content

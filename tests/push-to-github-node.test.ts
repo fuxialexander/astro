@@ -20,8 +20,13 @@ import {
   type GitHubContextForPrompt,
 } from '../packages/core/src/prompt-templates'
 
-// ─── Shared regex (mirrors dispatch.ts and plan-store.ts) ───────────────────
-const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github/i
+// ─── Shared detection logic (mirrors dispatch.ts and plan-store.ts) ─────────
+const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github|create\s+pr\s+and\s+run\s+(code\s+review|shepherd)/i
+
+/** Check if a node is a "Push to GitHub" node via metadata flag or title regex fallback */
+function isPushToGithubNode(node: { title: string; metadata?: Record<string, unknown> }): boolean {
+  return node.metadata?.pushToGithub === true || PUSH_TO_GITHUB_RE.test(node.title)
+}
 
 // ─── 1. buildInteractivePlanPrompt — GitHub Integration section (detailed) ──
 
@@ -227,6 +232,9 @@ describe('Push to GitHub — title detection regex', () => {
     'Publish to GitHub',
     'publish to github',
     'PUBLISH TO GITHUB',
+    'Create PR and run code review',     // CLI add-github-push-task title
+    'Create PR and run shepherd review', // alternative CLI title
+    'create pr and run code review',     // case insensitive
   ])('matches: "%s"', (title) => {
     expect(PUSH_TO_GITHUB_RE.test(title)).toBe(true)
   })
@@ -243,8 +251,54 @@ describe('Push to GitHub — title detection regex', () => {
     'Push to',
     '',
     'Submit PR',
+    'Create PR for feature',
   ])('does not match: "%s"', (title) => {
     expect(PUSH_TO_GITHUB_RE.test(title)).toBe(false)
+  })
+})
+
+// ─── 3b. Metadata-based detection ─────────────────────────────────────────────
+
+describe('Push to GitHub — metadata-based detection', () => {
+  it('detects via metadata.pushToGithub flag (primary mechanism)', () => {
+    expect(isPushToGithubNode({
+      title: 'Arbitrary title that would not match regex',
+      metadata: { pushToGithub: true },
+    })).toBe(true)
+  })
+
+  it('detects via title regex (backward compatibility fallback)', () => {
+    expect(isPushToGithubNode({
+      title: 'Push to GitHub',
+      metadata: undefined,
+    })).toBe(true)
+  })
+
+  it('detects CLI-generated title without metadata (migration case)', () => {
+    expect(isPushToGithubNode({
+      title: 'Create PR and run code review',
+      metadata: {},
+    })).toBe(true)
+  })
+
+  it('does not detect regular tasks', () => {
+    expect(isPushToGithubNode({
+      title: 'Implement feature X',
+      metadata: {},
+    })).toBe(false)
+  })
+
+  it('does not detect when metadata.pushToGithub is false', () => {
+    expect(isPushToGithubNode({
+      title: 'Some task',
+      metadata: { pushToGithub: false },
+    })).toBe(false)
+  })
+
+  it('handles missing metadata gracefully', () => {
+    expect(isPushToGithubNode({
+      title: 'Regular task',
+    })).toBe(false)
   })
 })
 

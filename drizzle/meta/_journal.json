@@ -253,6 +253,13 @@
       "when": 1774759588519,
       "tag": "0035_pretty_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1775218821845,
+      "tag": "0036_lonely_morph",
+      "breakpoints": true
     }
   ]
 }
