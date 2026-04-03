@@ -10,11 +10,12 @@ import {
   type DragEvent,
 } from "react"
 import { createPortal } from "react-dom"
-import { FileCode2, Hash, X, Loader2 } from "lucide-react"
+import { FileCode2, Hash, X, Loader2, BookOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
+import type { Reference } from "@/lib/citation/types"
 
 export interface SlashCommand {
   name: string
@@ -46,6 +47,8 @@ interface FileCompletionTextareaProps {
   fileTree?: string[]
   slashCommands?: SlashCommand[]
   mentionItems?: MentionItem[]
+  /** Bibliographic references for [@key] citation autocomplete */
+  references?: Reference[]
   value: string
   onChange: (value: string) => void
   placeholder?: string
@@ -83,6 +86,7 @@ export function FileCompletionTextarea({
   fileTree,
   slashCommands,
   mentionItems,
+  references,
   value,
   onChange,
   placeholder,
@@ -114,6 +118,36 @@ export function FileCompletionTextarea({
   const [slashFilter, setSlashFilter] = useState("")
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashDropdownPos, setSlashDropdownPos] = useState<DropdownPosition | null>(null)
+
+  // Citation completion state (triggered by "[@")
+  const [citeActive, setCiteActive] = useState(false)
+  const [citeBracketIndex, setCiteBracketIndex] = useState(-1) // position of the '['
+  const [citeQuery, setCiteQuery] = useState("")
+  const [citeSelectedIndex, setCiteSelectedIndex] = useState(0)
+  const [citeDropdownPos, setCiteDropdownPos] = useState<DropdownPosition | null>(null)
+  const citeDropdownRef = useRef<HTMLDivElement>(null)
+  const hasReferences = !!(references && references.length > 0)
+
+  const dismissCite = useCallback(() => {
+    setCiteActive(false)
+    setCiteBracketIndex(-1)
+    setCiteQuery("")
+    setCiteSelectedIndex(0)
+  }, [])
+
+  // Filter references by citation query
+  const filteredCiteRefs = useMemo(() => {
+    if (!hasReferences || !citeActive) return []
+    const q = citeQuery.toLowerCase()
+    if (!q) return references!.slice(0, 20)
+    return references!.filter((ref) =>
+      ref.title.toLowerCase().includes(q) ||
+      ref.authors.some((a) => a.toLowerCase().includes(q)) ||
+      String(ref.year).includes(q) ||
+      ref.id.toLowerCase().includes(q) ||
+      (ref.venue?.toLowerCase().includes(q))
+    ).slice(0, 20)
+  }, [references, citeQuery, citeActive, hasReferences])
 
   // Image upload state
   const [pendingUploads, setPendingUploads] = useState(0)
@@ -409,6 +443,31 @@ export function FileCompletionTextarea({
       }
       dismissSlash()
 
+      // Check for [@ citation trigger (must come before @ check to prevent overlap)
+      if (hasReferences && cursorPos > 1) {
+        const beforeCursor = newValue.slice(0, cursorPos)
+        // Look for the last '[@' sequence
+        const lastBracketAt = beforeCursor.lastIndexOf("[@")
+        if (lastBracketAt >= 0) {
+          const charBefore = lastBracketAt > 0 ? newValue[lastBracketAt - 1] : " "
+          if (charBefore === " " || charBefore === "\n" || lastBracketAt === 0) {
+            const q = beforeCursor.slice(lastBracketAt + 2) // skip "[@"
+            // Citation query: allow spaces, up to 80 chars, no closing bracket yet
+            if (q.length <= 80 && !q.includes("]")) {
+              setCiteActive(true)
+              setCiteBracketIndex(lastBracketAt)
+              setCiteQuery(q)
+              setCiteSelectedIndex(0)
+              updateDropdownPosition()
+              setCiteDropdownPos(computeDropdownPosition())
+              dismiss()
+              return
+            }
+          }
+        }
+      }
+      dismissCite()
+
       // Check for @ completion trigger (mentions or files)
       if (cursorPos > 0) {
         const beforeCursor = newValue.slice(0, cursorPos)
@@ -445,8 +504,9 @@ export function FileCompletionTextarea({
 
       // No active completion
       dismiss()
+      dismissCite()
     },
-    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canCompleteFiles, hasFileTree, hasMentionItems, autoResize],
+    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, dismissCite, canCompleteFiles, hasFileTree, hasMentionItems, hasReferences, autoResize],
   )
 
   // Auto-resize on mount and when value changes externally
@@ -528,6 +588,29 @@ export function FileCompletionTextarea({
     [value, onChange, dismissSlash],
   )
 
+  // Insert a citation reference: replaces "[@query" with "[@citekey]"
+  const insertCitation = useCallback(
+    (ref: Reference) => {
+      const textarea = textareaRef.current
+      if (citeBracketIndex < 0 || !textarea) return
+
+      const cursorPos = textarea.selectionStart
+      const before = value.slice(0, citeBracketIndex)
+      const after = value.slice(cursorPos)
+      const newValue = `${before}[@${ref.id}]${after}`
+
+      onChange(newValue)
+      dismissCite()
+
+      requestAnimationFrame(() => {
+        const newPos = citeBracketIndex + ref.id.length + 3 // [@ + key + ]
+        textarea.setSelectionRange(newPos, newPos)
+        textarea.focus()
+      })
+    },
+    [citeBracketIndex, value, onChange, dismissCite],
+  )
+
   // Combined item count for keyboard navigation (mentions first, then files)
   const totalItems = filteredMentions.length + files.length
 
@@ -556,6 +639,32 @@ export function FileCompletionTextarea({
           case "Escape":
             e.preventDefault()
             dismissSlash()
+            return
+        }
+      }
+
+      // [@ citation navigation
+      if (citeActive && filteredCiteRefs.length > 0) {
+        switch (e.key) {
+          case "ArrowDown":
+            e.preventDefault()
+            setCiteSelectedIndex((prev) => (prev + 1) % filteredCiteRefs.length)
+            return
+          case "ArrowUp":
+            e.preventDefault()
+            setCiteSelectedIndex((prev) => (prev - 1 + filteredCiteRefs.length) % filteredCiteRefs.length)
+            return
+          case "Tab":
+          case "Enter":
+            if (filteredCiteRefs[citeSelectedIndex]) {
+              e.preventDefault()
+              insertCitation(filteredCiteRefs[citeSelectedIndex])
+              return
+            }
+            break
+          case "Escape":
+            e.preventDefault()
+            dismissCite()
             return
         }
       }
@@ -591,12 +700,12 @@ export function FileCompletionTextarea({
 
       // Submit on Cmd+Enter / Ctrl+Enter (only when no dropdown is active)
       // Cmd+Enter = send, Shift+Enter = interrupt+send (steering shortcut)
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isActive && !slashActive && onSubmit) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isActive && !slashActive && !citeActive && onSubmit) {
         e.preventDefault()
         onSubmit({ interrupt: e.shiftKey })
         return
       }
-      if (e.key === "Enter" && e.shiftKey && !isActive && !slashActive && onSubmit) {
+      if (e.key === "Enter" && e.shiftKey && !isActive && !slashActive && !citeActive && onSubmit) {
         e.preventDefault()
         onSubmit({ interrupt: true })
         return
@@ -604,13 +713,13 @@ export function FileCompletionTextarea({
 
       onKeyDown?.(e)
     },
-    [slashActive, filteredSlashCommands, slashSelectedIndex, insertSlashCommand, dismissSlash, isActive, totalItems, filteredMentions, selectedIndex, insertFile, insertMention, files, dismiss, onSubmit, onKeyDown],
+    [slashActive, filteredSlashCommands, slashSelectedIndex, insertSlashCommand, dismissSlash, citeActive, filteredCiteRefs, citeSelectedIndex, insertCitation, dismissCite, isActive, totalItems, filteredMentions, selectedIndex, insertFile, insertMention, files, dismiss, onSubmit, onKeyDown],
   )
 
   // Close dropdown on blur with delay (allows click on dropdown items)
   const handleBlur = useCallback(() => {
-    setTimeout(() => { dismiss(); dismissSlash() }, 150)
-  }, [dismiss, dismissSlash])
+    setTimeout(() => { dismiss(); dismissSlash(); dismissCite() }, 150)
+  }, [dismiss, dismissSlash, dismissCite])
 
   // Scroll selected item into view (file dropdown)
   useEffect(() => {
@@ -626,12 +735,20 @@ export function FileCompletionTextarea({
     item?.scrollIntoView({ block: "nearest" })
   }, [slashSelectedIndex])
 
+  // Scroll selected citation item into view
+  useEffect(() => {
+    if (!citeDropdownRef.current) return
+    const items = citeDropdownRef.current.querySelectorAll('button')
+    items[citeSelectedIndex]?.scrollIntoView({ block: "nearest" })
+  }, [citeSelectedIndex])
+
   // Reposition dropdown on scroll/resize while active
   useEffect(() => {
-    if (!isActive && !slashActive) return
+    if (!isActive && !slashActive && !citeActive) return
     const update = () => {
       if (isActive) updateDropdownPosition()
       if (slashActive) updateSlashDropdownPosition()
+      if (citeActive) setCiteDropdownPos(computeDropdownPosition())
     }
     window.addEventListener("scroll", update, true)
     window.addEventListener("resize", update)
@@ -639,12 +756,13 @@ export function FileCompletionTextarea({
       window.removeEventListener("scroll", update, true)
       window.removeEventListener("resize", update)
     }
-  }, [isActive, slashActive, updateDropdownPosition, updateSlashDropdownPosition])
+  }, [isActive, slashActive, citeActive, updateDropdownPosition, updateSlashDropdownPosition, computeDropdownPosition])
 
   const showDropdown = isActive && dropdownPos && (
     totalItems > 0 || loading || !canComplete
   )
   const showSlashDropdown = slashActive && slashDropdownPos && filteredSlashCommands.length > 0
+  const showCiteDropdown = citeActive && citeDropdownPos && hasReferences
 
   const hasImages = (images?.length ?? 0) > 0 || pendingUploads > 0
 
@@ -857,6 +975,67 @@ export function FileCompletionTextarea({
                 <span className="text-xs text-muted-foreground truncate">{cmd.description}</span>
               </button>
             ))}
+          </div>,
+          document.body,
+        )}
+      {showCiteDropdown &&
+        createPortal(
+          <div
+            ref={citeDropdownRef}
+            style={{
+              position: "fixed",
+              top: citeDropdownPos.top,
+              bottom: citeDropdownPos.bottom,
+              left: citeDropdownPos.left,
+              width: citeDropdownPos.width,
+            }}
+            className={cn(
+              "z-[9999] max-h-[320px] overflow-y-auto",
+              "rounded-md border border-border bg-popover shadow-md",
+            )}
+          >
+            <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b">
+              References
+            </div>
+            {filteredCiteRefs.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                No matching references found
+              </div>
+            ) : (
+              filteredCiteRefs.map((ref, i) => {
+                const firstAuthor = ref.authors[0]?.split(',')[0]?.split(' ').pop() || ref.authors[0] || 'Unknown'
+                const etAl = ref.authors.length > 1 ? ' et al.' : ''
+                return (
+                  <button
+                    key={ref.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-xs",
+                      "hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                      i === citeSelectedIndex && "bg-accent text-accent-foreground",
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertCitation(ref)
+                    }}
+                    onMouseEnter={() => setCiteSelectedIndex(i)}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BookOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="font-medium truncate">{ref.title.length > 60 ? ref.title.slice(0, 59) + '\u2026' : ref.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground pl-[18px]">
+                      <span>{firstAuthor}{etAl}</span>
+                      <span>{ref.year}</span>
+                      {ref.venue && <span className="truncate italic">{ref.venue.length > 30 ? ref.venue.slice(0, 29) + '\u2026' : ref.venue}</span>}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground/60 pl-[18px] font-mono">
+                      @{ref.id}
+                    </div>
+                  </button>
+                )
+              })
+            )}
           </div>,
           document.body,
         )}
