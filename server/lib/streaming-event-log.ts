@@ -118,6 +118,82 @@ class StreamingEventLog {
   }
 
   /**
+   * Persist a real task result, overriding any existing synthetic error.
+   *
+   * When the agent runner reconnects after a grace period expiry and delivers
+   * a real result, this method soft-deletes the synthetic disconnect error
+   * and inserts the actual result. Non-synthetic terminal events are never
+   * overridden (first real terminal wins).
+   *
+   * Returns { seq, overrodeSynthetic } so the caller knows whether DB
+   * recovery (plan_nodes, task_executions) is needed.
+   */
+  async appendResultOverridingSyntheticError(
+    executionId: string,
+    data: unknown,
+  ): Promise<{ seq: number; overrodeSynthetic: boolean }> {
+    await this.flushText(executionId)
+
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-terminal:${executionId}`}))`)
+
+        const existing = await tx.select({
+          seq: streamingEvents.seq,
+          eventType: streamingEvents.eventType,
+          data: streamingEvents.data,
+        })
+          .from(streamingEvents)
+          .where(
+            and(
+              eq(streamingEvents.executionId, executionId),
+              inArray(streamingEvents.eventType, ['result', 'error']),
+              isNull(streamingEvents.deletedAt),
+            ),
+          )
+          .orderBy(desc(streamingEvents.seq))
+          .limit(1)
+
+        if (existing[0]) {
+          const existingData = existing[0].data as Record<string, unknown> | null
+          const isSynthetic = existingData?.synthetic === true
+
+          if (!isSynthetic) {
+            // Non-synthetic terminal exists — don't override
+            return { seq: existing[0].seq, overrodeSynthetic: false }
+          }
+
+          // Soft-delete the synthetic error
+          await tx.update(streamingEvents)
+            .set({ deletedAt: new Date() })
+            .where(eq(streamingEvents.seq, existing[0].seq))
+
+          // Insert the real result
+          const [row] = await tx.insert(streamingEvents).values({
+            executionId,
+            eventType: 'result',
+            data: data as Record<string, unknown>,
+          }).returning({ seq: streamingEvents.seq })
+
+          return { seq: row.seq, overrodeSynthetic: true }
+        }
+
+        // No terminal event exists — insert normally
+        const [row] = await tx.insert(streamingEvents).values({
+          executionId,
+          eventType: 'result',
+          data: data as Record<string, unknown>,
+        }).returning({ seq: streamingEvents.seq })
+
+        return { seq: row.seq, overrodeSynthetic: false }
+      })
+    } catch (err) {
+      console.error('[streaming-event-log] Failed to append result overriding synthetic:', (err as Error).message)
+      throw err
+    }
+  }
+
+  /**
    * Persist an approval_request exactly once per execution/requestId pair.
    */
   async appendApprovalRequestIfAbsent(
