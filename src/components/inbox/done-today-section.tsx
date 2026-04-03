@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "react-router"
 import { CheckCircle2, XCircle, ChevronRight } from "lucide-react"
 import { useProjectStore } from "@/stores/project-store"
@@ -63,8 +63,12 @@ export function DoneTodaySection() {
     return null
   }
 
+  const DEFAULT_VISIBLE = 3
+  const [expanded, setExpanded] = useState(false)
   const successCount = completedToday.length
   const failCount = failedToday.length
+  const visibleItems = expanded ? items : items.slice(0, DEFAULT_VISIBLE)
+  const hasMore = items.length > DEFAULT_VISIBLE
 
   return (
     <div className="flex flex-col gap-3">
@@ -97,7 +101,7 @@ export function DoneTodaySection() {
 
       <div className="rounded-xl glass-panel-subtle p-1">
         <div className="flex flex-col">
-          {items.map((item, idx) => {
+          {visibleItems.map((item, idx) => {
             const project = projects.find((p) => p.id === item.projectId)
             const completedAt = item.executionCompletedAt ?? item.updatedAt
             return (
@@ -131,6 +135,15 @@ export function DoneTodaySection() {
             )
           })}
         </div>
+        {hasMore && !expanded && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="w-full py-1.5 text-[11px] text-muted-foreground/50 hover:text-foreground/70 transition-colors cursor-pointer"
+          >
+            Show {items.length - DEFAULT_VISIBLE} more
+          </button>
+        )}
       </div>
     </div>
   )
