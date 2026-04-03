@@ -11,7 +11,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
-import type { ChannelNotification, NotificationSenderFn } from '../../server/lib/channel/channel-types.js'
+import type { NotificationSenderFn } from '../../server/lib/channel/channel-types.js'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be declared before vi.mock() calls
@@ -388,7 +388,7 @@ describe('Telegram Bidirectional Integration', () => {
       expect(sendCalls[0].body.text).toContain('Connected')
     })
 
-    it('/status should report connected when account exists', async () => {
+    it('/connection should report connected when account exists', async () => {
       mockLimit.mockResolvedValueOnce([{ id: 'acc-1', externalId: '67890', enabled: true }])
 
       await adapter.handleUpdate({
@@ -397,7 +397,7 @@ describe('Telegram Bidirectional Integration', () => {
           message_id: 53,
           chat: { id: 67890, type: 'private' },
           from: { id: 999, is_bot: false, first_name: 'Test' },
-          text: '/status',
+          text: '/connection',
           date: Date.now(),
         },
       })
@@ -407,7 +407,7 @@ describe('Telegram Bidirectional Integration', () => {
       expect(sendCalls[0].body.text).toContain('connected')
     })
 
-    it('/status should report not connected when no account', async () => {
+    it('/connection should report not connected when no account', async () => {
       mockLimit.mockResolvedValueOnce([])
 
       await adapter.handleUpdate({
@@ -416,7 +416,7 @@ describe('Telegram Bidirectional Integration', () => {
           message_id: 53,
           chat: { id: 67890, type: 'private' },
           from: { id: 999, is_bot: false, first_name: 'Test' },
-          text: '/status',
+          text: '/connection',
           date: Date.now(),
         },
       })
@@ -706,6 +706,9 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle approve callback → dispatch engine + edit message', async () => {
+      // Mock identity check: sender (from.id=999) has a connected Astro account
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
+
       await adapter.handleUpdate({
         update_id: 4001,
         callback_query: {
@@ -735,6 +738,8 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle reject callback → dispatch engine', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
+
       await adapter.handleUpdate({
         update_id: 4002,
         callback_query: {
@@ -758,6 +763,8 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle option callback with selected option', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
+
       await adapter.handleUpdate({
         update_id: 4003,
         callback_query: {
@@ -780,6 +787,8 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle option with colon in value correctly', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
+
       await adapter.handleUpdate({
         update_id: 4004,
         callback_query: {
@@ -799,6 +808,8 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle unknown callback data gracefully', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
+
       await adapter.handleUpdate({
         update_id: 4005,
         callback_query: {
@@ -822,6 +833,7 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle expired approval callback gracefully', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
       mockRespondToApproval.mockRejectedValueOnce(new Error('No pending approval found for appr-expired'))
 
       await adapter.handleUpdate({
@@ -870,6 +882,7 @@ describe('Telegram Bidirectional Integration', () => {
     })
 
     it('should handle generic dispatch error', async () => {
+      mockLimit.mockResolvedValueOnce([{ id: 'acc-999' }])
       mockRespondToApproval.mockRejectedValueOnce(new Error('Network timeout'))
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})

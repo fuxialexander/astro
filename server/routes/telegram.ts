@@ -9,7 +9,7 @@ import { Hono } from 'hono'
 import { telegramChannel } from '../lib/channel/adapters/telegram-channel.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
-import { connectedAccounts, teams } from '../lib/db/schema.js'
+import { connectedAccounts, teams, projects, teamMembers } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
@@ -153,6 +153,42 @@ app.post('/reply', async (c) => {
   }
   if (!message || typeof message !== 'string') {
     return c.json({ error: 'message is required' }, 400)
+  }
+
+  // Verify the authenticated user owns a connected Telegram account for this chatId,
+  // OR that the projectId belongs to a project the user's team owns.
+  const user = c.get('user') as AuthUser
+  let authorized = false
+
+  if (pId) {
+    // Check project team membership
+    const [membership] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
+      .where(and(eq(teamMembers.userId, user.id), eq(projects.id, pId)))
+      .limit(1)
+    authorized = !!membership
+  }
+
+  if (!authorized) {
+    // Fall back: check if the authenticated user owns a Telegram account matching chatId
+    const [account] = await db
+      .select({ externalId: connectedAccounts.externalId })
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.userId, user.id),
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+      .limit(1)
+    authorized = !!account && account.externalId === chatId
+  }
+
+  if (!authorized) {
+    return c.json({ error: 'Unauthorized: chatId does not belong to this user' }, 403)
   }
 
   const result = await telegramChannel.sendAgentReply(chatId, message, {
