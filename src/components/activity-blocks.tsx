@@ -427,8 +427,22 @@ export function getToolInputSummary(toolName: string, toolInput: unknown): strin
       const url = input.url
       return typeof url === 'string' ? url : null
     }
-    default:
+    default: {
+      // Fallback for non-Claude-Code providers (Codex, Pi, OpenClaw):
+      // probe common input fields to extract something useful.
+      const cmd = input.command
+      if (typeof cmd === 'string') return cmd.slice(0, 60)
+      const fp = input.file_path ?? input.path ?? input.filePath
+      if (typeof fp === 'string') {
+        const segments = (fp as string).split('/')
+        return segments.slice(-2).join('/')
+      }
+      const pat = input.pattern
+      if (typeof pat === 'string') return pat
+      const url = input.url
+      if (typeof url === 'string') return url
       return null
+    }
   }
 }
 
