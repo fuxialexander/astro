@@ -58,7 +58,7 @@ import { executionEventBus } from './execution-event-bus.js';
 import { notifyWarning } from './monitoring.js';
 import { db } from './db/index.js';
 import { taskExecutions, planNodes } from './db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or, isNull } from 'drizzle-orm';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -1489,11 +1489,15 @@ export class RelayServer extends EventEmitter {
         })
         .where(eq(taskExecutions.executionId, executionId))
 
-      // Update plan_nodes — set to awaiting_judgment so the user reviews the late result
+      // Update plan_nodes — set to awaiting_judgment so the user reviews the late result.
+      // Guard: only update if the node's executionId still matches this execution OR is null
+      // (watchdog cleared it). If a different executionId is set, a new execution was dispatched
+      // and we must not clobber it.
       const nodeStatus = 'awaiting_judgment' as const
       await db.update(planNodes)
         .set({
           status: nodeStatus,
+          executionId,  // restore link so frontend can show the execution output
           executionError: isSuccess
             ? null
             : (resultData.error as string) || 'Agent returned non-completed status',
@@ -1503,6 +1507,10 @@ export class RelayServer extends EventEmitter {
           and(
             eq(planNodes.clientId, exec.nodeClientId),
             eq(planNodes.projectId, exec.projectId),
+            or(
+              eq(planNodes.executionId, executionId),
+              isNull(planNodes.executionId),
+            ),
           ),
         )
 
