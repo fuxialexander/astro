@@ -14,7 +14,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Sparkles } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, Plus, Minus, Maximize, ListPlus, Sparkles } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -28,7 +28,6 @@ import { TaskNode, AddMilestoneNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
-import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { calculateChildPosition, calculateParentPosition, computeEdgeHandles, computeRedundantEdgeIds } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
@@ -95,7 +94,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startExecution = useExecutionStore((s) => s.startExecution)
-  const executeAllProject = useExecutionStore((s) => s.executeAllProject)
   const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
   const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
   const machines = useExecutionStore((s) => s.machines)
@@ -368,32 +366,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     const allIds = new Set(projectNodes.map((n) => n.id))
     setCheckedIds(allIds)
   }, [projectNodes])
-
-  const handleExecuteAll = useCallback(async () => {
-    if (!resolvedMachineId) {
-      useToastStore.getState().add({
-        type: "warning",
-        title: "No machine connected",
-        description: "Connect a machine in Environments before executing tasks.",
-      })
-      return
-    }
-    // Flush pending saves for all project nodes before batch execution
-    const nodeIds = projectNodes.map((n) => n.id)
-    try {
-      await flushPendingSaves(nodeIds)
-    } catch (error) {
-      console.error('Failed to save task content before execution:', error)
-      useToastStore.getState().add({
-        type: 'error',
-        title: 'Failed to save changes',
-        description: 'Could not save task content before execution. Please try again.',
-      })
-      return
-    }
-
-    executeAllProject(projectId)
-  }, [executeAllProject, projectId, resolvedMachineId, projectNodes, flushPendingSaves])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)
@@ -984,55 +956,27 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           </button>
         </div>
 
-        {/* Execute All button + machine / work directory — bottom-right */}
-        {!readOnly && !selectionActive && projectNodes.length > 0 && (
+        {/* Batch execution status indicator — bottom-right (only when batch is active) */}
+        {!readOnly && !selectionActive && projectNodes.length > 0 && isBatchActive && (
           <div className="react-flow__panel absolute bottom-3 right-3 z-10 flex flex-col items-end gap-1.5">
-            {isBatchActive ? (
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
-                <div className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                </div>
-                <span className="text-xs font-medium text-foreground">
-                  Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
-                  {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleStopBatch}
-                  title="Stop queuing new tasks (running tasks will finish)"
-                  className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
-                >
-                  <Square className="h-3 w-3" />
-                  Stop Queue
-                </button>
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
+              <div className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
               </div>
-            ) : (
-              plannedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={handleExecuteAll}
-                  title={`Execute all ${plannedCount} planned tasks in dependency order`}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
-                >
-                  <PlayCircle className="h-3.5 w-3.5" />
-                  Execute All ({plannedCount})
-                </button>
-              )
-            )}
-            {/* Machine + work directory row — hidden on mobile */}
-            <div className="hidden md:flex items-center gap-1.5 bg-card/85 backdrop-blur-sm border border-border rounded-lg px-1.5 py-1 shadow-sm">
-              <MachineWorkdirSelector
-                machines={machines}
-                selectedMachine={machines.find((m) => m.machineId === resolvedMachineId) ?? null}
-                onMachineChange={(m) => {
-                  if (m) updateProject(projectId, { defaultMachineId: m.machineId })
-                }}
-                workingDir={project?.workingDirectory ?? ""}
-                onWorkingDirChange={(path) => updateProject(projectId, { workingDirectory: path })}
-                onBrowse={() => setPathBrowserOpen(true)}
-                compact
-              />
+              <span className="text-xs font-medium text-foreground">
+                Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
+                {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
+              </span>
+              <button
+                type="button"
+                onClick={handleStopBatch}
+                title="Stop queuing new tasks (running tasks will finish)"
+                className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+              >
+                <Square className="h-3 w-3" />
+                Stop Queue
+              </button>
             </div>
           </div>
         )}

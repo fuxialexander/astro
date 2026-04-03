@@ -287,7 +287,7 @@ function buildEditorUrl(appId: EditorAppId, path: string, isRemote: boolean, mac
 }
 
 // --- Compact workdir bar shown at bottom of plan view ---
-function WorkdirBar({ project, viewMode }: { project: Project; viewMode?: string }) {
+function WorkdirBar({ project }: { project: Project }) {
   const [repoOpen, setRepoOpen] = useState(false)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
@@ -438,7 +438,7 @@ function WorkdirBar({ project, viewMode }: { project: Project; viewMode?: string
             )}
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
-              {viewMode !== "graph" && <ExecuteAllButton projectId={project.id} />}
+              <ExecuteAllButton projectId={project.id} />
 
               {/* Open in editor: icon button + dropdown */}
               {project.workingDirectory && (
@@ -509,11 +509,9 @@ function WorkdirBar({ project, viewMode }: { project: Project; viewMode?: string
               <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
               <span>Set working directory</span>
             </button>
-            {viewMode !== "graph" && (
-              <div className="ml-auto shrink-0">
-                <ExecuteAllButton projectId={project.id} />
-              </div>
-            )}
+            <div className="ml-auto shrink-0">
+              <ExecuteAllButton projectId={project.id} />
+            </div>
           </>
         )}
       </div>
@@ -2730,7 +2728,7 @@ export function PlanView() {
       </div>
 
       {/* Working directory bar — bottom of plan view */}
-      <WorkdirBar project={project} viewMode={viewMode} />
+      <WorkdirBar project={project} />
 
       {/* Floating chat bubble — always visible */}
       <FloatingChat
