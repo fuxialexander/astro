@@ -37,6 +37,7 @@ import { telegramRoute } from './routes/telegram.js'
 import { teamsRoute } from './routes/teams.js'
 import { communityRoute } from './routes/community.js'
 import { executionsRoute } from './routes/executions.js'
+import { referencesRoute } from './routes/references.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -225,6 +226,7 @@ export function createApp() {
     return c.redirect(newPath + url.search, 308)
   })
   app.route('/api/observations', observationsRoute)
+  app.route('/api/references', referencesRoute)
   app.route('/api/teams', teamsRoute)
   app.route('/api/community', communityRoute)
   app.route('/api/executions', executionsRoute)
