@@ -59,12 +59,12 @@ export function DoneTodaySection() {
     })
   }, [completedToday, failedToday])
 
+  const DEFAULT_VISIBLE = 3
+  const [expanded, setExpanded] = useState(false)
+
   if (items.length === 0) {
     return null
   }
-
-  const DEFAULT_VISIBLE = 3
-  const [expanded, setExpanded] = useState(false)
   const successCount = completedToday.length
   const failCount = failedToday.length
   const visibleItems = expanded ? items : items.slice(0, DEFAULT_VISIBLE)
