@@ -11,7 +11,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
-import type { ChannelNotification, NotificationSenderFn } from '../../server/lib/channel/channel-types.js'
+import type { NotificationSenderFn } from '../../server/lib/channel/channel-types.js'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be declared before vi.mock() calls
