@@ -17,7 +17,7 @@ import { usePlanStore } from "./plan-store"
 import { useExecutionStore } from "./execution-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
-import { watchStream } from "@/lib/stream-watcher"
+import { watchStream, resetChatStream } from "@/lib/stream-watcher"
 import { useToastStore } from "./toast-store"
 import { showChatCompleteNotification } from "@/lib/notifications"
 import type {
@@ -846,8 +846,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       })
     }
 
-    // Mark chat stream as running so periodic catch-up polling activates
-    setChatStreamStatus(sid, 'running')
+    // Reset the taskStream fully for this new turn — clears stale stdout,
+    // toolTraces, and status from the previous turn. Without this, watchStream
+    // would replay old stdout as "new" text chunks (prevStdoutLen starts at 0
+    // but stdout still contains text from the previous turn).
+    // This also sets status to 'running' so periodic catch-up polling activates.
+    resetChatStream(sid)
 
     // System message: request received
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -1107,8 +1111,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       useRealtimeStore.getState().addActivityEntry('chat', `Follow-up: ${preview}`)
     }
 
-    // Mark chat stream as running so periodic catch-up polling activates
-    setChatStreamStatus(sid, 'running')
+    // Reset the taskStream fully for this new turn — clears stale stdout,
+    // toolTraces, and status from the previous turn (same fix as sendChatMessage).
+    resetChatStream(sid)
 
     // System message: request received
     useRealtimeStore.getState().pushActivityEvent(sid, {
