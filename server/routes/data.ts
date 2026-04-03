@@ -539,6 +539,7 @@ app.get('/plan', async (c) => {
       loopBestMetricValue: n.loopBestMetricValue,
       loopBestIteration: n.loopBestIteration,
       loopStatus: n.loopStatus,
+      metadata: (n.metadata as Record<string, unknown>) ?? {},
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -611,6 +612,7 @@ app.get('/plan/nodes/:nodeId', async (c) => {
     mergeQueueStatus: row.mergeQueueStatus,
     autoPr: row.autoPr,
     acceptanceCriteria: row.acceptanceCriteria,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   })
@@ -666,6 +668,7 @@ app.get('/plan/:projectId', async (c) => {
     loopBestMetricValue: n.loopBestMetricValue,
     loopBestIteration: n.loopBestIteration,
     loopStatus: n.loopStatus,
+    metadata: (n.metadata as Record<string, unknown>) ?? {},
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))

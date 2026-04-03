@@ -24,7 +24,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams, deliveryBranches } from '../lib/db/schema.js'
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -1154,6 +1154,25 @@ async function dispatchViaRelay(
     })
   }
 
+  // Resolve delivery branch early so the "Push to GitHub" prompt uses the correct
+  // accumulation branch (e.g. astro/aa7464-8ee4cc46) instead of the legacy
+  // project-level placeholder (astro/${shortProjectId}).
+  // Uses the node's deliveryBranchId FK — no extra team-flag check needed here;
+  // the authoritative lookup (with feature-flag guard) still runs later before dispatch.
+  let earlyProjectBranch = `astro/${shortProjectId}`
+  if (dbNode?.deliveryBranchId) {
+    try {
+      const [dbBranch] = await db
+        .select({ branchName: deliveryBranches.branchName })
+        .from(deliveryBranches)
+        .where(eq(deliveryBranches.id, dbNode.deliveryBranchId))
+        .limit(1)
+      if (dbBranch?.branchName) earlyProjectBranch = dbBranch.branchName
+    } catch (err) {
+      console.warn('[dispatch] Failed to pre-fetch delivery branch for prompt:', err instanceof Error ? err.message : String(err))
+    }
+  }
+
   // Build prompt — interactive plans use the dedicated planning prompt template;
   // regular executions use the standard task execution prompt.
   let relaySystemPrompt: string | undefined
@@ -1263,7 +1282,7 @@ async function dispatchViaRelay(
 
     // Push to GitHub nodes get special instructions — override delivery mode and workspace section
     if (isPushToGithub && githubContext?.hasRepo) {
-      const projectBranchName = `astro/${shortProjectId}`
+      const projectBranchName = earlyProjectBranch
       const targetBranch = sanitizeGitBranch(baseBranch || githubContext.baseBranch || 'main')
       const ghOwner = sanitizeGitHubName(githubContext.owner || '')
       const ghRepo = sanitizeGitHubName(githubContext.repo || '')
