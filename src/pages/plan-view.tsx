@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -2558,7 +2558,7 @@ export function PlanView() {
                   onClick={() => { setInspectorOpen(!inspectorOpen); if (inspectorOpen) setSelectedNode(null) }}
                   className="h-8 w-8 p-0"
                 >
-                  <PanelRight className={cn("h-3.5 w-3.5", inspectorOpen && "text-primary")} />
+                  <Info className={cn("h-3.5 w-3.5", inspectorOpen && "text-primary")} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Node Inspector</TooltipContent>
