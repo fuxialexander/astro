@@ -23,10 +23,11 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const createSession = useChatStore((s) => s.createSession)
 
-  // Load sessions when project changes
+  // Reset and load sessions when project changes
   useEffect(() => {
+    setActiveSession(null)
     loadSessions(projectId)
-  }, [projectId, loadSessions])
+  }, [projectId, loadSessions, setActiveSession])
 
   // Auto-select the latest session if none is active
   useEffect(() => {

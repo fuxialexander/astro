@@ -18,8 +18,6 @@ export function WelcomePane() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Drag region / title bar */}
-      <div className="h-11 flex-shrink-0" data-tauri-drag-region />
 
       {/* Hero */}
       <div className="flex flex-col items-center justify-center gap-6 px-8 py-16 flex-shrink-0">

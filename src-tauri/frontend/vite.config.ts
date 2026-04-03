@@ -10,7 +10,13 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: [
+        // Tauri-specific shims — must come before @/ so they override web-app modules
+        { find: /^@\/lib\/supabase-client$/, replacement: path.resolve(__dirname, './src/shims/supabase-client.ts') },
+        { find: /^@\/lib\/api-url$/, replacement: path.resolve(__dirname, './src/shims/api-url.ts') },
+        // Desktop-specific code
         { find: '@desktop', replacement: path.resolve(__dirname, './src') },
+        // Main web-app source — enables importing web components directly
+        { find: /^@\/(.*)/, replacement: path.resolve(__dirname, '../../src/$1') },
       ],
     },
     server: {

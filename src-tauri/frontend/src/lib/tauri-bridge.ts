@@ -24,6 +24,46 @@ export async function readFile(path: string): Promise<string> {
 // NOTE: write_file, path_exists, create_dir, run_command are not yet
 // implemented as Rust Tauri commands. Add them to fs_commands.rs as needed.
 
+/** Get the raw `git diff` output (unstaged by default, staged if staged=true). */
+export async function gitDiff(repoPath: string, staged = false): Promise<string> {
+  return invoke<string>('git_diff', { repoPath, staged })
+}
+
+/** Stage all changes and commit with the given message. */
+export async function gitCommit(repoPath: string, message: string): Promise<string> {
+  return invoke<string>('git_commit', { repoPath, message })
+}
+
+/** Push the current branch to origin. */
+export async function gitPush(repoPath: string): Promise<string> {
+  return invoke<string>('git_push', { repoPath })
+}
+
+/** Create and check out a new branch. */
+export async function gitCreateBranch(repoPath: string, branchName: string): Promise<void> {
+  return invoke<void>('git_create_branch', { repoPath, branchName })
+}
+
+/** Open a path in the given editor (cursor|code|finder|terminal|iterm2|ghostty|xcode). */
+export async function openInEditor(path: string, editor: string): Promise<void> {
+  return invoke<void>('open_in_editor', { path, editor })
+}
+
+/** Return list of installed editor IDs on this system. */
+export async function detectEditors(): Promise<string[]> {
+  return invoke<string[]>('detect_editors')
+}
+
+/** Open a native folder-picker dialog; returns the selected path or null. */
+export async function pickDirectory(): Promise<string | null> {
+  return invoke<string | null>('pick_directory')
+}
+
+/** Return the current git branch for a repo path (empty string if not a git repo). */
+export async function gitCurrentBranch(repoPath: string): Promise<string> {
+  return invoke<string>('git_current_branch', { repoPath })
+}
+
 // ── Terminal Commands ────────────────────────────────────────────────
 
 /** Spawn a persistent terminal session and return its ID. */

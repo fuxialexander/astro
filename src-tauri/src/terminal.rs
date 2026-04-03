@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, State};
 
 /// Payload for the `terminal-output` Tauri event.
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct TerminalOutput {
     pub id: String,
     pub data: String,
@@ -79,6 +80,22 @@ pub fn spawn_terminal(
     let shell_path = shell
         .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
 
+    // Expand "~" to the real home directory — portable_pty doesn't do shell expansion.
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+    let expanded_cwd = if cwd == "~" {
+        home.clone()
+    } else if let Some(rest) = cwd.strip_prefix("~/") {
+        format!("{}/{}", home, rest)
+    } else {
+        cwd.clone()
+    };
+    // Fall back to home directory if the path doesn't exist.
+    let resolved_cwd = if std::path::Path::new(&expanded_cwd).is_dir() {
+        expanded_cwd
+    } else {
+        home
+    };
+
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -90,7 +107,7 @@ pub fn spawn_terminal(
         .map_err(|e| format!("openpty failed: {e}"))?;
 
     let mut cmd = CommandBuilder::new(&shell_path);
-    cmd.cwd(&cwd);
+    cmd.cwd(&resolved_cwd);
     cmd.env("TERM", "xterm-256color");
 
     let child = pair
@@ -123,13 +140,9 @@ pub fn spawn_terminal(
                 Ok(0) => break, // EOF — shell exited
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app.emit(
-                        "terminal-output",
-                        TerminalOutput {
-                            id: id_clone.clone(),
-                            data,
-                        },
-                    );
+                    // Emit per-session event so each TerminalTab only receives its own output
+                    let event_name = format!("terminal-output-{}", id_clone);
+                    let _ = app.emit(&event_name, data);
                 }
                 Err(_) => break,
             }

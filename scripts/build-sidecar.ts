@@ -225,10 +225,11 @@ function copyPGliteWasm() {
     return;
   }
 
-  ensureDir(pgliteDest);
+  ensureDir(join(NODE_MODULES_DIR, '@electric-sql'));
 
-  // Copy the full pglite package (includes WASM, JS, and dist)
-  cpSync(pgliteSrc, pgliteDest, { recursive: true });
+  // Copy the full pglite package (includes WASM, JS, and dist).
+  // dereference:true resolves pnpm symlinks so we get real files in the sidecar.
+  cpSync(pgliteSrc, pgliteDest, { recursive: true, dereference: true });
 
   // Verify WASM files exist
   const wasmFiles = findFiles(pgliteDest, '.wasm');
@@ -276,8 +277,8 @@ function copyNativeModules() {
       continue;
     }
 
-    ensureDir(dest);
-    cpSync(src, dest, { recursive: true });
+    ensureDir(dirname(dest));
+    cpSync(src, dest, { recursive: true, dereference: true });
     logSuccess(`  ${mod}: copied`);
   }
 }

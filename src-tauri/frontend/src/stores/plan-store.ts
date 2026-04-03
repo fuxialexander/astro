@@ -16,6 +16,8 @@ interface PlanState {
   error: string | null
 
   loadPlan: (projectId: string) => Promise<void>
+  /** Load all plan nodes across all projects (for dashboard). */
+  loadNodes: () => Promise<void>
   setSelectedNode: (nodeId: string | null) => void
   updateNodeStatus: (nodeId: string, status: PlanNode['status']) => void
   getNode: (nodeId: string) => PlanNode | undefined
@@ -28,16 +30,28 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   loading: false,
   error: null,
 
+  loadNodes: async () => {
+    set({ loading: true, error: null })
+    try {
+      const data = await api.get<PlanNode[]>('/api/data/plan-nodes?slim=1')
+      set({ nodes: data ?? [], loading: false })
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : 'Failed to load nodes',
+        loading: false,
+      })
+    }
+  },
+
   loadPlan: async (projectId: string) => {
     set({ loading: true, error: null })
     try {
-      const [nodes, edges] = await Promise.all([
-        api.get<PlanNode[]>(`/api/data/plan-nodes?projectId=${projectId}`),
-        api.get<PlanEdge[]>(`/api/data/plan-edges?projectId=${projectId}`),
-      ])
+      const data = await api.get<{ nodes: PlanNode[]; edges: PlanEdge[] }>(
+        `/api/data/plan/${projectId}`,
+      )
       set({
-        nodes: nodes ?? [],
-        edges: edges ?? [],
+        nodes: data?.nodes ?? [],
+        edges: data?.edges ?? [],
         loading: false,
       })
     } catch (err) {

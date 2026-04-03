@@ -136,3 +136,12 @@ export interface WatcherEvent {
   type: 'create' | 'modify' | 'remove' | 'rename'
   paths: string[]
 }
+
+// ── Git Types ─────────────────────────────────────────────────────────
+
+export interface GitStatus {
+  staged: string[]
+  modified: string[]
+  untracked: string[]
+  branch: string
+}

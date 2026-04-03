@@ -9,10 +9,14 @@ import type { Project } from '@desktop/types'
 interface ProjectState {
   projects: Project[]
   activeProjectId: string | null
+  currentProject: Project | null
   loading: boolean
   error: string | null
 
   loadProjects: () => Promise<void>
+  createProject: (name: string) => Promise<Project | null>
+  updateProject: (id: string, patch: Partial<Pick<Project, 'workingDirectory' | 'defaultMachineId' | 'name' | 'repository'>>) => Promise<void>
+  setCurrentProject: (project: Project | null) => void
   setActiveProject: (id: string | null) => void
   getProject: (id: string) => Project | undefined
 }
@@ -20,6 +24,7 @@ interface ProjectState {
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   activeProjectId: null,
+  currentProject: null,
   loading: false,
   error: null,
 
@@ -36,6 +41,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
+  createProject: async (name: string) => {
+    try {
+      const project = await api.post<Project>('/api/data/projects', { name: name.trim() })
+      if (project) {
+        set((s) => ({ projects: [project, ...s.projects] }))
+      }
+      return project ?? null
+    } catch {
+      return null
+    }
+  },
+
+  updateProject: async (id, patch) => {
+    try {
+      await api.patch(`/api/data/projects/${id}`, patch)
+      set((s) => ({
+        projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      }))
+    } catch {
+      // ignore
+    }
+  },
+
+  setCurrentProject: (currentProject) => set({ currentProject }),
   setActiveProject: (id) => set({ activeProjectId: id }),
 
   getProject: (id) => get().projects.find((p) => p.id === id),

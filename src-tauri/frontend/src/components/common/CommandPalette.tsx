@@ -10,7 +10,11 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { Command } from 'cmdk'
-import { Folder, Plus, Settings, ArrowRight, Hash } from 'lucide-react'
+import {
+  Plus, Settings, ArrowRight, Hash,
+  Home, Zap, Monitor, Terminal, GitCommit,
+  PanelLeft, PanelRight, Search,
+} from 'lucide-react'
 
 import { cn } from '@desktop/lib/utils'
 import { useLayoutStore } from '@desktop/stores/layout-store'
@@ -18,8 +22,10 @@ import { useProjectStore } from '@desktop/stores/project-store'
 
 export function CommandPalette() {
   const navigate = useNavigate()
-  const { commandPaletteOpen, setCommandPaletteOpen, toggleSidebar, toggleReview } =
-    useLayoutStore()
+  const {
+    commandPaletteOpen, setCommandPaletteOpen,
+    toggleSidebar, toggleReview, toggleTerminal,
+  } = useLayoutStore()
   const { projects } = useProjectStore()
 
   // Close on Escape is handled by Command.Dialog internally.
@@ -127,84 +133,25 @@ export function CommandPalette() {
             )}
 
             {/* Navigation commands */}
-            <Command.Group
-              heading="Navigate"
-              className="mt-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-muted-foreground"
-            >
-              <Command.Item
-                value="navigate home projects"
-                onSelect={() => { navigate('/'); close() }}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
-                  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
-                  'transition-colors duration-100',
-                )}
-              >
-                <Folder className="w-4 h-4 text-muted-foreground" />
-                <span className="flex-1">Go to Projects</span>
-                <Shortcut keys={['⌘', 'H']} />
-              </Command.Item>
+            <Command.Group heading="Navigate" className={GROUP_HEADING_CLS}>
+              <CmdItem value="navigate home dashboard" icon={Home} label="Home" shortcut={['⌘', '⇧', 'D']} onSelect={() => { navigate('/'); close() }} />
+              <CmdItem value="navigate active tasks" icon={Zap} label="Active Tasks" onSelect={() => { navigate('/active'); close() }} />
+              <CmdItem value="navigate environments machines" icon={Monitor} label="Environments" shortcut={['⌘', '⇧', 'E']} onSelect={() => { navigate('/environments'); close() }} />
+            </Command.Group>
 
-              <Command.Item
-                value="toggle sidebar"
-                onSelect={() => { toggleSidebar(); close() }}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
-                  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
-                  'transition-colors duration-100',
-                )}
-              >
-                <Folder className="w-4 h-4 text-muted-foreground" />
-                <span className="flex-1">Toggle Sidebar</span>
-                <Shortcut keys={['⌘', 'B']} />
-              </Command.Item>
-
-              <Command.Item
-                value="toggle review panel"
-                onSelect={() => { toggleReview(); close() }}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
-                  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
-                  'transition-colors duration-100',
-                )}
-              >
-                <Folder className="w-4 h-4 text-muted-foreground" />
-                <span className="flex-1">Toggle Review Panel</span>
-                <Shortcut keys={['⌘', 'J']} />
-              </Command.Item>
+            {/* Panel commands */}
+            <Command.Group heading="Panels" className={GROUP_HEADING_CLS}>
+              <CmdItem value="toggle sidebar" icon={PanelLeft} label="Toggle Sidebar" shortcut={['⌘', 'B']} onSelect={() => { toggleSidebar(); close() }} />
+              <CmdItem value="toggle review diff panel" icon={PanelRight} label="Toggle Review Panel" shortcut={['⌘', '⇧', 'G']} onSelect={() => { toggleReview(); close() }} />
+              <CmdItem value="toggle terminal console" icon={Terminal} label="Toggle Terminal" shortcut={['⌘', 'J']} onSelect={() => { toggleTerminal(); close() }} />
+              <CmdItem value="focus search filter" icon={Search} label="Focus Search" shortcut={['/']} onSelect={() => { close(); setTimeout(() => document.querySelector<HTMLInputElement>('[data-sidebar-search]')?.focus(), 100) }} />
             </Command.Group>
 
             {/* Quick actions */}
-            <Command.Group
-              heading="Actions"
-              className="mt-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-muted-foreground"
-            >
-              <Command.Item
-                value="new project create"
-                onSelect={close}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
-                  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
-                  'transition-colors duration-100',
-                )}
-              >
-                <Plus className="w-4 h-4 text-muted-foreground" />
-                <span className="flex-1">New Project</span>
-              </Command.Item>
-
-              <Command.Item
-                value="settings preferences"
-                onSelect={close}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
-                  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
-                  'transition-colors duration-100',
-                )}
-              >
-                <Settings className="w-4 h-4 text-muted-foreground" />
-                <span className="flex-1">Open Settings</span>
-                <Shortcut keys={['⌘', ',']} />
-              </Command.Item>
+            <Command.Group heading="Actions" className={GROUP_HEADING_CLS}>
+              <CmdItem value="new project create" icon={Plus} label="New Project" shortcut={['⌘', 'N']} onSelect={() => { close(); window.dispatchEvent(new CustomEvent('astro:new-project')) }} />
+              <CmdItem value="git commit save" icon={GitCommit} label="Git Commit" shortcut={['⌘', 'S']} onSelect={() => { close(); window.dispatchEvent(new CustomEvent('astro:git-commit')) }} />
+              <CmdItem value="settings preferences" icon={Settings} label="Open Settings" shortcut={['⌘', ',']} onSelect={close} />
             </Command.Group>
           </Command.List>
 
@@ -221,6 +168,30 @@ export function CommandPalette() {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+const ITEM_CLS = cn(
+  'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm',
+  'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
+  'transition-colors duration-100',
+)
+
+const GROUP_HEADING_CLS = "mt-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-muted-foreground"
+
+function CmdItem({ value, icon: Icon, label, shortcut, onSelect }: {
+  value: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  shortcut?: string[]
+  onSelect: () => void
+}) {
+  return (
+    <Command.Item value={value} onSelect={onSelect} className={ITEM_CLS}>
+      <Icon className="w-4 h-4 text-muted-foreground" />
+      <span className="flex-1">{label}</span>
+      {shortcut && <Shortcut keys={shortcut} />}
+    </Command.Item>
+  )
+}
 
 function Shortcut({ keys }: { keys: string[] }) {
   return (

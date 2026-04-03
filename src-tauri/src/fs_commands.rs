@@ -418,6 +418,162 @@ fn build_tree(path: &Path, depth: u32) -> Result<FileTreeNode, String> {
     })
 }
 
+/// Run `git diff` and return the raw diff output.
+/// Pass `staged = true` to diff against the index (--cached).
+#[tauri::command]
+pub fn git_diff(repo_path: &str, staged: bool) -> Result<String, String> {
+    let mut args = vec!["diff", "--no-color"];
+    if staged {
+        args.push("--cached");
+    }
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {}", e))?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Stage all changes and create a commit.
+#[tauri::command]
+pub fn git_commit(repo_path: &str, message: &str) -> Result<String, String> {
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to git add: {}", e))?;
+    if !add.status.success() {
+        return Err(String::from_utf8_lossy(&add.stderr).to_string());
+    }
+
+    let commit = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to git commit: {}", e))?;
+
+    if !commit.status.success() {
+        return Err(String::from_utf8_lossy(&commit.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&commit.stdout).to_string())
+}
+
+/// Push current branch to origin.
+#[tauri::command]
+pub fn git_push(repo_path: &str) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["push"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to git push: {}", e))?;
+
+    // git push writes to stderr even on success
+    let out = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.status.success() {
+        return Err(out);
+    }
+    Ok(out)
+}
+
+/// Create and check out a new git branch.
+#[tauri::command]
+pub fn git_create_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", branch_name])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to create branch: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(())
+}
+
+/// Open a path in the given editor/app (macOS).
+#[tauri::command]
+pub fn open_in_editor(path: &str, editor: &str) -> Result<(), String> {
+    let result = match editor {
+        "cursor" => Command::new("cursor").arg(path).spawn(),
+        "code" => Command::new("code").arg(path).spawn(),
+        "finder" => Command::new("open").arg(path).spawn(),
+        "terminal" => Command::new("open").args(["-a", "Terminal", path]).spawn(),
+        "iterm2" => Command::new("open").args(["-a", "iTerm", path]).spawn(),
+        "ghostty" => Command::new("open").args(["-a", "Ghostty", path]).spawn(),
+        "xcode" => Command::new("open").args(["-a", "Xcode", path]).spawn(),
+        _ => return Err(format!("Unknown editor: {}", editor)),
+    };
+
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open {}: {}", editor, e))
+}
+
+/// Detect which editors/apps are available on this system.
+/// Returns a list of editor IDs that are installed.
+#[tauri::command]
+pub fn detect_editors() -> Vec<String> {
+    let mut editors = Vec::new();
+
+    // Check for CLI tools first
+    if Command::new("cursor").arg("--version").output().is_ok() {
+        editors.push("cursor".to_string());
+    }
+    if Command::new("code").arg("--version").output().is_ok() {
+        editors.push("code".to_string());
+    }
+
+    // Check macOS .app bundles via `open -Ra <AppName>`
+    for (app_name, id) in &[
+        ("iTerm", "iterm2"),
+        ("Ghostty", "ghostty"),
+        ("Xcode", "xcode"),
+    ] {
+        let exists = Command::new("open")
+            .args(["-Ra", app_name])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if exists {
+            editors.push(id.to_string());
+        }
+    }
+
+    // Finder and Terminal.app are always present on macOS
+    editors.push("finder".to_string());
+    editors.push("terminal".to_string());
+
+    editors
+}
+
+/// Open a native folder-picker dialog and return the selected path (or None if cancelled).
+#[tauri::command]
+pub async fn pick_directory() -> Option<String> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Select working directory")
+        .pick_folder()
+        .await
+        .map(|h| h.path().to_string_lossy().into_owned())
+}
+
+/// Return the current git branch for the given repo path.
+#[tauri::command]
+pub fn git_current_branch(repo_path: String) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&repo_path)
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => String::new(),
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

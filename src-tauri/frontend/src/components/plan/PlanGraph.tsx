@@ -17,11 +17,60 @@ import {
 } from '@xyflow/react'
 import type { Node, Edge, NodeMouseHandler } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import dagre from '@dagrejs/dagre'
 
 import { usePlanStore } from '@desktop/stores/plan-store'
 import { TaskNode } from '@desktop/components/plan/TaskNode'
 import { MilestoneNode } from '@desktop/components/plan/MilestoneNode'
 import { Loader2, LayoutGrid } from 'lucide-react'
+
+// ── Auto-layout ─────────────────────────────────────────────────────
+
+const NODE_WIDTH = 260
+const NODE_HEIGHT = 120
+const MILESTONE_WIDTH = 200
+const MILESTONE_HEIGHT = 56
+
+/** Check if positions need auto-layout (all clustered near origin or overlapping). */
+function needsAutoLayout(nodes: Node[]): boolean {
+  if (nodes.length <= 1) return false
+  const THRESHOLD = 10
+  const distinct = new Set(nodes.map((n) => `${Math.round(n.position.x / THRESHOLD)},${Math.round(n.position.y / THRESHOLD)}`))
+  // If more than half the nodes land on the same grid cell, layout is broken
+  return distinct.size < nodes.length * 0.5
+}
+
+/** Apply dagre layout to nodes and edges. */
+function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
+  const g = new dagre.graphlib.Graph()
+  g.setDefaultEdgeLabel(() => ({}))
+  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60, marginx: 40, marginy: 40 })
+
+  for (const node of nodes) {
+    const isMilestone = node.type === 'milestone' || node.type === 'decision'
+    g.setNode(node.id, {
+      width: isMilestone ? MILESTONE_WIDTH : NODE_WIDTH,
+      height: isMilestone ? MILESTONE_HEIGHT : NODE_HEIGHT,
+    })
+  }
+
+  for (const edge of edges) {
+    g.setEdge(edge.source, edge.target)
+  }
+
+  dagre.layout(g)
+
+  return nodes.map((node) => {
+    const pos = g.node(node.id)
+    const isMilestone = node.type === 'milestone' || node.type === 'decision'
+    const w = isMilestone ? MILESTONE_WIDTH : NODE_WIDTH
+    const h = isMilestone ? MILESTONE_HEIGHT : NODE_HEIGHT
+    return {
+      ...node,
+      position: { x: pos.x - w / 2, y: pos.y - h / 2 },
+    }
+  })
+}
 
 interface PlanGraphProps {
   projectId: string
@@ -48,31 +97,7 @@ export function PlanGraph({ projectId }: PlanGraphProps) {
     loadPlan(projectId)
   }, [projectId, loadPlan])
 
-  // Convert store data → React Flow nodes
-  const rfNodes = useMemo<Node[]>(() => {
-    return planNodes.map((node) => {
-      const nodeType = node.type === 'milestone' || node.type === 'decision'
-        ? node.type
-        : 'task'
-
-      return {
-        id: node.id,
-        type: nodeType,
-        position: node.position ?? { x: 0, y: 0 },
-        data: {
-          label: node.title,
-          description: node.description,
-          status: node.status,
-          priority: node.priority,
-          estimate: node.estimate,
-          nodeType: node.type ?? 'task',
-          selected: node.id === selectedNodeId,
-        },
-      }
-    })
-  }, [planNodes, selectedNodeId])
-
-  // Convert store data → React Flow edges
+  // Convert store data → React Flow edges (computed first for layout)
   const rfEdges = useMemo<Edge[]>(() => {
     // Find active node IDs for edge animation
     const activeNodeIds = new Set(
@@ -95,6 +120,35 @@ export function PlanGraph({ projectId }: PlanGraphProps) {
       },
     }))
   }, [planEdges, planNodes])
+
+  // Convert store data → React Flow nodes, with auto-layout when positions overlap
+  const rfNodes = useMemo<Node[]>(() => {
+    const rawNodes = planNodes.map((node) => {
+      const nodeType = node.type === 'milestone' || node.type === 'decision'
+        ? node.type
+        : 'task'
+
+      return {
+        id: node.id,
+        type: nodeType,
+        position: node.position ?? { x: 0, y: 0 },
+        data: {
+          label: node.title,
+          description: node.description,
+          status: node.status,
+          priority: node.priority,
+          estimate: node.estimate,
+          nodeType: node.type ?? 'task',
+          selected: node.id === selectedNodeId,
+        },
+      }
+    })
+
+    // Always apply dagre layout — stored positions from the backend are
+    // unreliable in the desktop frontend (user-added nodes default to 0,0
+    // and clash with existing nodes).
+    return applyDagreLayout(rawNodes, rfEdges)
+  }, [planNodes, selectedNodeId, rfEdges])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges)

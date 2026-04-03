@@ -21,8 +21,11 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@desktop/*": ["./src/*"]
+      "@desktop/*": ["./src/*"],
+      "@/lib/supabase-client": ["./src/shims/supabase-client.ts"],
+      "@/lib/api-url": ["./src/shims/api-url.ts"],
+      "@/*": ["../../src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../../src"]
 }

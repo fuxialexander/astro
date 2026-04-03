@@ -10,6 +10,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { writeTerminal } from '@desktop/lib/tauri-bridge'
 import '@xterm/xterm/css/xterm.css'
 
@@ -30,31 +31,34 @@ export function TerminalTab({ sessionId, active }: TerminalTabProps) {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: 12,
       fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
-      lineHeight: 1.3,
+      lineHeight: 1,
       scrollback: 10000,
       theme: {
-        background: 'transparent',
-        foreground: '#d4d4d4',
-        cursor: '#aeafad',
-        selectionBackground: '#264f78',
-        black: '#1e1e1e',
-        red: '#f44747',
-        green: '#6a9955',
-        yellow: '#d7ba7d',
-        blue: '#569cd6',
-        magenta: '#c586c0',
-        cyan: '#4ec9b0',
-        white: '#d4d4d4',
-        brightBlack: '#808080',
-        brightRed: '#f44747',
-        brightGreen: '#6a9955',
-        brightYellow: '#d7ba7d',
-        brightBlue: '#569cd6',
-        brightMagenta: '#c586c0',
-        brightCyan: '#4ec9b0',
-        brightWhite: '#e5e5e5',
+        // Light theme matching app palette
+        background: '#ffffff',
+        foreground: '#1a1a1a',
+        cursor: '#333333',
+        cursorAccent: '#ffffff',
+        selectionBackground: '#b4d5fe',
+        selectionForeground: '#1a1a1a',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#00bc00',
+        yellow: '#949800',
+        blue: '#0451a5',
+        magenta: '#bc05bc',
+        cyan: '#0598bc',
+        white: '#555555',
+        brightBlack: '#686868',
+        brightRed: '#cd3131',
+        brightGreen: '#14ce14',
+        brightYellow: '#b5ba00',
+        brightBlue: '#0451a5',
+        brightMagenta: '#bc05bc',
+        brightCyan: '#0598bc',
+        brightWhite: '#a5a5a5',
       },
     })
 
@@ -75,6 +79,12 @@ export function TerminalTab({ sessionId, active }: TerminalTabProps) {
     }
 
     fitAddon.fit()
+    // Initial PTY size sync — use actual rendered dimensions
+    void invoke('resize_terminal', {
+      id: sessionId,
+      cols: term.cols,
+      rows: term.rows,
+    })
 
     // Handle user input → send to Rust PTY
     term.onData((data: string) => {
@@ -104,16 +114,17 @@ export function TerminalTab({ sessionId, active }: TerminalTabProps) {
     }
   }, [sessionId])
 
-  // Auto-fit on visibility change and resize
+  // Fit xterm to container AND sync PTY dimensions in Rust
   const fit = useCallback(() => {
-    if (active && fitAddonRef.current) {
-      try {
-        fitAddonRef.current.fit()
-      } catch {
-        // Ignore fit errors during transitions
-      }
+    if (!active || !fitAddonRef.current || !termRef.current) return
+    try {
+      fitAddonRef.current.fit()
+      const { cols, rows } = termRef.current
+      void invoke('resize_terminal', { id: sessionId, cols, rows })
+    } catch {
+      // Ignore fit errors during panel transitions
     }
-  }, [active])
+  }, [active, sessionId])
 
   useEffect(() => {
     fit()
@@ -144,7 +155,7 @@ export function TerminalTab({ sessionId, active }: TerminalTabProps) {
       className="w-full h-full"
       style={{
         display: active ? 'block' : 'none',
-        backgroundColor: '#1e1e1e',
+        backgroundColor: '#ffffff',
         padding: '4px 0 0 8px',
       }}
     />

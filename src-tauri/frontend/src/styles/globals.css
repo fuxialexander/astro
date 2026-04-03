@@ -24,6 +24,16 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-tile: var(--tile);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
 
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -64,6 +74,16 @@
   --border: #E4E4E7;
   --input: #E4E4E7;
   --ring: #4A6D8A;
+  --tile: #FFFFFF;
+
+  --sidebar: #FAFAFA;
+  --sidebar-foreground: #71717A;
+  --sidebar-accent: #F4F4F5;
+  --sidebar-accent-foreground: #1A1A1A;
+  --sidebar-border: #E4E4E7;
+  --sidebar-primary: #4A6D8A;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-ring: #E4E4E7;
 
   --success: #5F8D6B;
   --success-foreground: #FFFFFF;
@@ -96,8 +116,22 @@
   --destructive: #D08080;
   --destructive-foreground: #0C0C0E;
   --border: #262629;
+  --border-subtle: #262629;
+  --border-strong: #363639;
   --input: #262629;
   --ring: #7FA8C4;
+  --tile: #151517;
+
+  --bg-elevated: #1C1C1F;
+
+  --sidebar: #151517;
+  --sidebar-foreground: #808085;
+  --sidebar-accent: #1C1C1F;
+  --sidebar-accent-foreground: #ECECEA;
+  --sidebar-border: #262629;
+  --sidebar-primary: #7FA8C4;
+  --sidebar-primary-foreground: #0C0C0E;
+  --sidebar-ring: #262629;
 
   --success: #82B888;
   --success-foreground: #0C0C0E;
@@ -122,6 +156,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
   /* Prevent text selection in desktop app chrome */
   user-select: none;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "DM Sans", sans-serif;
 }
 
 /* Allow text selection in content areas */
@@ -150,6 +187,112 @@ code {
   opacity: 0.5;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   LIQUID GLASS — translucent panels with depth and light refraction
+   ═══════════════════════════════════════════════════════════════════════ */
+.glass-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 4px 24px -4px rgba(0, 0, 0, 0.08);
+}
+
+:root:not(.dark) .glass-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8),
+    0 4px 24px -4px rgba(0, 0, 0, 0.06);
+}
+
+.glass-panel-subtle {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+:root:not(.dark) .glass-panel-subtle {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STAGGER ANIMATIONS — orchestrated entrance for dashboard tiers
+   ═══════════════════════════════════════════════════════════════════════ */
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-stagger > * {
+  opacity: 0;
+  animation: slide-up-fade 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.animate-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.animate-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.animate-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.animate-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.animate-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.animate-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.animate-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.animate-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.animate-stagger > *:nth-child(9) { animation-delay: 480ms; }
+.animate-stagger > *:nth-child(10) { animation-delay: 540ms; }
+
+@keyframes subtle-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.animate-float {
+  animation: subtle-float 3s ease-in-out infinite;
+}
+
+@keyframes shimmer-slide {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.glass-shimmer {
+  background-image: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.05) 37%,
+    transparent 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-slide 4s ease-in-out infinite;
+}
+
+:root:not(.dark) .glass-shimmer {
+  background-image: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.4) 37%,
+    transparent 63%
+  );
+}
+
 /* Fade-in animation */
 .animate-reveal {
   animation: fade-in 200ms ease-out;
@@ -157,4 +300,250 @@ code {
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SHEET ANIMATIONS — slide-in panels
+   ═══════════════════════════════════════════════════════════════════════ */
+@keyframes sheet-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes sheet-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes sheet-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sheet-overlay[data-state="open"] {
+  animation: sheet-fade-in 200ms ease-out;
+}
+.sheet-overlay[data-state="closed"] {
+  animation: sheet-fade-out 200ms ease-in;
+}
+.sheet-content[data-state="open"] {
+  animation: sheet-slide-in 300ms ease-out;
+}
+.sheet-content[data-state="closed"] {
+  animation: sheet-slide-out 200ms ease-in;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GITHUB SURFACES
+   ═══════════════════════════════════════════════════════════════════════ */
+@keyframes agent-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(127, 168, 196, 0.4); }
+  50%      { box-shadow: 0 0 0 5px rgba(127, 168, 196, 0); }
+}
+
+@keyframes merge-glow-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+.gh-card {
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.gh-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.14);
+}
+
+.gh-card-merge {
+  background: color-mix(in srgb, var(--card) 88%, var(--success) 12%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent),
+    0 2px 12px -2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.gh-card-merge:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--success) 28%, transparent),
+    0 8px 24px -8px rgba(0, 0, 0, 0.14);
+}
+
+.gh-action-btn {
+  background: color-mix(in srgb, var(--card) 86%, var(--primary) 14%);
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
+  color: var(--primary);
+  box-shadow: 0 1px 6px -2px rgba(0, 0, 0, 0.12);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.gh-action-btn:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--card) 80%, var(--primary) 20%);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.22);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SYNTAX HIGHLIGHTING — Morandi-tinted
+   ═══════════════════════════════════════════════════════════════════════ */
+.hljs {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8B8B85;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #B07B8B;
+  font-weight: 600;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  color: #BDA26B;
+}
+
+.hljs-string,
+.hljs-doctag {
+  color: #7B9B7D;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #5B7F9A;
+  font-weight: 600;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #8B7BAD;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  color: #B07B8B;
+}
+
+.hljs-regexp,
+.hljs-link {
+  color: #7B97AD;
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  color: #BDA26B;
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #7B7BAD;
+}
+
+.hljs-meta {
+  color: #8B8B85;
+}
+
+.hljs-deletion {
+  background: #F2E0E0;
+  color: #8B4040;
+}
+
+.hljs-addition {
+  background: #E0EDDF;
+  color: #3D6640;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Dark mode syntax highlighting */
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: #606065;
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-subst {
+  color: #CCA0AF;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-variable,
+.dark .hljs-template-variable,
+.dark .hljs-tag .hljs-attr {
+  color: #CDB47A;
+}
+
+.dark .hljs-string,
+.dark .hljs-doctag {
+  color: #82B888;
+}
+
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-selector-id {
+  color: #8AAEC4;
+}
+
+.dark .hljs-type,
+.dark .hljs-class .hljs-title {
+  color: #A898C0;
+}
+
+.dark .hljs-deletion {
+  background: #301818;
+  color: #D0A0A0;
+}
+
+.dark .hljs-addition {
+  background: #183018;
+  color: #82B888;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STREAMING CURSOR
+   ═══════════════════════════════════════════════════════════════════════ */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-cursor::after {
+  content: '▍';
+  display: inline;
+  color: var(--color-primary);
+  animation: cursor-blink 0.7s step-end infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   REACT FLOW — prevent text selection during drag
+   ═══════════════════════════════════════════════════════════════════════ */
+.react-flow__pane,
+.react-flow__node,
+.react-flow__renderer {
+  -webkit-user-select: none;
+  user-select: none;
 }

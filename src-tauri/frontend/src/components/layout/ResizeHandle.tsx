@@ -21,8 +21,7 @@ export function ResizeHandle({ onMouseDown, onDoubleClick, className }: ResizeHa
   return (
     <div
       className={cn(
-        'relative flex-shrink-0 w-[5px] cursor-col-resize group select-none',
-        'hover:bg-transparent',
+        'relative flex-shrink-0 w-px cursor-col-resize group select-none',
         className,
       )}
       onMouseDown={onMouseDown}
@@ -32,11 +31,10 @@ export function ResizeHandle({ onMouseDown, onDoubleClick, className }: ResizeHa
       role="separator"
       aria-orientation="vertical"
     >
-      {/* The visible indicator bar — centered, only a few px wide */}
       <div
         className={cn(
-          'absolute inset-y-0 left-[2px] w-[1px] transition-all duration-150',
-          hovered ? 'bg-primary/60 w-[2px] left-[1px]' : 'bg-border',
+          'absolute inset-y-0 inset-x-0 transition-colors duration-150',
+          hovered ? 'bg-primary/60' : 'bg-border',
         )}
       />
     </div>

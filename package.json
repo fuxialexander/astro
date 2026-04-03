@@ -49,9 +49,9 @@
     "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
     "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
     "postinstall": "[ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true",
-    "tauri:dev": "tsx scripts/build-sidecar.ts --skip-verify && cd src-tauri && cargo tauri dev",
-    "tauri:build": "tsx scripts/build-sidecar.ts && cd src-tauri/frontend && npm run build && cd .. && cargo tauri build",
-    "tauri:build:debug": "tsx scripts/build-sidecar.ts --debug && cd src-tauri/frontend && npm run build && cd .. && cargo tauri build --debug",
+    "tauri:dev": "tsx scripts/build-sidecar.ts --skip-verify && cargo tauri dev",
+    "tauri:build": "tsx scripts/build-sidecar.ts && cargo tauri build",
+    "tauri:build:debug": "tsx scripts/build-sidecar.ts --debug && cargo tauri build --debug",
     "tauri:sidecar": "tsx scripts/build-sidecar.ts",
     "tauri:test": "bash scripts/test-tauri-build.sh",
     "prepare": "husky"

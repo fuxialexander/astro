@@ -108,6 +108,7 @@ export function createApp() {
   // Set CORS_ORIGIN and/or FRONTEND_URL in deployment config (fly.toml, .env).
   const ALLOWED_ORIGINS = [
     'http://localhost:5173',
+    'http://localhost:5174', // Tauri desktop dev frontend
     process.env.CORS_ORIGIN,
     process.env.FRONTEND_URL,
   ].filter(Boolean) as string[]

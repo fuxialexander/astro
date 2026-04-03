@@ -6,11 +6,10 @@
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5174",
-    "beforeDevCommand": "cd frontend && npm run dev -- --port 5174",
-    "beforeBuildCommand": "cd frontend && npm run build"
+    "beforeDevCommand": "cd src-tauri/frontend && npm run dev -- --port 5174 --host",
+    "beforeBuildCommand": "cd src-tauri/frontend && npm run build"
   },
   "app": {
-    "title": "Astro Desktop",
     "windows": [
       {
         "title": "Astro",
@@ -21,6 +20,8 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "center": true
       }
     ],

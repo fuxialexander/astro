@@ -1,20 +1,43 @@
 /**
- * useSidecar — polls sidecar_status until healthy.
+ * useSidecar — polls the backend API health endpoint until healthy.
+ *
+ * In desktop mode, the app connects to an existing Astro backend rather
+ * than managing its own sidecar process. The backend URL is read from
+ * localStorage (key: "astro-desktop-api-url") with a fallback to
+ * localhost:3001 (local dev) or the production API.
  *
  * Returns { ready, error, status } so the app shell can show
- * a splash screen until the sidecar agent is up.
+ * a splash screen until the backend is reachable.
  */
 import { useEffect, useRef, useState } from 'react'
-import { getSidecarStatus, startSidecar } from '@desktop/lib/tauri-bridge'
+import { setBaseUrl, getBaseUrl } from '@desktop/lib/api-client'
 import type { SidecarStatus } from '@desktop/types'
 
-const POLL_INTERVAL_MS = 200
-const MAX_RETRIES = 150 // 30 seconds max
+const POLL_INTERVAL_MS = 500
+const MAX_RETRIES = 60 // 30 seconds max
+
+/** Candidate URLs to try in order if no saved URL is found. */
+const CANDIDATE_URLS = [
+  'https://api.astroanywhere.com', // production (default)
+  'http://localhost:3001',         // local npm run dev
+]
 
 export interface UseSidecarResult {
   ready: boolean
   error: string | null
   status: SidecarStatus | null
+}
+
+async function checkHealth(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export function useSidecar(): UseSidecarResult {
@@ -30,32 +53,47 @@ export function useSidecar(): UseSidecarResult {
     const poll = async () => {
       if (cancelled) return
 
-      try {
-        const s = await getSidecarStatus()
-        if (cancelled) return
-        setStatus(s)
-
-        if (s.running) {
-          setReady(true)
-          return
+      // On first attempt, discover the right URL to use
+      if (retriesRef.current === 0) {
+        const saved = localStorage.getItem('astro-desktop-api-url')
+        if (saved) {
+          setBaseUrl(saved)
         }
+      }
 
-        // Try to start the sidecar if not running and this is the first few attempts
-        if (retriesRef.current === 0 || retriesRef.current === 5) {
-          try {
-            await startSidecar()
-          } catch {
-            // Ignore — sidecar might already be starting
+      const currentUrl = getBaseUrl()
+      const healthy = await checkHealth(currentUrl)
+
+      if (cancelled) return
+
+      if (healthy) {
+        setStatus({ running: true })
+        setReady(true)
+        return
+      }
+
+      // On first failure, try candidate URLs before giving up
+      if (retriesRef.current === 0) {
+        for (const url of CANDIDATE_URLS) {
+          if (url === currentUrl) continue
+          const ok = await checkHealth(url)
+          if (ok) {
+            setBaseUrl(url)
+            localStorage.setItem('astro-desktop-api-url', url)
+            setStatus({ running: true })
+            setReady(true)
+            return
           }
         }
-      } catch {
-        // Sidecar not reachable yet — that's expected during startup
       }
 
       retriesRef.current++
       if (retriesRef.current >= MAX_RETRIES) {
         if (!cancelled) {
-          setError('Sidecar agent failed to start after 30 seconds')
+          setError(
+            `Cannot reach Astro backend at ${currentUrl}.\n` +
+            `Make sure the server is running (npm run dev) or configure the API URL in settings.`
+          )
         }
         return
       }

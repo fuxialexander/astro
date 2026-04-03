@@ -3,33 +3,32 @@
  *
  * Panels (left → right):
  *   1. Sidebar (default 280 px, collapsible) — project list + navigation
- *   2. Main panel (flex-1) — active content via <Outlet />
- *   3. Review panel (default 400 px, collapsible) — review / diff / context
+ *   2. Main panel (flex-1) — active content via <Outlet /> + bottom terminal
+ *   3. Review panel (default 400 px, collapsible) — activity / changes / file
  *
  * Keyboard shortcuts:
  *   Cmd+B  toggle sidebar
- *   Cmd+J  toggle review panel
+ *   Cmd+J  toggle bottom terminal
  *   Cmd+1  focus sidebar
  *   Cmd+2  focus main
  *   Cmd+3  focus review panel
  *   Cmd+K  open command palette
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Outlet, useParams } from 'react-router'
+import { Outlet, useParams, useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
-import { PanelRightOpen } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 
 import { useLayoutStore } from '@desktop/stores/layout-store'
 import { useProjectStore } from '@desktop/stores/project-store'
-import { useFileStore } from '@desktop/stores/file-store'
 import { ProjectSidebar } from '@desktop/components/sidebar/ProjectSidebar'
 import { FileBrowser } from '@desktop/components/files/FileBrowser'
-import { DiffViewer } from '@desktop/components/review/DiffViewer'
+import { GitChangesPanel } from '@desktop/components/git/GitChangesPanel'
 import { ResizeHandle } from '@desktop/components/layout/ResizeHandle'
-import { PanelHeader } from '@desktop/components/layout/PanelHeader'
+import { WorkspaceHeader } from '@desktop/components/layout/WorkspaceHeader'
+import { StatusBar } from '@desktop/components/layout/StatusBar'
 import { CommandPalette } from '@desktop/components/common/CommandPalette'
-import { ActivityFeed } from '@desktop/components/activity/ActivityFeed'
-import { cn } from '@desktop/lib/utils'
+import { TerminalPanel } from '@desktop/components/terminal/TerminalPanel'
 
 // Smooth 200 ms ease-in-out for collapse/expand
 const PANEL_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] as number[] }
@@ -40,54 +39,96 @@ export function WorkspaceLayout() {
   const {
     sidebarWidth,
     reviewWidth,
+    terminalHeight,
     sidebarOpen,
     reviewOpen,
-    activePanel,
+    terminalOpen,
     setSidebarWidth,
     setReviewWidth,
+    setTerminalHeight,
     toggleSidebar,
     toggleReview,
+    toggleTerminal,
     setActivePanel,
     toggleCommandPalette,
   } = useLayoutStore()
 
   const { id: projectId } = useParams<{ id: string }>()
   const projects = useProjectStore((s) => s.projects)
-  const selectedFile = useFileStore((s) => s.selectedFile)
-  const setSelectedFile = useFileStore((s) => s.setSelectedFile)
 
   // Derive the working directory from the active project
   const activeProject = projects.find((p) => p.id === projectId)
   const workingDirectory = activeProject?.workingDirectory ?? null
 
+  const setDiffStats = useLayoutStore((s) => s.setDiffStats)
+
   // Track whether user is currently dragging a resize handle
   const [isResizing, setIsResizing] = useState(false)
-  // Track whether the review panel is showing a file (DiffViewer) or activity
-  const [reviewMode, setReviewMode] = useState<'activity' | 'file'>('activity')
 
-  // When a file is selected in the file browser, open it in the review panel
+  // When a file is selected in the file browser, open the review panel
   const handleFileSelect = useCallback(
-    (path: string) => {
-      setSelectedFile(path)
-      setReviewMode('file')
-      if (!reviewOpen) {
-        toggleReview()
-      }
+    (_path: string) => {
+      if (!reviewOpen) toggleReview()
     },
-    [setSelectedFile, reviewOpen, toggleReview],
+    [reviewOpen, toggleReview],
   )
 
   // Refs used only inside event handlers — no renders needed
-  const resizingPanelRef = useRef<'sidebar' | 'review' | null>(null)
+  const resizingPanelRef = useRef<'sidebar' | 'review' | 'terminal' | null>(null)
   const startXRef = useRef(0)
+  const startYRef = useRef(0)
   const startWidthRef = useRef(0)
+  const startHeightRef = useRef(0)
+
+  const navigate = useNavigate()
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
+      const shift = e.shiftKey
+
+      // Non-modifier shortcuts (vim-style) — only when not in input/textarea
+      if (!mod && !shift) {
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+
+        switch (e.key) {
+          case '/':
+            e.preventDefault()
+            // Focus sidebar search input
+            document.querySelector<HTMLInputElement>('[data-sidebar-search]')?.focus()
+            break
+          case 'Escape':
+            // Blur any focused input
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            break
+        }
+        return
+      }
+
       if (!mod) return
 
+      // Cmd+Shift combinations
+      if (shift) {
+        switch (e.key.toUpperCase()) {
+          case 'D':
+            e.preventDefault()
+            navigate('/')
+            break
+          case 'E':
+            e.preventDefault()
+            navigate('/environments')
+            break
+          case 'G':
+            e.preventDefault()
+            toggleReview()
+            break
+        }
+        return
+      }
+
+      // Cmd combinations
       switch (e.key) {
         case 'b':
           e.preventDefault()
@@ -95,7 +136,11 @@ export function WorkspaceLayout() {
           break
         case 'j':
           e.preventDefault()
-          toggleReview()
+          toggleTerminal()
+          break
+        case '`':
+          e.preventDefault()
+          toggleTerminal()
           break
         case '1':
           e.preventDefault()
@@ -113,31 +158,46 @@ export function WorkspaceLayout() {
           e.preventDefault()
           toggleCommandPalette()
           break
+        case 'n':
+          e.preventDefault()
+          navigate('/')
+          // Trigger new project mode via a custom event
+          window.dispatchEvent(new CustomEvent('astro:new-project'))
+          break
+        case 's':
+          e.preventDefault()
+          // Trigger git commit via custom event
+          window.dispatchEvent(new CustomEvent('astro:git-commit'))
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleSidebar, toggleReview, setActivePanel, toggleCommandPalette])
+  }, [toggleSidebar, toggleTerminal, toggleReview, setActivePanel, toggleCommandPalette, navigate])
 
   // ── Resize drag handling ────────────────────────────────────────────
-  const startResize = (panel: 'sidebar' | 'review', e: React.MouseEvent) => {
+  const startResize = (panel: 'sidebar' | 'review' | 'terminal', e: React.MouseEvent) => {
     e.preventDefault()
     resizingPanelRef.current = panel
     startXRef.current = e.clientX
+    startYRef.current = e.clientY
     startWidthRef.current = panel === 'sidebar' ? sidebarWidth : reviewWidth
+    startHeightRef.current = terminalHeight
     setIsResizing(true)
-    document.body.style.cursor = 'col-resize'
+    document.body.style.cursor = panel === 'terminal' ? 'row-resize' : 'col-resize'
     document.body.style.userSelect = 'none'
   }
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!resizingPanelRef.current) return
-      const delta = e.clientX - startXRef.current
-      if (resizingPanelRef.current === 'sidebar') {
-        setSidebarWidth(startWidthRef.current + delta)
+      if (resizingPanelRef.current === 'terminal') {
+        const delta = startYRef.current - e.clientY
+        setTerminalHeight(startHeightRef.current + delta)
+      } else if (resizingPanelRef.current === 'sidebar') {
+        setSidebarWidth(startWidthRef.current + (e.clientX - startXRef.current))
       } else {
-        setReviewWidth(startWidthRef.current - delta)
+        setReviewWidth(startWidthRef.current - (e.clientX - startXRef.current))
       }
     }
 
@@ -155,14 +215,16 @@ export function WorkspaceLayout() {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [setSidebarWidth, setReviewWidth])
+  }, [setSidebarWidth, setReviewWidth, setTerminalHeight])
 
   const transition = isResizing ? NO_TRANSITION : PANEL_TRANSITION
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-background">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background">
       {/* Global command palette — rendered once, globally accessible */}
       <CommandPalette />
+
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* ── Sidebar ───────────────────────────────────────────────── */}
       <motion.div
@@ -171,15 +233,14 @@ export function WorkspaceLayout() {
         style={{ overflow: 'hidden', flexShrink: 0, minWidth: 0 }}
         onClick={() => setActivePanel('sidebar')}
       >
-        {/* Inner div holds the actual sidebar at full width so content */}
-        {/* doesn't squeeze during animation — the outer clips it. */}
         <div
           style={{ width: sidebarWidth, height: '100%', minWidth: sidebarWidth }}
           className="border-r flex flex-col"
         >
+          {/* Traffic-light drag region */}
+          <div className="h-[52px] flex-shrink-0" data-tauri-drag-region />
           <div className="flex-1 min-h-0 flex flex-col">
             <ProjectSidebar />
-            {/* File browser — shown when a project is active */}
             {projectId && workingDirectory && (
               <div className="border-t flex-1 min-h-0 overflow-hidden">
                 <FileBrowser
@@ -194,102 +255,89 @@ export function WorkspaceLayout() {
 
       {/* Sidebar resize handle */}
       {sidebarOpen && (
-        <ResizeHandle
-          onMouseDown={(e) => startResize('sidebar', e)}
-        />
+        <ResizeHandle onMouseDown={(e) => startResize('sidebar', e)} />
       )}
 
       {/* ── Main panel ────────────────────────────────────────────── */}
       <div
-        className={cn(
-          'flex-1 min-w-0 overflow-hidden flex flex-col',
-          activePanel === 'main' && 'ring-inset ring-0',
-        )}
+        className="flex-1 min-w-0 flex flex-col"
         onClick={() => setActivePanel('main')}
       >
-        <Outlet />
+        {/* Traffic-light drag region — only when no project is open (welcome screen).
+            When a project is open, WorkspaceHeader provides its own draggable spacer. */}
+        {!projectId && <div className="h-[52px] flex-shrink-0" data-tauri-drag-region />}
+
+        {/* ── Workspace header — full-width, never compressed by review panel ── */}
+        {projectId && <WorkspaceHeader />}
+
+        {/* ── Workspace + review panel side by side ── */}
+        <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
+          <div className="flex-1 min-w-0 overflow-hidden relative">
+            <Outlet />
+          </div>
+
+          {/* Review panel resize handle — inside content area */}
+          {reviewOpen && (
+            <ResizeHandle onMouseDown={(e) => startResize('review', e)} />
+          )}
+
+          {/* ── Review panel ── */}
+          <motion.div
+            animate={{ width: reviewOpen ? reviewWidth : 0 }}
+            transition={transition}
+            style={{ overflow: 'hidden', flexShrink: 0, minWidth: 0 }}
+            onClick={() => setActivePanel('review')}
+          >
+            <div
+              style={{ width: reviewWidth, height: '100%', minWidth: reviewWidth }}
+              className="border-l flex flex-col"
+            >
+              <GitChangesPanel
+                repoPath={workingDirectory}
+                onStatsChange={setDiffStats}
+              />
+            </div>
+          </motion.div>
+        </div>
+
+        {/* ── Bottom terminal resize handle ─── */}
+        {terminalOpen && (
+          <div
+            className="h-1 flex-shrink-0 cursor-row-resize hover:bg-primary/30 transition-colors group border-t"
+            onMouseDown={(e) => startResize('terminal', e)}
+          >
+            <div className="w-8 h-0.5 bg-muted-foreground/20 group-hover:bg-primary/50 mx-auto mt-0.5 rounded-full transition-colors" />
+          </div>
+        )}
+
+        {/* ── Bottom terminal ─────────────────── */}
+        <motion.div
+          animate={{ height: terminalOpen ? terminalHeight : 0 }}
+          transition={transition}
+          style={{ overflow: 'hidden', flexShrink: 0 }}
+        >
+          <div style={{ height: terminalHeight }} className="flex flex-col border-t bg-background">
+            <div className="flex items-center gap-2 px-3 h-8 flex-shrink-0 bg-muted/30 border-b">
+              <span className="text-[11px] text-muted-foreground font-medium">Terminal</span>
+              <div className="flex-1" />
+              <button
+                onClick={toggleTerminal}
+                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Close terminal (⌘J)"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <TerminalPanel cwd={workingDirectory} />
+            </div>
+          </div>
+        </motion.div>
+      </div>
       </div>
 
-      {/* Review panel resize handle */}
-      {reviewOpen && (
-        <ResizeHandle
-          onMouseDown={(e) => startResize('review', e)}
-        />
-      )}
-
-      {/* ── Review panel ──────────────────────────────────────────── */}
-      <motion.div
-        animate={{ width: reviewOpen ? reviewWidth : 0 }}
-        transition={transition}
-        style={{ overflow: 'hidden', flexShrink: 0, minWidth: 0 }}
-        onClick={() => setActivePanel('review')}
-      >
-        <div
-          style={{ width: reviewWidth, height: '100%', minWidth: reviewWidth }}
-          className="border-l flex flex-col"
-        >
-          {/* Review panel tab bar */}
-          <div className="flex items-center border-b flex-shrink-0">
-            <button
-              onClick={() => setReviewMode('activity')}
-              className={cn(
-                'px-3 py-2 text-xs transition-colors duration-100',
-                reviewMode === 'activity'
-                  ? 'text-foreground border-b-2 border-primary font-medium'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Activity
-            </button>
-            <button
-              onClick={() => setReviewMode('file')}
-              className={cn(
-                'px-3 py-2 text-xs transition-colors duration-100',
-                reviewMode === 'file'
-                  ? 'text-foreground border-b-2 border-primary font-medium'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              File
-            </button>
-            <div className="flex-1" />
-            <PanelHeader
-              title=""
-              side="right"
-              onCollapse={toggleReview}
-            />
-          </div>
-          <div className="flex-1 overflow-hidden">
-            {reviewMode === 'activity' ? (
-              <ActivityFeed />
-            ) : (
-              <DiffViewer
-                filePath={selectedFile}
-                onClose={() => {
-                  setSelectedFile(null)
-                  setReviewMode('activity')
-                }}
-              />
-            )}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Review panel open button (when closed) */}
-      {!reviewOpen && (
-        <button
-          onClick={toggleReview}
-          className={cn(
-            'flex-shrink-0 flex items-center justify-center w-7',
-            'border-l text-muted-foreground',
-            'hover:bg-muted hover:text-foreground',
-            'transition-colors duration-150',
-          )}
-          title="Open review panel (⌘J)"
-        >
-          <PanelRightOpen className="w-3.5 h-3.5" />
-        </button>
-      )}
+      {/* ── Global bottom status bar ───────────────────── */}
+      <StatusBar />
     </div>
   )
 }

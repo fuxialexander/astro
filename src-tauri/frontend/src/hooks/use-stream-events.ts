@@ -37,6 +37,7 @@ export function useStreamEvents({ projectId, enabled = true }: UseStreamEventsOp
       const data = event.data as Record<string, unknown> | undefined
 
       switch (event.type) {
+        // ── Legacy format ─────────────────────────────────────────
         case 'text': {
           const text = (data?.text ?? data?.content ?? '') as string
           if (text) appendStreamChunk(text)
@@ -74,10 +75,7 @@ export function useStreamEvents({ projectId, enabled = true }: UseStreamEventsOp
         case 'progress': {
           const nodeId = data?.nodeId as string | undefined
           const status = data?.status as PlanNodeStatus | undefined
-          if (nodeId && status) {
-            updateNodeStatus(nodeId, status)
-          }
-
+          if (nodeId && status) updateNodeStatus(nodeId, status)
           addEvent({
             id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             type: mapProgressToActivityType(status),
@@ -102,21 +100,22 @@ export function useStreamEvents({ projectId, enabled = true }: UseStreamEventsOp
         }
 
         case 'error': {
-          addEvent({
-            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            type: 'error',
-            title: 'Error',
-            description: (data?.message ?? data?.error ?? 'Unknown error') as string,
-            timestamp: new Date().toISOString(),
-          })
+          const message = (data?.message ?? data?.error) as string | undefined
+          if (message) {
+            addEvent({
+              id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'error',
+              title: 'Error',
+              description: message,
+              timestamp: new Date().toISOString(),
+            })
+          }
           break
         }
 
         case 'result': {
           const nodeId = data?.nodeId as string | undefined
-          if (nodeId) {
-            updateNodeStatus(nodeId, 'completed')
-          }
+          if (nodeId) updateNodeStatus(nodeId, 'completed')
           addEvent({
             id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             type: 'task_completed',
@@ -129,7 +128,85 @@ export function useStreamEvents({ projectId, enabled = true }: UseStreamEventsOp
           break
         }
 
-        // heartbeat, init, session_init — no-op
+        // ── Relay format from /api/events ─────────────────────────
+        case 'task:stdout': {
+          // { taskId, data: string } — batched text output from the agent
+          const text = (data as Record<string, unknown>)?.data as string | undefined
+          if (text) appendStreamChunk(text)
+          break
+        }
+
+        case 'task:tool_trace': {
+          // { taskId, toolName, toolInput, toolResult, success, toolUseId? }
+          const d = data as Record<string, unknown>
+          const useBlock: ToolBlock = {
+            id: (d?.toolUseId ?? `tool-${Date.now()}`) as string,
+            type: 'tool_use',
+            toolName: (d?.toolName ?? 'unknown') as string,
+            input: d?.toolInput,
+          }
+          appendToolBlock(useBlock)
+          if (d?.toolResult !== undefined) {
+            const resultBlock: ToolBlock = {
+              id: `result-${Date.now()}`,
+              type: 'tool_result',
+              toolName: (d?.toolName ?? 'unknown') as string,
+              output: typeof d.toolResult === 'string'
+                ? d.toolResult
+                : JSON.stringify(d.toolResult),
+              isError: !(d?.success as boolean),
+            }
+            appendToolBlock(resultBlock)
+          }
+          break
+        }
+
+        case 'task:result': {
+          const d = data as Record<string, unknown>
+          const nodeId = d?.nodeId as string | undefined
+          if (nodeId) updateNodeStatus(nodeId, 'completed')
+          addEvent({
+            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: 'task_completed',
+            title: (d?.title ?? 'Task completed') as string,
+            description: (d?.summary ?? '') as string,
+            nodeId,
+            timestamp: new Date().toISOString(),
+          })
+          finalizeStream()
+          break
+        }
+
+        case 'task:file_change': {
+          const d = data as Record<string, unknown>
+          addEvent({
+            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: 'file_change',
+            title: 'File changed',
+            description: (d?.path ?? '') as string,
+            timestamp: new Date().toISOString(),
+            metadata: d,
+          })
+          break
+        }
+
+        case 'task:progress': {
+          const d = data as Record<string, unknown>
+          const nodeId = d?.nodeId as string | undefined
+          const status = d?.status as PlanNodeStatus | undefined
+          if (nodeId && status) updateNodeStatus(nodeId, status)
+          addEvent({
+            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: mapProgressToActivityType(status),
+            title: (d?.title ?? `Task ${status ?? 'updated'}`) as string,
+            description: d?.message as string | undefined,
+            nodeId,
+            timestamp: new Date().toISOString(),
+          })
+          break
+        }
+
+        // heartbeat, init, session_init, task:session_init, task:operational, task:init, task:ready — no-op
         default:
           break
       }
@@ -138,7 +215,7 @@ export function useStreamEvents({ projectId, enabled = true }: UseStreamEventsOp
   )
 
   return useSSE({
-    path: `/api/events?projectId=${projectId}`,
+    path: `/api/events/stream?projectId=${projectId}`,
     onEvent,
     enabled,
   })

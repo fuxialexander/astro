@@ -72,13 +72,22 @@ export function useSSE({ path, onEvent, onOpen, onError, enabled = true }: UseSS
 
     // Also listen to named event types the server may send
     const namedTypes = [
+      // Legacy format
       'text', 'tool_use', 'tool_result', 'file_change',
       'progress', 'result', 'error', 'done', 'init',
       'session_init', 'heartbeat', 'aborted',
       'plan_result', 'chat_user', 'chat_assistant',
+      // Relay format from /api/events
+      'task:stdout', 'task:tool_trace', 'task:file_change',
+      'task:result', 'task:progress', 'task:session_init',
+      'task:operational', 'task:init', 'task:ready',
+      'task:steer_ack', 'task:plan_result',
     ]
     for (const eventType of namedTypes) {
-      source.addEventListener(eventType, (ev: MessageEvent) => {
+      source.addEventListener(eventType, (ev: Event) => {
+        // Skip connection-error events — onerror already handles those.
+        // Only dispatch real server-sent MessageEvents.
+        if (!(ev instanceof MessageEvent)) return
         try {
           const data = JSON.parse(ev.data as string) as unknown
           onEvent({ type: eventType, data })
