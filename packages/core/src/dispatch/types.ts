@@ -172,6 +172,34 @@ export interface AssembledContext {
   knowledgeEntries?: KnowledgeEntry[]
   /** Loop iteration context (injected for loop node iterations) */
   iterationContext?: string
+  /** Telegram conversation context (injected when task is dispatched from Telegram) */
+  telegramContext?: TelegramDispatchContext
+}
+
+/**
+ * Context for tasks dispatched from Telegram
+ */
+export interface TelegramDispatchContext {
+  /** Telegram chat ID of the originating conversation */
+  chatId: string
+  /** Recent conversation messages from the Telegram thread */
+  conversationHistory: TelegramMessage[]
+  /** User ID of the Telegram sender (Astro user ID, not Telegram user ID) */
+  userId?: string
+}
+
+/**
+ * A message from a Telegram conversation thread
+ */
+export interface TelegramMessage {
+  /** Sender name */
+  sender: string
+  /** Message text */
+  text: string
+  /** ISO timestamp */
+  timestamp: string
+  /** Whether this was sent by the bot (vs. the user) */
+  isBot: boolean
 }
 
 /**
@@ -244,7 +272,16 @@ export interface DispatchRequest {
   force?: boolean
   /** Dry run - don't actually dispatch, just validate */
   dryRun?: boolean
+  /** Origin of the dispatch request (e.g., 'web', 'telegram', 'cli') */
+  dispatchOrigin?: DispatchOrigin
+  /** Telegram context when dispatched from Telegram */
+  telegramContext?: TelegramDispatchContext
 }
+
+/**
+ * Origin of a dispatch request
+ */
+export type DispatchOrigin = 'web' | 'telegram' | 'cli' | 'api' | 'auto'
 
 /**
  * Result of a dispatch request

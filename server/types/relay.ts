@@ -367,6 +367,19 @@ export interface TaskDispatch {
    * `query({ resume: sessionId, forkSession: true })`.
    */
   forkSession?: boolean;
+
+  /**
+   * Origin of the dispatch request.
+   * When 'telegram', the agent has access to the telegram_reply MCP tool.
+   */
+  dispatchOrigin?: 'web' | 'telegram' | 'cli' | 'api' | 'auto';
+
+  /**
+   * Telegram chat ID of the originating conversation.
+   * Set when dispatchOrigin is 'telegram'. Passed to the MCP tools server
+   * as ASTRO_TELEGRAM_CHAT_ID so the agent can send replies.
+   */
+  telegramChatId?: string;
 }
 
 /** Structured execution summary produced by the agent after task completion */

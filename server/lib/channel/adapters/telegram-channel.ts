@@ -573,6 +573,43 @@ class TelegramChannelAdapter {
     }
   }
 
+  // ─── Agent reply (telegram_reply MCP tool) ─────────────────────
+
+  /**
+   * Send a reply from an agent execution back to a Telegram chat.
+   * Used by the telegram_reply MCP tool to enable proactive agent communication.
+   */
+  async sendAgentReply(
+    chatId: string,
+    message: string,
+    metadata?: { executionId?: string; nodeId?: string; projectId?: string }
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.botToken) {
+      return { success: false, error: 'Telegram adapter not configured' }
+    }
+
+    try {
+      // Format the message with agent attribution
+      const prefix = '🤖 <b>Agent Update</b>\n\n'
+      const suffix = metadata?.executionId
+        ? `\n\n<i>From execution ${metadata.executionId.slice(0, 8)}…</i>`
+        : ''
+      const fullMessage = `${prefix}${message}${suffix}`
+
+      const result = await sendMessage(this.botToken, chatId, fullMessage)
+
+      if (!result.ok) {
+        return { success: false, error: result.description || 'Failed to send message' }
+      }
+
+      return { success: true }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`[telegram] Agent reply failed for chat ${chatId}:`, errMsg)
+      return { success: false, error: errMsg }
+    }
+  }
+
   // ─── Public accessors for route handlers ───────────────────────
 
   getBotToken(): string | null {
