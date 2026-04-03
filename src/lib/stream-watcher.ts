@@ -27,9 +27,16 @@ export interface StreamWatcherCallbacks {
   onError?: (error: string) => void
 }
 
+/** How long (ms) without any activity before the watcher considers the stream dead. */
+const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes
+
 /**
  * Watch a stream's events via the realtime store.
  * Returns an unsubscribe function — call it on abort or cleanup.
+ *
+ * Includes a safety timeout: if no new events arrive for INACTIVITY_TIMEOUT_MS,
+ * the watcher fires onError to unblock the caller (prevents permanently stuck
+ * streamingSessions when task:result SSE events are lost).
  */
 export function watchStream(
   streamId: string,
@@ -37,8 +44,24 @@ export function watchStream(
 ): () => void {
   let prevStdoutLen = 0
   let prevToolTraceCount = 0
-  let prevStatus: string | undefined
   let done = false
+
+  // Initialize prevStatus from the current stream state so we don't
+  // accidentally detect a stale terminal status from a previous turn.
+  const initialStream = useRealtimeStore.getState().taskStreams.get(streamId)
+  let prevStatus: string | undefined = initialStream?.status
+
+  // Safety timeout — reset on every activity
+  let lastActivityTime = Date.now()
+  const timeoutTimer = setInterval(() => {
+    if (done) return
+    if (Date.now() - lastActivityTime > INACTIVITY_TIMEOUT_MS) {
+      done = true
+      clearInterval(timeoutTimer)
+      callbacks.onError?.('Stream timed out — no events received for 3 minutes. Try sending your message again.')
+      queueMicrotask(() => unsub())
+    }
+  }, 30_000) // check every 30s
 
   const unsub = useRealtimeStore.subscribe((state) => {
     if (done) return
@@ -49,6 +72,7 @@ export function watchStream(
     if (stream.stdout.length > prevStdoutLen) {
       const newText = stream.stdout.slice(prevStdoutLen)
       prevStdoutLen = stream.stdout.length
+      lastActivityTime = Date.now()
       callbacks.onTextChunk?.(newText)
     }
 
@@ -56,6 +80,7 @@ export function watchStream(
     const traces = stream.toolTraces
     for (let i = prevToolTraceCount; i < traces.length; i++) {
       const t = traces[i]
+      lastActivityTime = Date.now()
       if (t.toolInput !== undefined) callbacks.onToolUse?.(t.toolName)
       if (t.toolResult !== undefined) callbacks.onToolResult?.(t.toolName)
     }
@@ -69,6 +94,7 @@ export function watchStream(
         stream.status === "aborted" || stream.status === "cancelled"
       if (isTerminal) {
         done = true
+        clearInterval(timeoutTimer)
         if (stream.status === "error" || stream.status === "failure") {
           callbacks.onError?.(stream.error || "Unknown error")
         } else {
@@ -80,5 +106,12 @@ export function watchStream(
     }
   })
 
-  return unsub
+  // Wrap unsub to also clear the safety timeout
+  const cleanup = () => {
+    done = true
+    clearInterval(timeoutTimer)
+    unsub()
+  }
+
+  return cleanup
 }

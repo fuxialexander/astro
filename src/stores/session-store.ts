@@ -12,7 +12,7 @@
 
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
-import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, chatWithTask, generateTitle, abortAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { usePlanStore } from "./plan-store"
 import { useExecutionStore } from "./execution-store"
 import { useProjectStore } from "./project-store"
@@ -1293,6 +1293,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       controller.abort()
       chatAbortControllers.delete(sessionId)
     }
+    // Also call the server-side abort endpoint to kill the agent runner process.
+    // Fire-and-forget — the local cleanup below handles the UI state regardless.
+    abortAgent(sessionId).catch((err) => {
+      console.warn('[session-store] Failed to send server-side abort:', err)
+    })
     // Mark stream as aborted so periodic catch-up polling stops
     setChatStreamStatus(sessionId, 'aborted')
     // Clear chat mutation flag for the session's project (if any)

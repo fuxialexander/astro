@@ -162,6 +162,19 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     return () => unregisterMounted(currentSessionId)
   }, [currentSessionId, registerMounted, unregisterMounted])
 
+  // Escape key to stop generation
+  useEffect(() => {
+    if (!isBusy || !currentSession?.id) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        abortChatStream(currentSession.id)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isBusy, currentSession?.id, abortChatStream])
+
   // Handler to switch to a different session — abort any in-flight stream first
   const handleSessionSwitch = useCallback((sessionId: string) => {
     if (currentSession?.id) {
@@ -756,13 +769,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            {isStreaming && (
+            {isBusy && (
               <Button
                 size="icon"
                 variant="destructive"
                 className="h-9 w-9"
                 onClick={() => currentSession && abortChatStream(currentSession.id)}
-                title="Stop generation"
+                title="Stop generation (Esc)"
               >
                 <Square className="h-3.5 w-3.5" />
               </Button>
