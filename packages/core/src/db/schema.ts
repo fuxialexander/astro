@@ -1155,3 +1155,53 @@ export const githubSyncLog = pgTable('github_sync_log', {
   index('github_sync_log_project_id_idx').on(table.projectId),
   index('github_sync_log_created_at_idx').on(table.createdAt),
 ])
+
+// ── References ───────────────────────────────────────────────────────
+// Academic/literature references using CSL-JSON as the canonical data model.
+export const references = pgTable('references', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  cslJson: jsonb('csl_json').notNull(),            // Full CSL-JSON object
+  cslType: text('csl_type').notNull(),              // 'article-journal' | 'book' | 'chapter' | 'paper-conference' | etc. (CSL types)
+  title: text('title').notNull(),                   // Denormalized for indexing/display
+  doi: text('doi'),
+  pmid: text('pmid'),
+  arxivId: text('arxiv_id'),
+  pdfPath: text('pdf_path'),                        // Local file path
+  pdfUrl: text('pdf_url'),                          // Remote URL
+  source: text('source').notNull().default('manual'), // 'manual' | 'zotero' | 'import' | 'lookup'
+  zoteroKey: text('zotero_key'),                    // For Zotero sync
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('references_team_id_idx').on(table.teamId),
+  index('references_project_id_idx').on(table.projectId),
+  index('references_title_idx').on(table.title),
+  index('references_doi_idx').on(table.doi),
+  index('references_csl_type_idx').on(table.cslType),
+])
+
+// ── Reference Collections ────────────────────────────────────────────
+// Hierarchical folders/collections for organizing references.
+export const referenceCollections = pgTable('reference_collections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  parentId: uuid('parent_id'),                      // Self-referencing for nested collections
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('reference_collections_team_id_idx').on(table.teamId),
+  index('reference_collections_parent_id_idx').on(table.parentId),
+])
+
+// ── Reference Collection Items ───────────────────────────────────────
+// Join table: many-to-many between references and collections.
+export const referenceCollectionItems = pgTable('reference_collection_items', {
+  collectionId: uuid('collection_id').notNull().references(() => referenceCollections.id, { onDelete: 'cascade' }),
+  referenceId: uuid('reference_id').notNull().references(() => references.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.collectionId, table.referenceId] }),
+])
