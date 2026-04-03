@@ -2096,7 +2096,8 @@ function dispatchNextBatchWave(projectId: string) {
       // Compute batch stats before deactivating
       const dispatched = projectNodes.filter((n) => batch.dispatchedNodeIds.has(n.id))
       const succeeded = dispatched.filter((n) => ["completed", "auto_verified"].includes(n.status)).length
-      const failed = dispatched.filter((n) => ["pruned"].includes(n.status) || n.executionError).length
+      const awaiting = dispatched.filter((n) => n.status === "awaiting_judgment").length
+      const failed = dispatched.filter((n) => ["pruned"].includes(n.status) || (n.executionError && n.status !== "awaiting_judgment")).length
 
       useExecutionStore.setState((state) => {
         const newBatch = new Map(state.batchExecutions)
@@ -2111,10 +2112,13 @@ function dispatchNextBatchWave(projectId: string) {
       const stats = { total: dispatched.length, succeeded, failed }
 
       showBatchCompleteNotification(projectName, stats)
+      const parts = [`${succeeded} succeeded`]
+      if (awaiting > 0) parts.push(`${awaiting} needs review`)
+      if (failed > 0) parts.push(`${failed} failed`)
       useToastStore.getState().add({
-        type: failed > 0 ? "warning" : "success",
+        type: failed > 0 ? "warning" : awaiting > 0 ? "info" : "success",
         title: `Execution complete: ${projectName}`,
-        description: `${stats.total} tasks — ${succeeded} succeeded${failed > 0 ? `, ${failed} failed` : ""}`,
+        description: `${stats.total} tasks — ${parts.join(", ")}`,
       })
     }
     return
