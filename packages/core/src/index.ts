@@ -28,3 +28,6 @@ export type { PlanJsonResult } from './plan-extraction.js'
 export { BUILTIN_TEMPLATE_IDS, BUILTIN_TEMPLATES, BUILTIN_EXAMPLES } from './templates/index.js'
 // Built-in skills
 export * from './skills/index.js'
+
+// Transport-agnostic command layer
+export * as commands from './commands/index.js'
