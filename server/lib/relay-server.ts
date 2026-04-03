@@ -56,6 +56,9 @@ import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js';
 import { executionContextStore } from './execution-context-store.js';
 import { executionEventBus } from './execution-event-bus.js';
 import { notifyWarning } from './monitoring.js';
+import { db } from './db/index.js';
+import { taskExecutions, planNodes } from './db/schema.js';
+import { eq, and, or, isNull } from 'drizzle-orm';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -1424,7 +1427,23 @@ export class RelayServer extends EventEmitter {
       deliveryError: message.result.deliveryError,
       summary: message.result.summary,
     }
-    const seq = await streamingEventLog.appendTerminalIfAbsent(message.result.taskId, 'result', resultData);
+    // Use appendResultOverridingSyntheticError to recover from disconnect errors.
+    // If the agent completed work after a grace period expiry marked the task as failed,
+    // the synthetic error is soft-deleted and the real result is persisted.
+    const { seq, overrodeSynthetic } = await streamingEventLog.appendResultOverridingSyntheticError(
+      message.result.taskId, resultData,
+    );
+
+    if (overrodeSynthetic) {
+      console.warn(
+        `[relay] Late result recovery: task ${message.result.taskId} completed after disconnect. ` +
+        `Synthetic error overridden with real result (status: ${message.result.status}).`,
+      );
+      // The dispatch SSE handler has been cleaned up (onMachineDisconnected called cleanupResult).
+      // Recover the DB state directly: update task_executions and plan_nodes.
+      await this.recoverLateResult(message.result.taskId, message.result.status, resultData);
+    }
+
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
@@ -1433,6 +1452,83 @@ export class RelayServer extends EventEmitter {
     }).catch((err) => {
       console.error(`[relay] Failed to publish result to Redis:`, err);
     });
+  }
+
+  /**
+   * Recover DB state when a real task result arrives after a synthetic disconnect error.
+   * Updates task_executions and plan_nodes to reflect the actual outcome.
+   */
+  private async recoverLateResult(
+    executionId: string,
+    status: string,
+    resultData: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      // Look up the task execution to find nodeClientId and projectId
+      const [exec] = await db.select({
+        nodeClientId: taskExecutions.nodeClientId,
+        projectId: taskExecutions.projectId,
+      })
+        .from(taskExecutions)
+        .where(eq(taskExecutions.executionId, executionId))
+        .limit(1)
+
+      if (!exec) {
+        console.warn(`[relay] Late result recovery: no task_execution found for ${executionId}`)
+        return
+      }
+
+      const isSuccess = status === 'completed'
+
+      // Update task_executions
+      await db.update(taskExecutions)
+        .set({
+          status: isSuccess ? 'success' : 'failure',
+          error: isSuccess ? null : (resultData.error as string) || null,
+          completedAt: new Date(),
+        })
+        .where(eq(taskExecutions.executionId, executionId))
+
+      // Update plan_nodes — set to awaiting_judgment so the user reviews the late result.
+      // Guard: only update if the node's executionId still matches this execution OR is null
+      // (watchdog cleared it). If a different executionId is set, a new execution was dispatched
+      // and we must not clobber it.
+      const nodeStatus = 'awaiting_judgment' as const
+      await db.update(planNodes)
+        .set({
+          status: nodeStatus,
+          executionId,  // restore link so frontend can show the execution output
+          executionError: isSuccess
+            ? null
+            : (resultData.error as string) || 'Agent returned non-completed status',
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(planNodes.clientId, exec.nodeClientId),
+            eq(planNodes.projectId, exec.projectId),
+            or(
+              eq(planNodes.executionId, executionId),
+              isNull(planNodes.executionId),
+            ),
+          ),
+        )
+
+      // Notify frontend of the status change
+      executionEventBus.emit('node:status_changed', {
+        nodeId: exec.nodeClientId,
+        projectId: exec.projectId,
+        status: nodeStatus,
+        executionId,
+      })
+
+      console.log(
+        `[relay] Late result recovery complete: execution=${executionId} node=${exec.nodeClientId} ` +
+        `status=${isSuccess ? 'success' : 'failure'} → node set to awaiting_judgment`,
+      )
+    } catch (err) {
+      console.error(`[relay] Late result recovery failed for ${executionId}:`, (err as Error).message)
+    }
   }
 
   /**

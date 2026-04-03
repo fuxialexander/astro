@@ -1159,7 +1159,7 @@ export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
   // from network hiccups or temporary load, at the cost of slower failure
   // detection when machines genuinely disconnect.
   heartbeatTimeoutMs: 180000,
-  disconnectGracePeriodMs: 180000,  // 180 seconds grace period before failing tasks
+  disconnectGracePeriodMs: 600000,  // 10 minutes grace period before failing tasks (was 3 min — too short for reconnection)
   maxConnectionsPerMachine: 1,
   rateLimit: {
     windowMs: 60000,  // 1 minute

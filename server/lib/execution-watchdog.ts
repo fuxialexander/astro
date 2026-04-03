@@ -35,7 +35,7 @@ interface WatchdogConfig {
 const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   enabled: true,
   intervalMs: 60 * 1000, // 60 seconds
-  streamTimeoutMs: parseInt(process.env.STREAM_WATCHDOG_TIMEOUT_MS || '', 10) || 15 * 60 * 1000,
+  streamTimeoutMs: parseInt(process.env.STREAM_WATCHDOG_TIMEOUT_MS || '', 10) || 60 * 60 * 1000, // 60 minutes (was 15 min — too aggressive for long research tasks)
   resetThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
 }
 

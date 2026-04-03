@@ -496,16 +496,20 @@ dispatchRoute.post('/task', async (c) => {
   // Note: serial execution is a SAFETY constraint (prevents file corruption),
   // not a dependency check — it applies even with force=true.
   //
-  // ⚠️ TOCTOU note: There is a small race window between this check and
-  // the actual task insertion into the dispatch queue. Two concurrent requests
-  // could both pass this check simultaneously. In practice this is mitigated by:
-  // (a) 'direct' mode is uncommon, (b) concurrent clicks are rare, and
-  // (c) agents themselves use file-level locks. A DB-level advisory lock or
-  // unique partial index could eliminate this window if needed in the future.
+  // Also checks plan_nodes in 'in_progress'/'dispatched' state as a secondary guard:
+  // the dispatch queue may have already been cleaned up while the node is still running.
   if (deliveryMode === 'direct' && !dryRun) {
-    const stats = await dispatchEngine.getStats()
-    const activeForProject = stats.activePerProject?.[projectId] ?? 0
-    if (activeForProject > 0) {
+    const [activeCheck] = await db.execute<{ active: number }>(sql`
+      SELECT (
+        (SELECT count(*) FROM dispatch_queue_entries
+         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
+        +
+        (SELECT count(*) FROM plan_nodes
+         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
+           AND deleted_at IS NULL)
+      )::int AS active
+    `)
+    if (activeCheck && activeCheck.active > 0) {
       return c.json(
         {
           success: false,
@@ -818,12 +822,20 @@ dispatchRoute.post('/task', async (c) => {
   // deliveryMode='direct', the early check (search: "Early serial execution check")
   // already handled it before DB lookups.
   // Guard: !dryRun — dry-run requests don't actually execute tasks.
-  // Same TOCTOU caveat as the early check applies here.
+  // Uses combined dispatch_queue + plan_nodes check to close the TOCTOU window.
   const deliveryModeResolvedFromDb = !body.deliveryMode
   if (deliveryMode === 'direct' && deliveryModeResolvedFromDb && !dryRun) {
-    const stats = await dispatchEngine.getStats()
-    const activeForProject = stats.activePerProject?.[projectId] ?? 0
-    if (activeForProject > 0) {
+    const [activeCheck] = await db.execute<{ active: number }>(sql`
+      SELECT (
+        (SELECT count(*) FROM dispatch_queue_entries
+         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
+        +
+        (SELECT count(*) FROM plan_nodes
+         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
+           AND deleted_at IS NULL)
+      )::int AS active
+    `)
+    if (activeCheck && activeCheck.active > 0) {
       return c.json(
         {
           success: false,
@@ -2154,7 +2166,7 @@ ${verificationSection}${executiveSummarySection}`)
     const onMachineDisconnected = async (disconnectedId: string) => {
       if (disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
-      const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
+      const errorData = { error: 'Remote machine disconnected during task execution', synthetic: true, recoverable: false }
       notifyCritical({
         title: 'Machine Disconnected During Task',
         project: projectRecord?.name || projectId,
