@@ -15,10 +15,12 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useActivityStore } from '@/stores/activity-store'
 import { useExampleStore } from '@/stores/example-store'
 
-// Connect to the configured backend — localStorage override or local dev default.
-// Local dev runs on port 4001 (PORT env in npm run dev:local).
+// Connect to the configured backend.
+// In dev mode, Vite proxies /api → localhost:4001, so use empty base (relative URLs).
+// In production (Tauri webview with file:// protocol), use the configured URL.
 const savedUrl = localStorage.getItem('astro-desktop-api-url')
-setBaseUrl(savedUrl ?? 'http://localhost:4001')
+const isDev = import.meta.env.DEV
+setBaseUrl(savedUrl ?? (isDev ? '' : 'http://localhost:4001'))
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {

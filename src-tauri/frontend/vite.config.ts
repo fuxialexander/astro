@@ -23,6 +23,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       strictPort: true,
+      // Proxy API calls to the backend to avoid CORS issues in dev
+      proxy: {
+        '/api': {
+          target: 'http://localhost:4001',
+          changeOrigin: true,
+        },
+      },
     },
     // Use relative paths for Tauri (file:// protocol)
     base: './',
