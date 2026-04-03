@@ -24,6 +24,7 @@ const authToken = process.env.ASTRO_AUTH_TOKEN || ''
 const executionId = process.env.ASTRO_EXECUTION_ID || ''
 const projectId = process.env.ASTRO_PROJECT_ID || ''
 const nodeId = process.env.ASTRO_NODE_ID || ''
+const telegramChatId = process.env.ASTRO_TELEGRAM_CHAT_ID || ''
 
 /**
  * Make authenticated HTTP request to Astro API
@@ -551,6 +552,27 @@ const TOOLS = [
       },
     },
   },
+
+  // ── Telegram Reply ──────────────────────────────────────────────────────
+  {
+    name: 'telegram_reply',
+    description:
+      'Send a message back to the Telegram chat that initiated this task. ' +
+      'Only available when this task was dispatched from a Telegram conversation. ' +
+      'Use this to: (1) Ask clarifying questions to the user, (2) Report progress or findings, ' +
+      '(3) Share important discoveries that need user attention, (4) Confirm completion of sub-steps. ' +
+      'The message will appear in the same Telegram thread where the task was requested.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: 'The message to send to the Telegram chat. Supports basic HTML formatting: <b>bold</b>, <i>italic</i>, <code>code</code>.',
+        },
+      },
+      required: ['message'],
+    },
+  },
 ]
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -977,6 +999,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
 
+    // ── Telegram Reply ───────────────────────────────────────────────────
+    if (toolName === 'telegram_reply') {
+      const { message } = args as { message: string }
+
+      if (!message || typeof message !== 'string') {
+        throw new Error('message must be a non-empty string')
+      }
+
+      if (!telegramChatId) {
+        throw new Error(
+          'Telegram reply is not available for this task. ' +
+          'This tool is only available when the task was dispatched from a Telegram conversation.'
+        )
+      }
+
+      if (!executionId) {
+        throw new Error('Execution ID not provided by server')
+      }
+
+      await apiRequest<{ success: boolean }>(
+        'POST',
+        '/api/telegram/reply',
+        {
+          chatId: telegramChatId,
+          message,
+          executionId,
+          nodeId: nodeId || undefined,
+          projectId: projectId || undefined,
+        }
+      )
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Message sent to Telegram chat successfully.`,
+          },
+        ],
+      }
+    }
+
     // Unknown tool
     throw new Error(`Unknown tool: ${toolName}`)
   } catch (error) {
@@ -1006,6 +1069,7 @@ async function main() {
   console.error(`  Execution ID: ${executionId || 'Not set'}`)
   console.error(`  Project ID: ${projectId || 'Not set'}`)
   console.error(`  Node ID: ${nodeId || 'Not set'}`)
+  console.error(`  Telegram Chat ID: ${telegramChatId || 'Not set'}`)
   console.error(`  Tools available: ${TOOLS.length}`)
 }
 

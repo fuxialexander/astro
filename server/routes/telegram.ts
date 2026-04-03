@@ -128,6 +128,46 @@ app.delete('/disconnect', async (c) => {
   return c.json({ success: true })
 })
 
+/**
+ * POST /reply — Send a reply from an agent execution to a Telegram chat.
+ * Called by the telegram_reply MCP tool in agent-runner.
+ * Auth: Bearer token (same as other agent API calls).
+ */
+app.use('/reply', requireAuth)
+app.post('/reply', async (c) => {
+  if (!telegramChannel.isConfigured) {
+    return c.json({ error: 'Telegram not configured' }, 503)
+  }
+
+  const body = await c.req.json()
+  const { chatId, message, executionId: execId, nodeId: nId, projectId: pId } = body as {
+    chatId?: string
+    message?: string
+    executionId?: string
+    nodeId?: string
+    projectId?: string
+  }
+
+  if (!chatId || typeof chatId !== 'string') {
+    return c.json({ error: 'chatId is required' }, 400)
+  }
+  if (!message || typeof message !== 'string') {
+    return c.json({ error: 'message is required' }, 400)
+  }
+
+  const result = await telegramChannel.sendAgentReply(chatId, message, {
+    executionId: execId,
+    nodeId: nId,
+    projectId: pId,
+  })
+
+  if (!result.success) {
+    return c.json({ error: result.error || 'Failed to send message' }, 500)
+  }
+
+  return c.json({ success: true })
+})
+
 /** POST /setup-webhook — Register the Telegram webhook URL (admin) */
 app.post('/setup-webhook', async (c) => {
   const botToken = telegramChannel.getBotToken()

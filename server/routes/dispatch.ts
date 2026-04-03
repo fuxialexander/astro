@@ -382,6 +382,17 @@ const dispatchTaskSchema = z.object({
   }).optional(),
   branchSuffix: z.string().max(20).regex(/^[a-zA-Z0-9][a-zA-Z0-9T-]*$/).optional(),
   scheduleRunId: z.string().uuid().optional(),
+  dispatchOrigin: z.enum(['web', 'telegram', 'cli', 'api', 'auto']).optional(),
+  telegramContext: z.object({
+    chatId: z.string().max(100),
+    conversationHistory: z.array(z.object({
+      sender: z.string().max(200),
+      text: z.string().max(10000),
+      timestamp: z.string().max(100),
+      isBot: z.boolean(),
+    })).max(50),
+    userId: z.string().max(100).optional(),
+  }).optional(),
   resumeSessionId: z.string().max(200).optional(),
   forkSession: z.boolean().optional(),
   isFollowUp: z.boolean().optional(),
@@ -459,6 +470,8 @@ dispatchRoute.post('/task', async (c) => {
     replanContext,
     isFollowUp,
     followUpMessage,
+    dispatchOrigin,
+    telegramContext,
   } = body
 
   // These variables may be resolved from DB when not provided by the client
@@ -889,6 +902,8 @@ dispatchRoute.post('/task', async (c) => {
     followUpPrUrl,
     followUpBranchName,
     isParallelDispatch,
+    dispatchOrigin,
+    telegramContext,
   })
 })
 
@@ -944,6 +959,8 @@ async function dispatchViaRelay(
     followUpMessage?: string
     followUpResumeSessionId?: string
     followUpPreviousOutput?: string
+    dispatchOrigin?: 'web' | 'telegram' | 'cli' | 'api' | 'auto'
+    telegramContext?: { chatId: string; conversationHistory: Array<{ sender: string; text: string; timestamp: string; isBot: boolean }>; userId?: string }
     followUpPrUrl?: string
     followUpBranchName?: string
     isParallelDispatch?: boolean
@@ -1002,6 +1019,8 @@ async function dispatchViaRelay(
     followUpPrUrl,
     followUpBranchName,
     isParallelDispatch = false,
+    dispatchOrigin,
+    telegramContext,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1450,6 +1469,20 @@ There is no branch isolation — changes are made in-place.
       promptParts.push(iterationContext)
     }
 
+    // Telegram conversation context injection
+    if (dispatchOrigin === 'telegram' && telegramContext) {
+      const messages = telegramContext.conversationHistory
+        .map((m) => `[${m.timestamp}] ${m.isBot ? 'Bot' : m.sender}: ${m.text}`)
+        .join('\n')
+      promptParts.push(
+        `## Dispatch Origin: Telegram\n\n` +
+        `This task was dispatched from a Telegram conversation (chat ID: ${telegramContext.chatId}).\n` +
+        `You have a \`telegram_reply\` tool available to send messages back to the user in this Telegram chat.\n` +
+        `Use it to ask clarifying questions, report progress, or share findings proactively.\n\n` +
+        `### Recent Conversation\n\n\`\`\`\n${messages}\n\`\`\``
+      )
+    }
+
     // SECURITY (MEDIUM-002): wrap user-provided title and description in delimiters
     if (isFollowUp && followUpMessage) {
       // Follow-up execution: include original task context + follow-up instruction
@@ -1699,6 +1732,8 @@ ${verificationSection}${executiveSummarySection}`)
     ...(dispatchTrustedKeys && dispatchTrustedKeys.length > 0 && { dispatchTrustedKeys }),
     ...((resumeSessionId || followUpResumeSessionId) && { resumeSessionId: resumeSessionId || followUpResumeSessionId }),
     ...(forkSession && { forkSession }),
+    ...(dispatchOrigin && { dispatchOrigin }),
+    ...(dispatchOrigin === 'telegram' && telegramContext?.chatId && { telegramChatId: telegramContext.chatId }),
   }
 
   // Track directory for safety decision caching (local + Redis write-through)

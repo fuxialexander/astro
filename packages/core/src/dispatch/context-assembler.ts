@@ -12,6 +12,7 @@ import type {
   GraphPosition,
   DependencyResolution,
   DispatchEngineConfig,
+  TelegramDispatchContext,
 } from './types.js'
 
 /**
@@ -31,7 +32,8 @@ export class ContextAssembler {
     allNodes: PlanNode[],
     allEdges: PlanEdge[],
     project?: Project,
-    knowledgeEntries?: KnowledgeEntry[]
+    knowledgeEntries?: KnowledgeEntry[],
+    telegramContext?: TelegramDispatchContext
   ): AssembledContext {
     const dependencyOutputs = this.gatherDependencyOutputs(node, allNodes)
     const graphPosition = this.calculateGraphPosition(node, allNodes, allEdges)
@@ -48,6 +50,7 @@ export class ContextAssembler {
       originalProjectDirectory: projectDir,
       resourcePaths: project?.resourcePaths,
       knowledgeEntries: knowledgeEntries ? this.capKnowledgeEntries(knowledgeEntries) : undefined,
+      telegramContext,
     }
   }
 
@@ -387,6 +390,21 @@ export class ContextAssembler {
     // Loop iteration context (injected before current task so the agent sees history first)
     if (context.iterationContext) {
       parts.push(context.iterationContext)
+    }
+
+    // Telegram conversation context (when dispatched from Telegram)
+    if (context.telegramContext) {
+      const tgCtx = context.telegramContext
+      const messages = tgCtx.conversationHistory
+        .map((m) => `[${m.timestamp}] ${m.isBot ? 'Bot' : m.sender}: ${m.text}`)
+        .join('\n')
+      parts.push(
+        `## Dispatch Origin: Telegram\n\n` +
+        `This task was dispatched from a Telegram conversation (chat ID: ${tgCtx.chatId}).\n` +
+        `You have a \`telegram_reply\` tool available to send messages back to the user in this Telegram chat.\n` +
+        `Use it to ask clarifying questions, report progress, or share findings proactively.\n\n` +
+        `### Recent Conversation\n\n\`\`\`\n${messages}\n\`\`\``
+      )
     }
 
     // Current task
