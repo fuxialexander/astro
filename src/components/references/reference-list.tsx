@@ -64,8 +64,8 @@ export function ReferenceList({
       const newRef: Reference = {
         id: crypto.randomUUID(),
         title: metadata.title ?? 'Untitled',
-        authors: metadata.authors,
-        year: metadata.year,
+        authors: metadata.authors ?? [],
+        year: metadata.year ?? 0,
         journal: metadata.journal,
         doi: metadata.doi,
         abstract: metadata.abstract,
@@ -140,6 +140,8 @@ export function ReferenceList({
               const newRef: Reference = {
                 id: crypto.randomUUID(),
                 title: 'New Reference',
+                authors: [],
+                year: new Date().getFullYear(),
                 source: 'manual',
                 addedAt: new Date().toISOString(),
               }
