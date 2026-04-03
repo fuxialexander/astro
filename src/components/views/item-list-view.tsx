@@ -487,11 +487,12 @@ export function ItemListView<T>({
           {showGroupHeaders && hasMultipleGroups && (
             <div className={cn("flex items-center gap-2 bg-muted px-6 h-8 w-full", group.headerClassName)}>
               {selectable && (
-                <div className="w-8 shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
+                <div className="w-10 shrink-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={allGroupSelected}
                     onCheckedChange={() => toggleGroupItems(group.key)}
                     aria-label={`Select all in ${group.label}`}
+                    className="h-[18px] w-[18px]"
                   />
                 </div>
               )}
@@ -606,11 +607,12 @@ export function ItemListView<T>({
       {/* Column headers */}
       <div className="flex items-center border-b border-border px-6 h-9 shrink-0">
         {selectable && (
-          <div className="w-8 shrink-0 flex items-center">
+          <div className="w-10 shrink-0 flex items-center justify-center">
             <Checkbox
               checked={allSelected}
               onCheckedChange={toggleAll}
               aria-label="Select all"
+              className="h-[18px] w-[18px]"
             />
           </div>
         )}
