@@ -62,6 +62,7 @@ import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 import { mergeQueueHook } from './lib/events/hooks/merge-queue-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
+import { telegramStreamHook } from './lib/events/hooks/telegram-stream-hook.js'
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
 import { githubFieldSyncHook } from './lib/events/hooks/github-field-sync-hook.js'
 import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
@@ -356,6 +357,7 @@ async function start() {
     astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
+    astroEventTransport.registerHook('telegram-stream', telegramStreamHook)
     astroEventTransport.registerHook('pr-auto-link', prAutoLinkHook)
     astroEventTransport.registerHook('observability', observabilityHook)
     observationCollector.start()

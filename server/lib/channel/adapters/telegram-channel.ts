@@ -11,12 +11,13 @@
 
 import { randomBytes } from 'node:crypto'
 import { db } from '../../db/index.js'
-import { connectedAccounts, projects, teamMembers, webauthnChallenges } from '../../db/schema.js'
+import { connectedAccounts, projects, teamMembers, webauthnChallenges, taskExecutions } from '../../db/schema.js'
 import { eq, and, inArray, gt } from 'drizzle-orm'
 import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 import { formatForChannel } from '../channel-formatter.js'
 import type { ChannelNotification } from '../channel-types.js'
+import { telegramStreamManager } from './telegram-stream-manager.js'
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API helpers (inlined from deleted plugin)
@@ -136,11 +137,15 @@ class TelegramChannelAdapter {
       await this.sendNotificationToProjectMembers(notification)
     })
 
+    // Start the streaming manager for real-time execution output
+    telegramStreamManager.start(token)
+
     this._started = true
     console.log(`[telegram] Adapter started — bot @${this.botUsername}`)
   }
 
   stop(): void {
+    telegramStreamManager.stop()
     this._started = false
     console.log('[telegram] Adapter stopped')
   }
@@ -245,11 +250,29 @@ class TelegramChannelAdapter {
       return
     }
 
+    // Handle /watch <execution_id> command — stream execution output
+    if (text.startsWith('/watch')) {
+      await this.handleWatchCommand(text, chatId)
+      return
+    }
+
+    // Handle /unwatch [execution_id] command — stop streaming
+    if (text.startsWith('/unwatch')) {
+      await this.handleUnwatchCommand(text, chatId)
+      return
+    }
+
+    // Handle /streams command — list active streams
+    if (text === '/streams') {
+      await this.handleStreamsCommand(chatId)
+      return
+    }
+
     // For any other message, let them know this is a notification bot
     await sendMessage(
       this.botToken,
       chatId,
-      'I send Astro notifications here. Use /status to check your connection or /disconnect to unlink.',
+      'I send Astro notifications here.\n\nCommands:\n/status — Check connection\n/watch &lt;execution_id&gt; — Stream task output\n/unwatch — Stop streaming\n/streams — List active streams\n/disconnect — Unlink account',
     )
   }
 
@@ -409,6 +432,127 @@ class TelegramChannelAdapter {
         await answerCallbackQuery(this.botToken, callbackId, `Error: ${errMsg.slice(0, 100)}`)
       }
     }
+  }
+
+  /**
+   * Handle /watch <execution_id> — subscribe to execution streaming output.
+   * Validates that the chat is connected and the execution exists.
+   */
+  private async handleWatchCommand(text: string, chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    const parts = text.split(/\s+/)
+    const executionId = parts[1]?.trim()
+
+    if (!executionId) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        'Usage: /watch &lt;execution_id&gt;\n\nYou can find the execution ID in Astro\'s task detail page.',
+      )
+      return
+    }
+
+    // Verify the chat is connected to an Astro account
+    const account = await db.select()
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.externalId, chatId),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+      .limit(1)
+
+    if (account.length === 0) {
+      await sendMessage(
+        this.botToken,
+        chatId,
+        'Your Telegram is not connected to Astro. Connect first via Astro Settings.',
+      )
+      return
+    }
+
+    // Look up the execution to get the task title
+    let taskTitle: string | undefined
+    try {
+      const [execution] = await db.select({
+        id: taskExecutions.id,
+        nodeId: taskExecutions.nodeId,
+      })
+        .from(taskExecutions)
+        .where(eq(taskExecutions.id, executionId))
+        .limit(1)
+
+      if (execution) {
+        taskTitle = execution.nodeId || undefined
+      }
+    } catch {
+      // Execution lookup is best-effort; proceed without title
+    }
+
+    const error = await telegramStreamManager.subscribe(executionId, chatId, taskTitle)
+    if (error) {
+      await sendMessage(this.botToken, chatId, `⚠️ ${error}`)
+    }
+  }
+
+  /**
+   * Handle /unwatch [execution_id] — stop streaming.
+   * Without an ID, stops all active streams for this chat.
+   */
+  private async handleUnwatchCommand(text: string, chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    const parts = text.split(/\s+/)
+    const executionId = parts[1]?.trim()
+
+    const activeSubs = telegramStreamManager.getActiveSubscriptions(chatId)
+
+    if (activeSubs.length === 0) {
+      await sendMessage(this.botToken, chatId, 'No active streams to stop.')
+      return
+    }
+
+    if (executionId) {
+      if (activeSubs.includes(executionId)) {
+        telegramStreamManager.unsubscribe(executionId, chatId)
+      } else {
+        await sendMessage(this.botToken, chatId, `Not watching execution <code>${executionId.slice(0, 8)}</code>`)
+      }
+    } else {
+      // Stop all
+      for (const execId of activeSubs) {
+        telegramStreamManager.unsubscribe(execId, chatId)
+      }
+      await sendMessage(
+        this.botToken,
+        chatId,
+        `🛑 Stopped ${activeSubs.length} active stream${activeSubs.length > 1 ? 's' : ''}.`,
+      )
+    }
+  }
+
+  /**
+   * Handle /streams — list active streams for this chat.
+   */
+  private async handleStreamsCommand(chatId: string): Promise<void> {
+    if (!this.botToken) return
+
+    const activeSubs = telegramStreamManager.getActiveSubscriptions(chatId)
+
+    if (activeSubs.length === 0) {
+      await sendMessage(this.botToken, chatId, 'No active streams.\n\nUse /watch &lt;execution_id&gt; to start streaming.')
+      return
+    }
+
+    const lines = activeSubs.map((id) => `• <code>${id.slice(0, 12)}</code>`)
+    await sendMessage(
+      this.botToken,
+      chatId,
+      `📡 <b>Active Streams (${activeSubs.length}):</b>\n\n${lines.join('\n')}\n\nUse /unwatch to stop all, or /unwatch &lt;id&gt; to stop one.`,
+    )
   }
 
   private async handleDisconnectCommand(chatId: string): Promise<void> {
