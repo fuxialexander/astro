@@ -134,7 +134,7 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 ### Data Flow
 1. Stores load from backend on mount via `DataLoader` component (`dataClient.load()` → `GET /api/data/*`). Teams load first (sets X-Team-Id header), then all other stores.
-2. Project creation → navigates to plan view → triggers AI generation via SSE
+2. Project creation via dashboard inbox → navigates to project plan view → triggers AI generation via SSE
 3. Backend streams Claude Agent SDK output as Server-Sent Events; events persisted to `streaming_events` table via `StreamingEventLog`
 4. Plan nodes/edges stored in Zustand → rendered in React Flow graph
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data

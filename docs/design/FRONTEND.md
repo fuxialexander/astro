@@ -99,17 +99,17 @@ Routes are defined in `src/app.tsx`. They are organized into three groups: publi
 
 #### Root Redirect (`/`)
 
-The root route (`/`) uses `RootRedirect` logic: in local mode, it redirects to `/projects/new/plan` (the interactive plan creation page). In server mode, it checks authentication -- if the user is not logged in, it redirects to the static landing page (`/landing/`). If logged in, it also redirects to `/projects/new/plan`.
+The root route (`/`) uses `RootRedirect` logic: in local mode, it redirects to `/dashboard`. In server mode, it checks authentication -- if the user is not logged in, it redirects to the static landing page (`/landing/`). If logged in, it also redirects to `/dashboard`.
 
 #### Authenticated Routes
 
 | Path | Page Component | What the User Sees |
 |------|---------------|-------------|
-| `/welcome` | `project-new-plan.tsx` | The primary entry point -- an interactive plan creation page (same component as `/projects/new/plan`). Two-phase UI: first a goal input form with machine/directory/branch selectors, then a streaming chat phase where the AI generates and refines a plan. |
-| `/dashboard` | `dashboard.tsx` | The home screen. Shows stats, pending decisions, active projects, system health, and usage metrics. |
-| `/projects` | `projects.tsx` | A list of all projects in a table view. Columns are sortable, and projects can be grouped. Inline project creation has replaced the separate `/projects/new` form. |
-| `/projects/new` | Redirects to `/projects` | Legacy redirect. Project creation now happens inline on the projects page or via `/projects/new/plan`. |
-| `/projects/new/plan` | `project-new-plan.tsx` | Interactive plan creation -- the AI-assisted path for creating a new project. Two-phase component: (1) Input Phase with goal textarea, machine selector, directory picker with inline git detection, branch selector, provider/model selectors, and Claude Code session picker; (2) Chat Phase with full-height streaming activity, inline approvals, and plan result cards. |
+| `/dashboard` | `dashboard.tsx` | The home screen and primary entry point. Shows inbox textarea for project creation via AI chat, stats, pending decisions, active projects, system health, and usage metrics. |
+| `/projects` | `projects.tsx` | A list of all projects in a table view. Columns are sortable, and projects can be grouped. Inline project creation via the "+" row at the top. |
+| `/projects/new` | Redirects to `/projects` | Legacy redirect. Project creation now happens inline on the projects page or via the dashboard inbox. |
+| `/plan` | Redirects to `/dashboard` | Legacy redirect. Plan creation is now handled through the dashboard inbox. |
+| `/welcome` | Redirects to `/dashboard` | Legacy redirect. |
 | `/project/:id` | `plan-view.tsx` | The plan view for a project. Defaults to graph view. The `:id` part is a placeholder -- `/project/abc123` shows project `abc123`. |
 | `/project/:id/graph` | `plan-view.tsx` | Plan graph view -- the visual interactive node-and-edge graph. |
 | `/project/:id/list` | `plan-view.tsx` | Plan list view -- tasks displayed in a table with sortable columns, grouping, and filters. |
@@ -561,7 +561,7 @@ When you drill into a specific task, you see its full execution history. These c
 
 ### 4.5 Plan Generation (`src/components/plan-generation/`)
 
-These components power the interactive plan creation and chat experience used in `project-new-plan.tsx`:
+These components power the interactive plan creation and chat experience used in the dashboard inbox:
 
 - **`plan-generation.tsx`** -- The chat phase of plan creation. Renders a full-height streaming activity view with inline approvals, plan result cards, and a message input. Reuses the `DisplayBlock` components from `activity-blocks.tsx`.
 
@@ -719,32 +719,11 @@ These sections trace exactly what happens in the system for the most common user
 
 ### 5.1 Create Project and Generate Plan
 
-This is the first thing most users do: create a project and let the AI generate an initial plan. The project creation experience is now centered on `project-new-plan.tsx` -- an interactive two-phase page that combines goal input with a streaming AI chat session.
+This is the first thing most users do: create a project and let the AI generate an initial plan. Project creation is handled through the **dashboard inbox** (`/dashboard`) -- users type their goal in the inbox textarea, and the system creates a project and starts an AI chat session to generate the plan.
 
-**The Two-Phase UI (`project-new-plan.tsx`)**
+**Dashboard Inbox Flow**
 
-The page has two distinct phases:
-
-**Phase 1: Input Phase**
-
-The user sees a clean goal-entry form with the following elements:
-
-1. **Goal description** (required) -- A textarea where the user describes what they are building or researching.
-2. **Machine selector** -- Dropdown to choose which connected machine will execute the plan session. In local mode, defaults to "Local Machine." In server mode, shows all registered machines with online/offline status.
-3. **Working directory** (optional) -- A text input for the local or remote path on the selected machine. Includes a folder icon button that opens a `RemotePathBrowser` dialog for navigating the machine's filesystem visually.
-4. **Inline directory detection** -- As the user types a directory path, the `useDirectoryDetection` hook debounces calls to `GET /api/repo/detect` on the selected machine and shows inline feedback directly below the input. This is a key Workspace V2 feature:
-   - If the directory does not exist: "New directory -- will be created with git initialized."
-   - If it is a git repo with a GitHub/GitLab/Bitbucket remote: "Git repo detected (GitHub). PRs will be created for review."
-   - If it is a git repo with a generic or no remote: "Local git repo. Changes saved as local branches."
-   - If it exists but is not a git repo: "Directory exists, no git. Git init recommended."
-   The delivery mode (`pr`, `push`, `branch`, `direct`) is derived automatically from the detection result using `deriveDeliveryMode()` from `project-source.ts`. A `BranchSelector` component appears when a git repo is detected, letting the user pick the working branch.
-5. **Provider and model selectors** -- Dropdowns for choosing the AI provider (Claude Code, Codex, Anthropic Direct) and model (based on available providers on the selected machine).
-6. **Claude Code session picker** -- When Claude Code sessions are available on the selected machine, a button opens a `SessionPickerDialog` to continue an existing session rather than starting fresh.
-7. **History sidebar** -- Shows recent plan sessions with titles and timestamps, allowing the user to revisit previous planning conversations.
-
-**Phase 2: Chat Phase**
-
-After the user submits their goal, the page transitions to a full-height streaming activity view powered by `PlanGeneration`:
+The user types a goal description in the dashboard inbox textarea and submits. The system then:
 
 - The system dispatches a plan generation via `execution-store.startPlanGeneration()`, which sends a POST to `/api/dispatch/task` with `taskType: 'plan'`.
 - Streaming events arrive via SSE and are rendered as `DisplayBlock` components (same activity blocks used in task detail).

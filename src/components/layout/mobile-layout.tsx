@@ -16,9 +16,9 @@ const tabs: TabItem[] = [
     path: '/dashboard',
   },
   {
-    id: 'plan',
+    id: 'home',
     icon: Sparkles,
-    path: '/plan',
+    path: '/dashboard',
   },
   {
     id: 'projects',

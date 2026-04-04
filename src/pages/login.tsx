@@ -48,7 +48,7 @@ export function Login() {
   // Support both ?redirect=/device and location.state.from for redirect
   const redirectParam = searchParams.get('redirect')
   const stateFrom = (location.state as { from?: { pathname: string } })?.from?.pathname
-  const from = redirectParam || stateFrom || "/plan"
+  const from = redirectParam || stateFrom || "/dashboard"
 
   const devMode = isLocalMode()
 

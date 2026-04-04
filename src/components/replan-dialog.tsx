@@ -85,8 +85,8 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
       }
 
       onOpenChange(false)
-      // Navigate to the plan activity page to show generation progress
-      navigate(`/plan?projectId=${project.id}`)
+      // Navigate to the project page
+      navigate(`/project/${project.id}`)
     } catch (error) {
       console.error("[replan-dialog] Replan failed:", error)
       useToastStore.getState().add({

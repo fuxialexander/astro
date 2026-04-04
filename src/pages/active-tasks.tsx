@@ -17,6 +17,7 @@ import {
   Wrench,
   ListFilter,
   CheckCircle2,
+  Square,
 } from "lucide-react"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -446,13 +447,14 @@ function ChatPanel({
   // Determine expand navigation target
   const expandTo = useMemo(() => {
     if (task.nodeId.startsWith("plan-") || task.status === "generating")
-      return `/welcome?projectId=${projectId}`
+      return `/project/${projectId}`
+    if (task.nodeId.startsWith("session-"))
+      return `/playground?projectId=${projectId}`
     if (
       task.nodeId.startsWith("playground-") ||
-      task.nodeId.startsWith("followup-playground-") ||
-      task.nodeId.startsWith("session-")
+      task.nodeId.startsWith("followup-playground-")
     )
-      return `/playground?projectId=${projectId}`
+      return `/project/${projectId}`
     if (task.nodeId.startsWith("followup-"))
       return `/project/${projectId}/task/${task.nodeId.replace("followup-", "")}`
     if (task.nodeId.startsWith("task-chat-"))
@@ -586,6 +588,16 @@ function ChatPanel({
             placeholder="Send a message..."
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-info/30"
           />
+          {isRunning && (
+            <button
+              type="button"
+              onClick={() => useExecutionStore.getState().cancelExecution(task.nodeId)}
+              className="shrink-0 p-2 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              title="Stop execution"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSend}

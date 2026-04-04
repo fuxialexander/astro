@@ -406,7 +406,7 @@ export function MyTasks() {
         hasActiveFilters
           ? { label: "Clear Filters", onClick: clearFilters }
           : projects.length === 0
-          ? { label: "Create Project", href: "/plan" }
+          ? { label: "Create Project", href: "/dashboard" }
           : { label: "View Projects", href: "/projects" }
       }
       className="h-full"

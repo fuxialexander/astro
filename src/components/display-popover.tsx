@@ -133,7 +133,7 @@ export function DisplayPopover({ config, iconOnly = false }: { config: DisplayPo
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+              <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-full">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>

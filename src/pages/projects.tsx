@@ -1,8 +1,9 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, Sparkles, X } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Download, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ImportPreviewDialog } from "@/components/sharing/import-preview-dialog"
@@ -298,8 +299,8 @@ export function Projects() {
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
-  const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
-  const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
+  const [fastEditSetting, setFastEditSetting] = useState(false)
+  const toggleFastEdit = useCallback(() => setFastEditSetting((v) => !v), [])
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
@@ -791,32 +792,45 @@ export function Projects() {
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {githubConnected ? (
-              <div className="flex items-center rounded-md border border-border overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
-                  title="Import from JSON"
-                >
-                  <Braces className="h-3.5 w-3.5" />
-                </button>
-                <div className="w-px h-5 bg-border" />
-                <button
-                  type="button"
-                  onClick={() => setGithubPickerOpen(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
-                  title="Import from GitHub"
-                >
-                  <Github className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-8 w-8 p-0 rounded-full"
+                    >
+                      <Braces className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Import from JSON</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGithubPickerOpen(true)}
+                      className="h-8 w-8 p-0 rounded-full"
+                    >
+                      <Github className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Import from GitHub</TooltipContent>
+                </Tooltip>
+              </>
             ) : (
-              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="gap-1.5">
-                <Upload className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">Import</span>
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="h-8 w-8 p-0 rounded-full">
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Import</TooltipContent>
+              </Tooltip>
             )}
             <input
               ref={fileInputRef}
@@ -825,16 +839,20 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
-            <Button
-              variant={fastEditSetting ? "secondary" : "ghost"}
-              size="sm"
-              className="gap-1.5 h-7 px-2"
-              onClick={() => toggleFastEdit()}
-            >
-              <Pencil className={cn("h-3.5 w-3.5", fastEditSetting && "text-primary")} />
-              <span className="hidden md:inline">Fast Edit</span>
-            </Button>
-            <DisplayPopover config={{
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={fastEditSetting ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-8 w-8 p-0 rounded-full"
+                  onClick={() => toggleFastEdit()}
+                >
+                  <Pencil className={cn("h-3.5 w-3.5", fastEditSetting && "text-primary")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Fast Edit</TooltipContent>
+            </Tooltip>
+            <DisplayPopover iconOnly config={{
               ...(viewTab === "timeline" ? projectsTimelineDisplayConfig : projectsDisplayConfig),
               viewAsOptions,
               activeViewAs: viewTab,
@@ -942,21 +960,7 @@ export function Projects() {
                   }}
                 />
               </div>
-              <div className="flex-1 flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={() => navigate("/plan")}
-                  className="flex items-center gap-4 w-full max-w-lg rounded-xl bg-muted/50 border border-border px-6 py-5 hover:bg-muted/80 hover:border-primary/30 transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 shrink-0">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-sm font-semibold">Generate with AI</div>
-                    <div className="text-xs text-muted-foreground">Describe your goal and let AI create a plan</div>
-                  </div>
-                </button>
-              </div>
+              <div className="flex-1" />
             </div>
           ) : (
             <ItemListView
@@ -1109,7 +1113,7 @@ export function Projects() {
                 icon={Folder}
                 title="No projects to display"
                 description="Create a project to see it on the timeline."
-                action={{ label: "Create Project", href: "/plan" }}
+                action={{ label: "Create Project", href: "/dashboard" }}
                 className="h-full"
               />
             </div>
@@ -1126,7 +1130,7 @@ export function Projects() {
                   description="Create your first project and let AI help you break it down into a structured plan."
                   action={{
                     label: "Create Project",
-                    href: "/plan",
+                    onClick: () => setCreating(true),
                   }}
                 />
               </div>

@@ -57,7 +57,6 @@ import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
 import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
-import { ProjectNewPlan } from "@/pages/project-new-plan"
 import DemoPlanNodeList from "@/pages/demo-plan-node-list"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
@@ -387,14 +386,14 @@ export default function App() {
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
-                <Route path="welcome" element={<ProjectNewPlan />} />
+                <Route path="welcome" element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<HomeRouter />} />
                 <Route path="github" element={<FeatureFlagRoute flag="github-integration"><Workspace /></FeatureFlagRoute>} />
                 <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />
-                <Route path="plan" element={<ProjectNewPlan />} />
+                <Route path="plan" element={<Navigate to="/dashboard" replace />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
-                <Route path="projects/new/plan" element={<Navigate to="/plan" replace />} />
+                <Route path="projects/new/plan" element={<Navigate to="/dashboard" replace />} />
                 <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/graph" element={<PlanView />} />
                 <Route path="project/:id/list" element={<PlanView />} />
@@ -411,8 +410,8 @@ export default function App() {
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
-                <Route path="examples" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
-                <Route path="templates" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
+                <Route path="examples" element={<Navigate to="/dashboard" replace />} />
+                <Route path="templates" element={<Navigate to="/dashboard" replace />} />
                 <Route path="community" element={<Community />} />
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />

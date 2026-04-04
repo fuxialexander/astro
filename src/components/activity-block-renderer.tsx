@@ -71,6 +71,8 @@ export interface ActivityBlockRendererProps {
   onNodeSelect?: (nodeId: string) => void
   /** Optional pathway-owned PR renderer */
   renderPrStatus?: (block: Extract<DisplayBlock, { type: 'pr_status' }>, key: string) => React.ReactNode
+  /** Hide plan_result blocks (e.g., in project chat panel where the plan is already visible) */
+  hidePlanResult?: boolean
 }
 
 /**
@@ -94,6 +96,7 @@ export function ActivityBlockRenderer({
   getNodeTitle,
   onNodeSelect,
   renderPrStatus,
+  hidePlanResult,
 }: ActivityBlockRendererProps) {
   return (
     <>
@@ -212,6 +215,7 @@ export function ActivityBlockRenderer({
           }
 
           case 'plan_result': {
+            if (hidePlanResult) return null
             // Only show the most recent plan graph — skip older ones to avoid cluttering the feed
             const lastPlanResultIdx = blocks.map(b => b.type).lastIndexOf('plan_result')
             if (i !== lastPlanResultIdx) return null
