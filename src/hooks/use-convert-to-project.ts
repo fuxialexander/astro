@@ -255,8 +255,8 @@ export function useConvertToProject() {
       // already be deleted, but the user can retry from the project page.
       removeNodes([node.id])
 
-      // 9. Navigate to plan page
-      navigate(`/plan?projectId=${newProjectId}`)
+      // 9. Navigate to the new project
+      navigate(`/project/${newProjectId}`)
 
       addToast({
         type: "success",

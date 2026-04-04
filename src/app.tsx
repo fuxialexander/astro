@@ -57,7 +57,6 @@ import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
 import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
-// ProjectNewPlan removed — /plan and /welcome now redirect to /dashboard (inbox)
 import DemoPlanNodeList from "@/pages/demo-plan-node-list"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
@@ -411,8 +410,8 @@ export default function App() {
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
-                <Route path="examples" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
-                <Route path="templates" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
+                <Route path="examples" element={<Navigate to="/dashboard" replace />} />
+                <Route path="templates" element={<Navigate to="/dashboard" replace />} />
                 <Route path="community" element={<Community />} />
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />

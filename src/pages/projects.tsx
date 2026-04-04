@@ -945,7 +945,7 @@ export function Projects() {
               <div className="flex-1 flex items-center justify-center">
                 <button
                   type="button"
-                  onClick={() => navigate("/plan")}
+                  onClick={() => navigate("/projects")}
                   className="flex items-center gap-4 w-full max-w-lg rounded-xl bg-muted/50 border border-border px-6 py-5 hover:bg-muted/80 hover:border-primary/30 transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 shrink-0">
@@ -1109,7 +1109,7 @@ export function Projects() {
                 icon={Folder}
                 title="No projects to display"
                 description="Create a project to see it on the timeline."
-                action={{ label: "Create Project", href: "/plan" }}
+                action={{ label: "Create Project", href: "/projects" }}
                 className="h-full"
               />
             </div>
@@ -1126,7 +1126,7 @@ export function Projects() {
                   description="Create your first project and let AI help you break it down into a structured plan."
                   action={{
                     label: "Create Project",
-                    href: "/plan",
+                    href: "/projects",
                   }}
                 />
               </div>

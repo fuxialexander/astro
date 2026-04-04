@@ -369,8 +369,8 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
         if (onLaunchSuccess) {
           onLaunchSuccess(result)
         } else {
-          // Default behavior: navigate to Plan page with launch result for auto-start
-          navigate("/plan", { state: { templateLaunchResult: result } })
+          // Default behavior: navigate to the new project
+          navigate(`/project/${result.project.id}`, { state: { templateLaunchResult: result } })
 
           // Show success toast
           useToastStore.getState().add({

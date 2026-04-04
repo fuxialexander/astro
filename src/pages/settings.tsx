@@ -447,7 +447,7 @@ function ProfileContent() {
       // No local data to clear — PGlite data lives on server/disk
 
       // Force a full page reload to clear all state and redirect to welcome
-      window.location.href = '/plan'
+      window.location.href = '/dashboard'
     } catch (error) {
       console.error('[settings] Failed to delete account:', error)
       alert(`Failed to delete account: ${error instanceof Error ? error.message : 'Unknown error'}`)

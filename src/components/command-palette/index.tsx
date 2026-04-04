@@ -131,7 +131,7 @@ export function CommandPalette() {
         return { ...cmd, action: () => navigate("/projects") }
       }
       if (cmd.id === "action-plan-generation") {
-        return { ...cmd, action: () => navigate("/plan") }
+        return { ...cmd, action: () => navigate("/dashboard") }
       }
       if (cmd.id === "action-new-task") {
         // Create nested commands for each project
