@@ -17,6 +17,7 @@ import {
   Wrench,
   ListFilter,
   CheckCircle2,
+  Square,
 } from "lucide-react"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -446,7 +447,7 @@ function ChatPanel({
   // Determine expand navigation target
   const expandTo = useMemo(() => {
     if (task.nodeId.startsWith("plan-") || task.status === "generating")
-      return `/welcome?projectId=${projectId}`
+      return `/project/${projectId}`
     if (
       task.nodeId.startsWith("playground-") ||
       task.nodeId.startsWith("followup-playground-") ||
@@ -594,6 +595,16 @@ function ChatPanel({
           >
             <Send className="h-4 w-4" />
           </button>
+          {isRunning && (
+            <button
+              type="button"
+              onClick={() => useExecutionStore.getState().cancelExecution(task.nodeId)}
+              className="shrink-0 p-2 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              title="Stop execution"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

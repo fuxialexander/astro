@@ -242,7 +242,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     if (isGenerating && nodeId?.startsWith('session-')) {
       navigate(`/playground?projectId=${projectId}`)
     } else if (isGenerating && nodeId?.startsWith('plan-')) {
-      navigate(`/plan?projectId=${projectId}`)
+      navigate(`/project/${projectId}`)
     } else if (isGenerating && nodeId?.startsWith('playground-')) {
       navigate(`/playground?projectId=${projectId}`)
     } else {

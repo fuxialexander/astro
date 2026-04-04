@@ -1251,7 +1251,6 @@ function InlineListCreationRow({
 
 // --- Inline Empty State for List View ---
 function ListEmptyState({ projectId, columns }: { projectId: string; columns: ListColumn<PlanNode>[] }) {
-  const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
 
   // Filter visible columns (but always show name for creation)
@@ -1263,18 +1262,6 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
 
   return (
     <div className="flex flex-col h-full">
-      {/* Generate with AI button */}
-      <div className="px-6 py-4">
-        <button
-          type="button"
-          onClick={() => navigate(`/plan?projectId=${projectId}`)}
-          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-        >
-          <Sparkles className="h-4 w-4" />
-          Generate with AI
-        </button>
-      </div>
-
       {/* Header row */}
       <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
         {visibleColumns.map((col) => (

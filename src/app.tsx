@@ -57,7 +57,7 @@ import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
 import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
-import { ProjectNewPlan } from "@/pages/project-new-plan"
+// ProjectNewPlan removed — /plan and /welcome now redirect to /dashboard (inbox)
 import DemoPlanNodeList from "@/pages/demo-plan-node-list"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
@@ -387,14 +387,14 @@ export default function App() {
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
-                <Route path="welcome" element={<ProjectNewPlan />} />
+                <Route path="welcome" element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<HomeRouter />} />
                 <Route path="github" element={<FeatureFlagRoute flag="github-integration"><Workspace /></FeatureFlagRoute>} />
                 <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />
-                <Route path="plan" element={<ProjectNewPlan />} />
+                <Route path="plan" element={<Navigate to="/dashboard" replace />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
-                <Route path="projects/new/plan" element={<Navigate to="/plan" replace />} />
+                <Route path="projects/new/plan" element={<Navigate to="/dashboard" replace />} />
                 <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/graph" element={<PlanView />} />
                 <Route path="project/:id/list" element={<PlanView />} />
