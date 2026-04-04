@@ -1811,7 +1811,7 @@ ${verificationSection}${executiveSummarySection}`)
 
       // Belt-and-suspenders: treat non-zero exitCode as failure even if status says 'completed'.
       // This catches cases where the agent-runner adapter incorrectly reports success.
-      const hasNonZeroExit = msg.result.exitCode !== undefined && msg.result.exitCode !== 0
+      const hasNonZeroExit = msg.result.exitCode != null && msg.result.exitCode !== 0
       const isSuccess = msg.result.status === 'completed' && !hasNonZeroExit
       const deliveryOk = !msg.result.deliveryStatus ||
         msg.result.deliveryStatus === 'success' ||
