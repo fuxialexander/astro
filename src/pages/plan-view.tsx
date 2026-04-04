@@ -2159,6 +2159,7 @@ export function PlanView() {
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [viewDropdownOpen, setViewDropdownOpen] = useState(false)
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
@@ -2375,40 +2376,40 @@ export function PlanView() {
 
         {/* View mode switcher — desktop only */}
         <div className="hidden md:flex items-center gap-1 shrink-0">
-          <div className="relative group/views">
-            <button
-              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer text-accent-foreground border-b-2 border-accent flex items-center gap-1.5"
-            >
-              {viewMode === "list" ? <List className="h-3.5 w-3.5" />
-                : viewMode === "board" ? <Columns3 className="h-3.5 w-3.5" />
-                : viewMode === "timeline" ? <CalendarRange className="h-3.5 w-3.5" />
-                : <Network className="h-3.5 w-3.5" />}
-              {viewMode === "list" ? "List" : viewMode === "board" ? "Board" : viewMode === "timeline" ? "Timeline" : "Graph"}
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            </button>
-            <div className="absolute top-full left-0 pt-1 invisible group-hover/views:visible opacity-0 group-hover/views:opacity-100 transition-all z-50">
-              <div className="bg-popover border border-border rounded-lg shadow-lg p-1 min-w-[140px]">
-                {([
-                  { value: "list", label: "List", icon: List },
-                  { value: "board", label: "Board", icon: Columns3 },
-                  { value: "timeline", label: "Timeline", icon: CalendarRange },
-                  { value: "graph", label: "Graph", icon: Network },
-                ] as const).map(({ value, label, icon: Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => navigate(`/project/${project.id}/${value}`)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
-                      viewMode === value ? "bg-muted text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          <DropdownMenu open={viewDropdownOpen} onOpenChange={setViewDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer text-accent-foreground border-b-2 border-accent flex items-center gap-1.5"
+                onPointerEnter={() => setViewDropdownOpen(true)}
+              >
+                {viewMode === "list" ? <List className="h-3.5 w-3.5" />
+                  : viewMode === "board" ? <Columns3 className="h-3.5 w-3.5" />
+                  : viewMode === "timeline" ? <CalendarRange className="h-3.5 w-3.5" />
+                  : <Network className="h-3.5 w-3.5" />}
+                {viewMode === "list" ? "List" : viewMode === "board" ? "Board" : viewMode === "timeline" ? "Timeline" : "Graph"}
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[140px]">
+              {([
+                { value: "list", label: "List", icon: List },
+                { value: "board", label: "Board", icon: Columns3 },
+                { value: "timeline", label: "Timeline", icon: CalendarRange },
+                { value: "graph", label: "Graph", icon: Network },
+              ] as const).map(({ value, label, icon: Icon }) => (
+                <DropdownMenuItem
+                  key={value}
+                  onClick={() => navigate(`/project/${project.id}/${value}`)}
+                  className={cn(
+                    viewMode === value && "bg-muted font-medium"
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {isGitHubProject && (
             <button
               onClick={() => navigate(`/project/${project.id}/repo`)}
@@ -2436,7 +2437,7 @@ export function PlanView() {
                     variant="outline"
                     size="sm"
                     onClick={() => setPublishDialogOpen(true)}
-                    className="h-8 w-8 p-0"
+                    className="h-8 w-8 p-0 rounded-full"
                   >
                     <Globe className="h-3.5 w-3.5" />
                   </Button>
@@ -2450,7 +2451,7 @@ export function PlanView() {
                   variant={fastEdit ? "secondary" : "outline"}
                   size="sm"
                   onClick={() => toggleFastEdit()}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 rounded-full"
                 >
                   <Pencil className={cn("h-3.5 w-3.5", fastEdit && "text-primary")} />
                 </Button>
@@ -2472,7 +2473,7 @@ export function PlanView() {
                   variant="outline"
                   size="sm"
                   onClick={() => downloadBundle(exportProject(project.id))}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 rounded-full"
                 >
                   <Download className="h-3.5 w-3.5" />
                 </Button>
@@ -2500,7 +2501,7 @@ export function PlanView() {
                       console.error("[share] Failed:", err)
                     }
                   }}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 rounded-full"
                 >
                   <Link2 className="h-3.5 w-3.5" />
                 </Button>
@@ -2543,7 +2544,7 @@ export function PlanView() {
                   variant={inspectorOpen ? "secondary" : "outline"}
                   size="sm"
                   onClick={() => { setInspectorOpen(!inspectorOpen); if (inspectorOpen) setSelectedNode(null) }}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 rounded-full"
                 >
                   <Info className={cn("h-3.5 w-3.5", inspectorOpen && "text-primary")} />
                 </Button>
