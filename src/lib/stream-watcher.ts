@@ -151,7 +151,9 @@ export function watchStream(
 export function resetChatStream(streamId: string) {
   useRealtimeStore.setState((state) => {
     const streams = new Map(state.taskStreams)
-    // Fully reset — preserve only the taskId
+    const existing = streams.get(streamId)
+    // Reset stdout/toolTraces/status for the new turn, but preserve activityEvents
+    // so the UI doesn't flash blank while re-hydrating from DB.
     streams.set(streamId, {
       taskId: streamId,
       stdout: '',
@@ -159,7 +161,7 @@ export function resetChatStream(streamId: string) {
       toolTraces: [],
       fileChanges: [],
       steerMessages: [],
-      activityEvents: [],
+      activityEvents: existing?.activityEvents ?? [],
       status: 'running',
     })
     return { taskStreams: streams }

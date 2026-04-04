@@ -688,6 +688,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           blocks={displayBlocks}
           isStreaming={isStreaming}
           isRunning={isStreaming}
+          hidePlanResult
           onSendPrompt={sendMessage}
           onLinkClick={(href) => {
             const match = href.match(/^astro:node:(.+)$/)
