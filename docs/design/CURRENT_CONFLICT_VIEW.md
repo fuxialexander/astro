@@ -82,6 +82,8 @@ Workspace V2 design (`docs/design/WORKSPACE_V2.md`) and its implementation specs
 
 **Resolved (2026-02-27):** FRONTEND.md routes table completely rewritten with all 22 current routes (public + authenticated). Project creation section rewritten to describe the new `project-new-plan.tsx` two-phase interactive experience with inline directory detection (Workspace V2). Stores updated to 29, components expanded from 4 to 13 subsections, hooks and libraries promoted to full sections.
 
+**Updated (2026-04-03):** `project-new-plan.tsx` removed. `/plan`, `/welcome`, `/examples`, `/templates` routes now redirect to `/dashboard`. Project creation is handled through the dashboard inbox. FRONTEND.md routes table and project creation workflow updated accordingly.
+
 ### 13. ~~Worktree location: global vs. per-project~~ ✅ RESOLVED
 
 **Resolved (2026-02-22):** Code now uses per-project `{projectDir}/.astro/worktrees/` location as specified in WORKSPACE_V2.md. AGENT_RUNNER.md status table updated to reflect implementation completion. ARCHITECTURE.md §4.5 still references global path — should be updated in a future pass.

@@ -1130,7 +1130,7 @@ export function Projects() {
                   description="Create your first project and let AI help you break it down into a structured plan."
                   action={{
                     label: "Create Project",
-                    href: "/projects",
+                    onClick: () => setCreating(true),
                   }}
                 />
               </div>
