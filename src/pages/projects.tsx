@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, Sparkles, X } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -942,21 +942,7 @@ export function Projects() {
                   }}
                 />
               </div>
-              <div className="flex-1 flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={() => navigate("/projects")}
-                  className="flex items-center gap-4 w-full max-w-lg rounded-xl bg-muted/50 border border-border px-6 py-5 hover:bg-muted/80 hover:border-primary/30 transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 shrink-0">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-sm font-semibold">Generate with AI</div>
-                    <div className="text-xs text-muted-foreground">Describe your goal and let AI create a plan</div>
-                  </div>
-                </button>
-              </div>
+              <div className="flex-1" />
             </div>
           ) : (
             <ItemListView
@@ -1109,7 +1095,7 @@ export function Projects() {
                 icon={Folder}
                 title="No projects to display"
                 description="Create a project to see it on the timeline."
-                action={{ label: "Create Project", href: "/projects" }}
+                action={{ label: "Create Project", href: "/dashboard" }}
                 className="h-full"
               />
             </div>

@@ -737,7 +737,7 @@ export function Dashboard() {
       {recentProjects.length === 0 && recentPlaygrounds.length === 0 && (
         <div className="rounded-xl border border-dashed border-border/40 p-5 text-center">
           <p className="text-xs text-muted-foreground/50 mb-2">{t("noActiveProjects")}</p>
-          <Button size="sm" variant="outline" className="h-7 text-xs border-border/60" onClick={() => navigate("/projects")}>
+          <Button size="sm" variant="outline" className="h-7 text-xs border-border/60" onClick={() => navigate("/dashboard")}>
             <Plus className="h-3 w-3" /> {t("createProject")}
           </Button>
         </div>
