@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef, memo } from "react"
 import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -56,12 +56,108 @@ interface ChatPanelProps {
   headerActions?: React.ReactNode
 }
 
-export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
+export interface ChatInputHandle {
+  /** Imperatively set the input text (used when editing a previous message) */
+  setValue: (text: string) => void
+}
+
+interface ChatInputAreaProps {
+  projectId: string
+  isBusy: boolean
+  isStreaming: boolean
+  resolvedMachineId: string | undefined
+  workingDirectory: string | undefined
+  fileTree: string[] | undefined
+  slashCmds: SlashCommand[]
+  mentionItems: MentionItem[]
+  editingMessageId: string | null
+  onSend: (text: string, images: ChatImageAttachment[], editingMessageId: string | null) => void
+  onEditingClear: () => void
+  onAbort: () => void
+}
+
+const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(function ChatInputArea(
+  { projectId, isBusy, isStreaming, resolvedMachineId, workingDirectory, fileTree, slashCmds, mentionItems, editingMessageId, onSend, onEditingClear, onAbort },
+  ref
+) {
   const [input, setInput] = useState("")
   const [chatImages, setChatImages] = useState<ChatImageAttachment[]>([])
+  const filePickerRef = useRef<(() => void) | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    setValue: (text: string) => setInput(text),
+  }), [])
+
+  function handleSend() {
+    const text = input.trim()
+    if (!text && chatImages.length === 0) return
+    const images = chatImages
+    setInput("")
+    setChatImages([])
+    onSend(text || "(See attached images)", images, editingMessageId)
+    onEditingClear()
+  }
+
+  return (
+    <div className="border-t border-border/60 p-3">
+      <div className="flex items-end gap-2">
+        <FileCompletionTextarea
+          projectId={projectId}
+          machineId={resolvedMachineId}
+          workingDirectory={workingDirectory}
+          fileTree={fileTree}
+          slashCommands={slashCmds}
+          mentionItems={mentionItems}
+          value={input}
+          onChange={setInput}
+          placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
+          rows={3}
+          onSubmit={handleSend}
+          className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
+          images={chatImages}
+          onImagesChange={setChatImages}
+          filePickerRef={filePickerRef}
+        />
+        <div className="flex flex-row items-end gap-1 shrink-0">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={() => filePickerRef.current?.()}
+            title="Attach image (or paste/drag-drop)"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          {isStreaming && (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9"
+              onClick={onAbort}
+              title="Stop generation"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <Button
+            size="icon"
+            className="h-9 w-9"
+            onClick={handleSend}
+            disabled={!input.trim() && chatImages.length === 0}
+            title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}))
+
+export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   /** When set, the next send will truncate the conversation from this message before re-sending */
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
-  const filePickerRef = useRef<(() => void) | null>(null)
+  const chatInputRef = useRef<ChatInputHandle>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
@@ -305,25 +401,20 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Send message — delegates to store-owned SSE which handles queuing when streaming.
   // No local queue needed: the store's chatMessageQueues auto-drain on stream completion.
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback((text: string, images: ChatImageAttachment[], editId: string | null) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
     const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
     if (!text || !session) return
 
-    const currentImages = chatImages
-    setInput("")
-    setChatImages([])
-
     const sid = session.id
 
     // Edit & retry: if editing a previous message, truncate the conversation
     // from that message forward before re-sending. This gives Claude a clean
     // conversation without the old response to the edited message.
-    if (editingMessageId) {
-      store.truncateAfterMessage(sid, editingMessageId)
-      setEditingMessageId(null)
+    if (editId) {
+      store.truncateAfterMessage(sid, editId)
     }
 
     addMessage(sid, { role: "user", content: text })
@@ -347,9 +438,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       planNodes: planNodeContext,
       planEdges: planEdgeContext,
       messages: historyMessages,
-      imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
+      imageRefs: images.length > 0 ? images.map((img) => img.id) : undefined,
     })
-  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages, editingMessageId])
+  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage])
 
   const handleEditMessage = useCallback((msg: string, timestamp: Date) => {
     const session = useSessionStore.getState().sessions.get(
@@ -373,20 +464,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     } else {
       console.warn('[ChatPanel] edit: no matching session message found — sending as new message')
     }
-    setInput(msg)
+    chatInputRef.current?.setValue(msg)
   }, [projectId])
 
-  function handleSend() {
-    const text = input.trim()
-    if (!text && chatImages.length === 0) return
-    sendMessage(text || "(See attached images)")
+  function handleSendFromInput(text: string, images: ChatImageAttachment[], editId: string | null) {
+    sendMessage(text, images, editId)
   }
 
   // Listen for send_chat_message events from json-render interactive specs
   useEffect(() => {
     const handler = (e: Event) => {
       const message = (e as CustomEvent<{ message: string }>).detail?.message
-      if (message) sendMessage(message)
+      if (message) sendMessage(message, [], null)
     }
     window.addEventListener('astro:send-chat-message', handler)
     return () => window.removeEventListener('astro:send-chat-message', handler)
@@ -396,8 +485,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   useEffect(() => {
     if (initialMessage && !initialMessageSent.current && !isBusy) {
       initialMessageSent.current = true
-      // Auto-send after a brief delay so the session is ready
-      const timer = setTimeout(() => sendMessage(initialMessage), 100)
+      const timer = setTimeout(() => sendMessage(initialMessage, [], null), 100)
       return () => clearTimeout(timer)
     }
   }, [initialMessage, isBusy, sendMessage])
@@ -689,7 +777,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           isStreaming={isStreaming}
           isRunning={isStreaming}
           hidePlanResult
-          onSendPrompt={sendMessage}
+          onSendPrompt={(text) => sendMessage(text, [], null)}
           onLinkClick={(href) => {
             const match = href.match(/^astro:node:(.+)$/)
             if (match) {
@@ -728,58 +816,21 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       )}
 
       {/* Input */}
-      <div className="border-t border-border/60 p-3">
-        <div className="flex items-end gap-2">
-          <FileCompletionTextarea
-            projectId={projectId}
-            machineId={resolvedMachineId}
-            workingDirectory={project?.workingDirectory}
-            fileTree={project?.fileTree}
-            slashCommands={slashCmds}
-            mentionItems={mentionItems}
-            value={input}
-            onChange={setInput}
-            placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
-            rows={3}
-            onSubmit={handleSend}
-            className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
-            images={chatImages}
-            onImagesChange={setChatImages}
-            filePickerRef={filePickerRef}
-          />
-          <div className="flex flex-row items-end gap-1 shrink-0">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8"
-              onClick={() => filePickerRef.current?.()}
-              title="Attach image (or paste/drag-drop)"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            {isStreaming && (
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-9 w-9"
-                onClick={() => currentSession && abortChatStream(currentSession.id)}
-                title="Stop generation"
-              >
-                <Square className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={handleSend}
-              disabled={!input.trim() && chatImages.length === 0}
-              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
+      <ChatInputArea
+        ref={chatInputRef}
+        projectId={projectId}
+        isBusy={isBusy}
+        isStreaming={isStreaming}
+        resolvedMachineId={resolvedMachineId}
+        workingDirectory={project?.workingDirectory}
+        fileTree={project?.fileTree}
+        slashCmds={slashCmds}
+        mentionItems={mentionItems}
+        editingMessageId={editingMessageId}
+        onSend={handleSendFromInput}
+        onEditingClear={() => setEditingMessageId(null)}
+        onAbort={() => currentSession && abortChatStream(currentSession.id)}
+      />
 
       {/* Session Edit/Delete Dialog */}
       {/* SessionDialog removed — inline rename replaces it */}

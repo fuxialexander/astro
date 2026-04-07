@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info, Maximize2, Minimize2 } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -781,12 +781,15 @@ function FloatingChat({
   initialMessage,
   onNodeSelect,
   isMobile,
+  onDockRequest,
 }: {
   projectId: string
   visionDoc?: string
   initialMessage?: string
   onNodeSelect: (nodeId: string) => void
   isMobile: boolean
+  /** Called when the user wants to dock the chat into the split-view panel */
+  onDockRequest?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   // FAB position — bottom-right
@@ -893,6 +896,23 @@ function FloatingChat({
                 className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 group"
               >
                 <div className="absolute top-1 left-1 w-2 h-2 rounded-full bg-border opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            )}
+            {/* Dock hint bar */}
+            {onDockRequest && (
+              <div className="flex h-7 shrink-0 items-center justify-end gap-1 px-2 border-b border-border/40 bg-muted/30">
+                <span className="text-[10px] text-muted-foreground mr-auto pl-1">
+                  <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">C</kbd> to dock
+                </span>
+                <button
+                  type="button"
+                  onClick={onDockRequest}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Dock to split view (C)"
+                >
+                  <PanelRight className="h-3 w-3" />
+                  Dock
+                </button>
               </div>
             )}
             <ChatPanel
@@ -2240,9 +2260,7 @@ export function PlanView() {
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
-  const projectTaskCount = useMemo(() => planNodes.filter((n) => n.projectId === id && n.type !== "milestone").length, [planNodes, id])
-  // Auto-enable fast edit when project has no tasks (empty plan)
-  const fastEdit = fastEditSetting || projectTaskCount === 0
+  const fastEdit = fastEditSetting
 
   /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
@@ -2265,6 +2283,20 @@ export function PlanView() {
     if (node) handleNodeSelect(node)
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
+  // Chat panel layout mode: hidden (FAB only) | split (right panel) | fullscreen
+  type ChatPanelMode = 'hidden' | 'split' | 'fullscreen'
+  const [chatPanelMode, setChatPanelMode] = useState<ChatPanelMode>('hidden')
+  const cycleChatMode = useCallback(() => {
+    setChatPanelMode((m) => m === 'hidden' ? 'split' : m === 'split' ? 'fullscreen' : 'hidden')
+  }, [])
+  // Auto-open split when a decompose triggers an initial message
+  const prevInitialMessage = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (chatInitialMessage && chatInitialMessage !== prevInitialMessage.current) {
+      prevInitialMessage.current = chatInitialMessage
+      setChatPanelMode((m) => m === 'hidden' ? 'split' : m)
+    }
+  }, [chatInitialMessage])
   const [visionOpen, setVisionOpen] = useState(false)
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
@@ -2326,7 +2358,10 @@ export function PlanView() {
       const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
       if (isEditable) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === 'i' && !fastEditSetting) {
+      if (e.key === 'c' && !fastEditSetting) {
+        e.preventDefault()
+        cycleChatMode()
+      } else if (e.key === 'i' && !fastEditSetting) {
         e.preventDefault()
         toggleFastEdit()
       } else if (e.key === 'Escape' && fastEditSetting) {
@@ -2339,7 +2374,7 @@ export function PlanView() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [fastEditSetting, toggleFastEdit, id, navigate])
+  }, [fastEditSetting, toggleFastEdit, id, navigate, cycleChatMode])
 
   // Show help tooltip on first visit to plan view
   const [showHelpTip, setShowHelpTip] = useState(() => {
@@ -2727,7 +2762,8 @@ export function PlanView() {
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> fast edit,{" "}
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> confirm,{" "}
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> exit.{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>–<kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> switch views
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>–<kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> switch views,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">C</kbd> toggle chat panel
           </span>
           <button
             type="button"
@@ -2745,49 +2781,94 @@ export function PlanView() {
         {activeTab === "plan" && <ProjectInfoSection project={project} />}
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex flex-1 overflow-hidden relative">
-            {activeTab === "repo" ? (
-              isGitHubProject ? (
-                <RepoExplorer project={project} />
+          {/* Plan view — hidden in fullscreen chat mode */}
+          {chatPanelMode !== 'fullscreen' && (
+            <div className="flex flex-1 overflow-hidden relative">
+              {activeTab === "repo" ? (
+                isGitHubProject ? (
+                  <RepoExplorer project={project} />
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                    This project is not linked to a GitHub repository.
+                  </div>
+                )
+              ) : viewMode === "graph" ? (
+                <div className="flex-1 relative overflow-hidden">
+                  <div className="absolute inset-0 touch-pan-x touch-pan-y">
+                    <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
+                  </div>
+                </div>
+              ) : viewMode === "list" ? (
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
+                </div>
+              ) : viewMode === "board" ? (
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
+                </div>
               ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-                  This project is not linked to a GitHub repository.
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
                 </div>
-              )
-            ) : viewMode === "graph" ? (
-              <div className="flex-1 relative overflow-hidden">
-                <div className="absolute inset-0 touch-pan-x touch-pan-y">
-                  <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
-                </div>
-              </div>
-            ) : viewMode === "list" ? (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            ) : viewMode === "board" ? (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            ) : (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            )}
+              )}
 
-            {/* Node inspector pane — full-screen sheet on mobile, right sidebar on desktop */}
-            {inspectorOpen && inspectorProps && (
-              <>
-                {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
-                {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
-              </>
-            )}
-            {inspectorOpen && !inspectorProps && !isMobile && (
-              <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
-                <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
-                <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+              {/* Node inspector — hidden when chat panel is open to avoid triple-column clutter */}
+              {inspectorOpen && inspectorProps && chatPanelMode === 'hidden' && (
+                <>
+                  {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
+                  {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
+                </>
+              )}
+              {inspectorOpen && !inspectorProps && !isMobile && chatPanelMode === 'hidden' && (
+                <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
+                  <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
+                  <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Docked chat panel — split (fixed width) or fullscreen */}
+          {chatPanelMode !== 'hidden' && !isMobile && (
+            <div
+              className={cn(
+                "flex flex-col border-l border-border/60 bg-card overflow-hidden transition-all duration-200",
+                chatPanelMode === 'fullscreen' ? "flex-1" : "w-[420px] shrink-0"
+              )}
+            >
+              {/* Panel header with mode toggle */}
+              <div className="flex h-8 shrink-0 items-center justify-end gap-1 px-2 border-b border-border/40 bg-muted/30">
+                <span className="text-[10px] text-muted-foreground mr-auto pl-1">
+                  Press <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">C</kbd> to cycle · <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">Esc</kbd> to close
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChatPanelMode(chatPanelMode === 'split' ? 'fullscreen' : 'split')}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title={chatPanelMode === 'split' ? 'Expand to full screen' : 'Shrink to split view'}
+                >
+                  {chatPanelMode === 'split'
+                    ? <Maximize2 className="h-3.5 w-3.5" />
+                    : <Minimize2 className="h-3.5 w-3.5" />
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatPanelMode('hidden')}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Close chat panel"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-            )}
-          </div>
+              <ChatPanel
+                projectId={project.id}
+                visionDoc={project.visionDoc}
+                initialMessage={chatInitialMessage}
+                onNodeSelect={handleChatNodeSelect}
+              />
+            </div>
+          )}
         </div>
 
       </div>
@@ -2795,14 +2876,17 @@ export function PlanView() {
       {/* Working directory bar — bottom of plan view */}
       <WorkdirBar project={project} />
 
-      {/* Floating chat bubble — always visible */}
-      <FloatingChat
-        projectId={project.id}
-        visionDoc={project.visionDoc}
-        initialMessage={chatInitialMessage}
-        onNodeSelect={handleChatNodeSelect}
-        isMobile={isMobile}
-      />
+      {/* FAB chat button — only on mobile or when panel is hidden on desktop */}
+      {(isMobile || chatPanelMode === 'hidden') && (
+        <FloatingChat
+          projectId={project.id}
+          visionDoc={project.visionDoc}
+          initialMessage={chatInitialMessage}
+          onNodeSelect={handleChatNodeSelect}
+          isMobile={isMobile}
+          onDockRequest={isMobile ? undefined : cycleChatMode}
+        />
+      )}
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
