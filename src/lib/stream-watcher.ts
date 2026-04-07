@@ -27,8 +27,12 @@ export interface StreamWatcherCallbacks {
   onError?: (error: string) => void
 }
 
-/** How long (ms) without any activity before the watcher considers the stream dead. */
-const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes
+/**
+ * How long (ms) without any task-specific activity before the watcher considers the stream dead.
+ * Set to 10 minutes to accommodate long-running agent tool steps (e.g., builds, large file edits)
+ * where no SSE events are emitted until the step completes.
+ */
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
 /** Shorter timeout for the initial connection — if no events arrive at all. */
 const INITIAL_TIMEOUT_MS = 60 * 1000 // 1 minute
@@ -73,7 +77,7 @@ export function watchStream(
       done = true
       clearInterval(timeoutTimer)
       const msg = receivedFirstEvent
-        ? 'Stream timed out — no events received for 3 minutes. Try sending your message again.'
+        ? 'Stream timed out — no events received for 10 minutes. Try sending your message again.'
         : 'No response from agent runner — the request may not have reached a connected machine. Try again.'
       callbacks.onError?.(msg)
       queueMicrotask(() => cleanup())
