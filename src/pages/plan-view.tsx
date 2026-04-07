@@ -745,6 +745,36 @@ function ProjectInfoSection({ project }: { project: Project }) {
 }
 
 // --- Floating chat bubble: unified for mobile + desktop ---
+const CHAT_SIZE_KEY = 'astro:floating-chat-size'
+const DEFAULT_CHAT_W = 560
+const DEFAULT_CHAT_H = 680
+const MIN_CHAT_W = 340
+const MIN_CHAT_H = 400
+
+const MAX_CHAT_W = 2000
+const MAX_CHAT_H = 2000
+
+function loadChatSize(): { w: number; h: number } {
+  try {
+    const raw = localStorage.getItem(CHAT_SIZE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.w >= MIN_CHAT_W && parsed.w <= MAX_CHAT_W &&
+          parsed.h >= MIN_CHAT_H && parsed.h <= MAX_CHAT_H) return parsed
+    }
+  } catch { /* ignore */ }
+  return { w: DEFAULT_CHAT_W, h: DEFAULT_CHAT_H }
+}
+
+function clampSize(w: number, h: number): { w: number; h: number } {
+  const maxW = typeof window !== 'undefined' ? window.innerWidth - 80 : MAX_CHAT_W
+  const maxH = typeof window !== 'undefined' ? window.innerHeight - 80 : MAX_CHAT_H
+  return {
+    w: Math.max(MIN_CHAT_W, Math.min(maxW, w)),
+    h: Math.max(MIN_CHAT_H, Math.min(maxH, h)),
+  }
+}
+
 function FloatingChat({
   projectId,
   visionDoc,
@@ -759,13 +789,20 @@ function FloatingChat({
   isMobile: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  // FAB position — bottom-right
   const [pos, setPos] = useState(() => ({
     x: typeof window !== 'undefined' ? window.innerWidth - 72 : 0,
     y: typeof window !== 'undefined' ? window.innerHeight - (isMobile ? 160 : 130) : 0,
   }))
+  // Resizable panel size — persisted in localStorage
+  const [panelSize, setPanelSize] = useState(loadChatSize)
   const dragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 })
   const hasMoved = useRef(false)
+
+  // Resize state
+  const resizing = useRef(false)
+  const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 })
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true
@@ -792,12 +829,41 @@ function FloatingChat({
     if (!hasMoved.current) setExpanded((v) => !v)
   }, [])
 
-  // Panel dimensions — larger on desktop
-  const panelW = isMobile ? Math.min(340, window.innerWidth - 68) : Math.min(420, window.innerWidth - 100)
-  const panelH = isMobile ? Math.min(460, window.innerHeight - 140) : Math.min(560, window.innerHeight - 80)
-  // Anchor panel above+left of FAB, clamp to viewport
-  const panelX = Math.max(56, Math.min(pos.x - panelW + 48, window.innerWidth - panelW - 12))
-  const panelY = Math.max(12, Math.min(pos.y - panelH - 12, window.innerHeight - panelH - 12))
+  // Resize handlers — drag from top-left corner to resize (panel anchored bottom-right)
+  const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
+    resizing.current = true
+    resizeStart.current = { x: e.clientX, y: e.clientY, w: panelSize.w, h: panelSize.h }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    e.preventDefault()
+    e.stopPropagation()
+  }, [panelSize])
+
+  const handleResizePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!resizing.current) return
+    // Dragging top-left corner: moving left increases width, moving up increases height
+    const dx = resizeStart.current.x - e.clientX
+    const dy = resizeStart.current.y - e.clientY
+    setPanelSize(clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy))
+  }, [])
+
+  const handleResizePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!resizing.current) return
+    resizing.current = false
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+    // Persist to localStorage
+    const dx = resizeStart.current.x - e.clientX
+    const dy = resizeStart.current.y - e.clientY
+    const finalSize = clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy)
+    setPanelSize(finalSize)
+    try { localStorage.setItem(CHAT_SIZE_KEY, JSON.stringify(finalSize)) } catch { /* ignore */ }
+  }, [])
+
+  // Panel dimensions — clamped to viewport, anchored to bottom-right
+  const panelW = isMobile ? Math.min(340, window.innerWidth - 32) : Math.min(panelSize.w, window.innerWidth - 80)
+  const panelH = isMobile ? Math.min(460, window.innerHeight - 80) : Math.min(panelSize.h, window.innerHeight - 80)
+  // Anchor bottom-right with margin
+  const panelRight = 16
+  const panelBottom = 16
 
   return (
     <>
@@ -815,9 +881,20 @@ function FloatingChat({
               "border border-border/50",
               "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200",
             )}
-            style={{ left: panelX, top: panelY, width: panelW, height: panelH }}
+            style={{ right: panelRight, bottom: panelBottom, width: panelW, height: panelH }}
             onPointerDown={(e) => e.stopPropagation()}
           >
+            {/* Resize handle — top-left corner */}
+            {!isMobile && (
+              <div
+                onPointerDown={handleResizePointerDown}
+                onPointerMove={handleResizePointerMove}
+                onPointerUp={handleResizePointerUp}
+                className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 group"
+              >
+                <div className="absolute top-1 left-1 w-2 h-2 rounded-full bg-border opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            )}
             <ChatPanel
               projectId={projectId}
               visionDoc={visionDoc}
