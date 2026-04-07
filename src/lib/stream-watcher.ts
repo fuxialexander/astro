@@ -77,7 +77,7 @@ export function watchStream(
       done = true
       clearInterval(timeoutTimer)
       const msg = receivedFirstEvent
-        ? 'Stream timed out — no events received for 10 minutes. Try sending your message again.'
+        ? `Stream timed out — no events received for ${INACTIVITY_TIMEOUT_MS / 60_000} minutes. Try sending your message again.`
         : 'No response from agent runner — the request may not have reached a connected machine. Try again.'
       callbacks.onError?.(msg)
       queueMicrotask(() => cleanup())

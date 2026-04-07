@@ -751,15 +751,28 @@ const DEFAULT_CHAT_H = 680
 const MIN_CHAT_W = 340
 const MIN_CHAT_H = 400
 
+const MAX_CHAT_W = 2000
+const MAX_CHAT_H = 2000
+
 function loadChatSize(): { w: number; h: number } {
   try {
     const raw = localStorage.getItem(CHAT_SIZE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed.w >= MIN_CHAT_W && parsed.h >= MIN_CHAT_H) return parsed
+      if (parsed.w >= MIN_CHAT_W && parsed.w <= MAX_CHAT_W &&
+          parsed.h >= MIN_CHAT_H && parsed.h <= MAX_CHAT_H) return parsed
     }
   } catch { /* ignore */ }
   return { w: DEFAULT_CHAT_W, h: DEFAULT_CHAT_H }
+}
+
+function clampSize(w: number, h: number): { w: number; h: number } {
+  const maxW = typeof window !== 'undefined' ? window.innerWidth - 80 : MAX_CHAT_W
+  const maxH = typeof window !== 'undefined' ? window.innerHeight - 80 : MAX_CHAT_H
+  return {
+    w: Math.max(MIN_CHAT_W, Math.min(maxW, w)),
+    h: Math.max(MIN_CHAT_H, Math.min(maxH, h)),
+  }
 }
 
 function FloatingChat({
@@ -830,12 +843,7 @@ function FloatingChat({
     // Dragging top-left corner: moving left increases width, moving up increases height
     const dx = resizeStart.current.x - e.clientX
     const dy = resizeStart.current.y - e.clientY
-    const maxW = window.innerWidth - 80
-    const maxH = window.innerHeight - 80
-    setPanelSize({
-      w: Math.max(MIN_CHAT_W, Math.min(maxW, resizeStart.current.w + dx)),
-      h: Math.max(MIN_CHAT_H, Math.min(maxH, resizeStart.current.h + dy)),
-    })
+    setPanelSize(clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy))
   }, [])
 
   const handleResizePointerUp = useCallback((e: React.PointerEvent) => {
@@ -845,12 +853,7 @@ function FloatingChat({
     // Persist to localStorage
     const dx = resizeStart.current.x - e.clientX
     const dy = resizeStart.current.y - e.clientY
-    const maxW = window.innerWidth - 80
-    const maxH = window.innerHeight - 80
-    const finalSize = {
-      w: Math.max(MIN_CHAT_W, Math.min(maxW, resizeStart.current.w + dx)),
-      h: Math.max(MIN_CHAT_H, Math.min(maxH, resizeStart.current.h + dy)),
-    }
+    const finalSize = clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy)
     setPanelSize(finalSize)
     try { localStorage.setItem(CHAT_SIZE_KEY, JSON.stringify(finalSize)) } catch { /* ignore */ }
   }, [])
