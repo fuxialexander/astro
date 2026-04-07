@@ -190,3 +190,11 @@ docs/setup/xi-fu-deployment.md
 xcuserdata/
 *.xcworkspace/xcuserdata/
 trajectories.jsonl
+
+# Media files
+*.png
+*.mp4
+*.webm
+
+# Test results
+test-results/
