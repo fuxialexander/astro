@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,6 +29,8 @@ import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { BranchSelector } from "@/components/branch-selector"
 import { isServerMode } from "@/lib/app-mode"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import { dataClient } from "@/lib/data-client"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
@@ -64,6 +66,9 @@ export function InboxHome() {
 
   // Plan mode state
   const [planMode, setPlanMode] = useState(false)
+
+  // Git init state
+  const [isInitingGit, setIsInitingGit] = useState(false)
 
   // Path browser state
   const [showPathBrowser, setShowPathBrowser] = useState(false)
@@ -631,6 +636,44 @@ export function InboxHome() {
                   onCheckout={() => refreshDetection()}
                   compact
                 />
+              ) : detection && !detection.isGit && workingDir.trim() && selectedMachine ? (
+                <button
+                  type="button"
+                  disabled={isInitingGit}
+                  onClick={async () => {
+                    setIsInitingGit(true)
+                    try {
+                      const token = await getAccessToken()
+                      const headers: HeadersInit = { "Content-Type": "application/json" }
+                      if (token) headers["Authorization"] = `Bearer ${token}`
+                      const res = await fetch(apiUrl("/api/repo/git-init"), {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify({
+                          workingDirectory: workingDir.trim(),
+                          projectId: crypto.randomUUID(),
+                          projectName: planGoal.trim().split('\n')[0].slice(0, 60) || "New Project",
+                          targetMachineId: selectedMachine.machineId,
+                        }),
+                      })
+                      if (res.ok) {
+                        useToastStore.getState().add({ type: "success", title: "Git initialized" })
+                        refreshDetection()
+                      } else {
+                        const err = await res.json().catch(() => ({}))
+                        useToastStore.getState().add({ type: "error", title: "Git init failed", description: err.error || "Unknown error" })
+                      }
+                    } catch (err) {
+                      useToastStore.getState().add({ type: "error", title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error" })
+                    } finally {
+                      setIsInitingGit(false)
+                    }
+                  }}
+                  className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium transition-colors cursor-pointer hover:bg-amber-500/20 disabled:opacity-50"
+                >
+                  {isInitingGit ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitBranch className="h-3 w-3" />}
+                  {isInitingGit ? "Initializing..." : "Init Git"}
+                </button>
               ) : undefined
             }
           />
