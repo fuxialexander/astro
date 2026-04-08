@@ -289,25 +289,6 @@ describe('POST /api/dispatch/prune-cleanup', () => {
 })
 
 // ============================================================================
-// Feature Flag Consistency
-// ============================================================================
-
-describe('Feature flag consistency — discovery-mode', () => {
-  it('server GLOBAL_DEFAULTS includes discovery-mode: false', async () => {
-    const { GLOBAL_DEFAULTS: serverDefaults } = await import('../server/lib/feature-flags.js')
-    expect(serverDefaults['discovery-mode']).toBe(false)
-  })
-
-  it('hasFeature returns true when flag is enabled in team flags', async () => {
-    const { hasFeature } = await import('../server/lib/feature-flags.js')
-    expect(hasFeature({ 'discovery-mode': true }, 'discovery-mode')).toBe(true)
-    expect(hasFeature({ 'discovery-mode': false }, 'discovery-mode')).toBe(false)
-    expect(hasFeature({}, 'discovery-mode')).toBe(false) // falls back to GLOBAL_DEFAULTS (false)
-    expect(hasFeature(null, 'discovery-mode')).toBe(false) // null flags = defaults
-  })
-})
-
-// ============================================================================
 // Plan Retrieval with OutputDir Metadata
 // ============================================================================
 

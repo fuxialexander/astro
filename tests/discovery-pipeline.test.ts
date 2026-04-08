@@ -4,18 +4,12 @@
  * Tests for the discovery mode feature:
  * 1. slugify() — filesystem-safe hyphenated path segments
  * 2. DISCOVERY_MODE_INSTRUCTIONS — prompt constant
- * 3. Feature flag defaults — discovery-mode flag in GLOBAL_DEFAULTS
  */
-
-// Must be set BEFORE any server/ imports so PGlite is used instead of Supabase
-process.env.ASTRO_LOCAL_MODE = 'true'
 
 import { describe, it, expect } from 'vitest'
 import { slugify } from '../packages/core/src/dispatch/context-assembler.js'
 import { slugifyTitle } from '../packages/core/src/dispatch/context-assembler.js'
 import { DISCOVERY_MODE_INSTRUCTIONS } from '../packages/core/src/prompt-templates.js'
-import { GLOBAL_DEFAULTS as SERVER_DEFAULTS } from '../server/lib/feature-flags.js'
-
 // ============================================================================
 // slugify() — Filesystem Path Segments
 // ============================================================================
@@ -122,17 +116,6 @@ describe('DISCOVERY_MODE_INSTRUCTIONS', () => {
 
   it('does NOT reference direct execution mode', () => {
     expect(DISCOVERY_MODE_INSTRUCTIONS).not.toContain('direct execution mode')
-  })
-})
-
-// ============================================================================
-// Feature Flag Defaults
-// ============================================================================
-
-describe('Feature Flag Defaults — discovery-mode', () => {
-  it('server GLOBAL_DEFAULTS includes discovery-mode set to false', () => {
-    expect('discovery-mode' in SERVER_DEFAULTS).toBe(true)
-    expect(SERVER_DEFAULTS['discovery-mode']).toBe(false)
   })
 })
 

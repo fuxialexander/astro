@@ -36,7 +36,6 @@ import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { DISCOVERY_MODE_INSTRUCTIONS } from "@astro/core/prompt-templates"
-import { useFeatureFlag } from "@/hooks/use-feature-flag"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -61,7 +60,6 @@ export function InboxHome() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
 
   // Discovery mode state
-  const discoveryFlagEnabled = useFeatureFlag('discovery-mode')
   const [discoveryMode, setDiscoveryMode] = useState(false)
 
   // Path browser state
@@ -497,7 +495,6 @@ export function InboxHome() {
                   compact
                 />
               )}
-              {discoveryFlagEnabled && (
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -522,7 +519,6 @@ export function InboxHome() {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              )}
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
