@@ -436,7 +436,6 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     agentDir,
     worktreeStrategy,
-    useWorktree,
     imageRefs,
     isInteractivePlan,
     maxTurns,
@@ -464,6 +463,7 @@ dispatchRoute.post('/task', async (c) => {
     deliveryMode,
     remoteType,
     acceptanceCriteria,
+    useWorktree,
   } = body
 
   // PR body enrichment fields (resolved from DB)
@@ -707,6 +707,7 @@ dispatchRoute.post('/task', async (c) => {
       //   - EARLY check (search: "Early serial execution check"): runs when body provides deliveryMode
       //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
+      useWorktree ??= dbProject.useWorktree ?? undefined
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; isGit?: boolean; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       isGit = source?.isGit

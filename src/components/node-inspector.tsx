@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare, Loader2, Copy } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare, Loader2, Copy, Archive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -310,6 +310,16 @@ export function NodeInspectorContent({
   }, [node, updateNode, onNodeUpdate])
 
   const nodeOutputDir = (node.metadata as Record<string, unknown> | undefined)?.outputDir as string | undefined
+
+  const handleArchive = useCallback(() => {
+    if (node.type === 'milestone') {
+      usePlanStore.getState().archiveMilestone(node.id)
+    } else {
+      usePlanStore.getState().archiveNode(node.id)
+    }
+    const freshNode = usePlanStore.getState().nodes.find((n) => n.id === node.id)
+    if (freshNode) onNodeUpdate(freshNode)
+  }, [node.id, node.type, onNodeUpdate])
 
   // ── Verification state ───────────────────────────────────────
   const execution = useExecutionStore((s) => s.getExecution(node.id))

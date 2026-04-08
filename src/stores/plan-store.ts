@@ -212,6 +212,10 @@ interface PlanState {
   removeProjectPlan: (projectId: string) => void
   /** Mark node IDs as recently updated (visual pulse). Auto-clears after 2s. */
   markNodesAsUpdating: (nodeIds: string[]) => void
+  /** Archive a node: set status to pruned and mark as archived in metadata */
+  archiveNode: (nodeId: string) => void
+  /** Archive a milestone and all its child tasks */
+  archiveMilestone: (milestoneId: string) => void
   /** Reset a node for re-execution: close PR, delete branch, clean worktree, reset status */
   resetNode: (nodeId: string, projectId: string) => Promise<{ success: boolean; errors?: string[] }>
   /** Prune a milestone and all its child tasks */
@@ -768,6 +772,28 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       markNodesTimer = undefined
       set({ recentlyUpdatedNodeIds: new Set() })
     }, 2000) as unknown as number
+  },
+
+  archiveNode: (nodeId) => {
+    const now = new Date()
+    const node = get().nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    const metadata = { ...(node.metadata || {}), archived: true, archivedAt: now.toISOString() }
+    get().updateNode(nodeId, { status: 'pruned', metadata })
+  },
+
+  archiveMilestone: (milestoneId) => {
+    const milestone = get().nodes.find((n) => n.id === milestoneId)
+    if (!milestone) return
+    // Archive all tasks belonging to this milestone
+    const childTasks = get().nodes.filter(
+      (n) => n.milestoneId === milestoneId && n.id !== milestoneId
+    )
+    for (const task of childTasks) {
+      get().archiveNode(task.id)
+    }
+    // Archive the milestone itself
+    get().archiveNode(milestoneId)
   },
 
   resetNode: async (nodeId, projectId) => {

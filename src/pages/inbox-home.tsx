@@ -37,6 +37,7 @@ import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
+import { DISCOVERY_MODE_INSTRUCTIONS } from "@astro/core/prompt-templates"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]

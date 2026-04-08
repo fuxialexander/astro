@@ -328,6 +328,8 @@ interface ExecutionState {
       source?: ProjectSource
       deliveryMode?: string
       discoveryMode?: boolean
+      useWorktree?: boolean
+      mergeQueueEnabled?: boolean
       resumeSessionId?: string
       forkSession?: boolean
       selectedBackends?: string[]
@@ -598,7 +600,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           remoteType: project?.source?.remoteType || undefined,
           agentDir: project?.agentDir || undefined,
           worktreeStrategy: project?.worktreeStrategy || undefined,
-          useWorktree: options?.useWorktree,
+          useWorktree: options?.useWorktree ?? project?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria || undefined,
           ...(options?.isFollowUp && { isFollowUp: true, force: true }),
@@ -1514,6 +1516,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } : {}),
       ...(options.deliveryMode && { deliveryMode: options.deliveryMode }),
       ...(options.discoveryMode && { discoveryMode: true }),
+      ...(options.useWorktree !== undefined && { useWorktree: options.useWorktree }),
+      ...(options.mergeQueueEnabled !== undefined && { mergeQueueEnabled: options.mergeQueueEnabled }),
     } as Project)
 
     const nodeId = `session-${projectId}`
