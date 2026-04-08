@@ -3,6 +3,7 @@ import { XCircle, GitBranch, FolderX } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useToastStore } from "@/stores/toast-store"
 import { statusLabels } from "@/lib/status-config"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
@@ -61,6 +62,7 @@ export function PruneCleanupDialog({ open, onOpenChange, node, projectId }: Prun
           })
         } catch (err) {
           console.warn("[prune-cleanup] Cleanup request failed:", err)
+          useToastStore.getState().add({ type: "warning", title: "Cleanup scheduling failed", description: "Branches and outputs may not be deleted automatically." })
         }
       }
     } finally {

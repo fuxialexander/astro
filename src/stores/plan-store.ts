@@ -826,7 +826,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const milestone = get().nodes.find((n) => n.id === milestoneId)
     if (!milestone) return
     const childTasks = get().nodes.filter(
-      (n) => n.milestoneId === milestoneId && n.id !== milestoneId && n.status !== 'pruned'
+      (n) => isLive(n) && n.milestoneId === milestoneId && n.id !== milestoneId && n.status !== 'pruned'
     )
     for (const task of childTasks) {
       get().updateNode(task.id, { status: 'pruned' })
