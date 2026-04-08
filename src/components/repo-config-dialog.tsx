@@ -15,6 +15,8 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import type { MachineInfo } from "@/stores/execution-store"
 import { BranchSelector } from "@/components/branch-selector"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { validateGitUrl } from "@/lib/git-url-utils"
 import { deriveDeliveryMode } from "@/lib/project-source"
@@ -60,9 +62,10 @@ export function RepoConfigDialog({
   const [baseBranch, setBaseBranch] = useState(project.source?.baseBranch ?? "")
   const [directMode, setDirectMode] = useState(project.deliveryMode === 'direct')
   const [directConfirmed, setDirectConfirmed] = useState(project.deliveryMode === 'direct')
+  const [isInitingGit, setIsInitingGit] = useState(false)
 
   // Directory detection — auto-detects git info as user types
-  const { detection, isDetecting } = useDirectoryDetection(workDir, selectedMachineId)
+  const { detection, isDetecting, refresh: refreshDetection } = useDirectoryDetection(workDir, selectedMachineId)
 
   // Auto-fill repo URL from detection
   useEffect(() => {
@@ -334,7 +337,43 @@ export function RepoConfigDialog({
                     ) : detection.exists ? (
                       <>
                         <AlertCircle className="h-3 w-3 text-amber-500" />
-                        <span className="text-amber-600 dark:text-amber-400">No git — init recommended</span>
+                        <span className="text-amber-600 dark:text-amber-400">No git repository found</span>
+                        <button
+                          type="button"
+                          disabled={isInitingGit}
+                          onClick={async () => {
+                            setIsInitingGit(true)
+                            try {
+                              const token = await getAccessToken()
+                              const headers: HeadersInit = { "Content-Type": "application/json" }
+                              if (token) headers["Authorization"] = `Bearer ${token}`
+                              const res = await fetch(apiUrl("/api/repo/git-init"), {
+                                method: "POST",
+                                headers,
+                                body: JSON.stringify({
+                                  workingDirectory: workDir.trim(),
+                                  projectId: project.id,
+                                  projectName: project.name,
+                                  targetMachineId: selectedMachineId || undefined,
+                                }),
+                              })
+                              if (res.ok) {
+                                addToast({ type: "success", title: "Git initialized" })
+                                refreshDetection()
+                              } else {
+                                const err = await res.json().catch(() => ({}))
+                                addToast({ type: "error", title: "Git init failed", description: err.error || "Unknown error" })
+                              }
+                            } catch (err) {
+                              addToast({ type: "error", title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error" })
+                            } finally {
+                              setIsInitingGit(false)
+                            }
+                          }}
+                          className="ml-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isInitingGit ? "Initializing..." : "Init Git"}
+                        </button>
                       </>
                     ) : (
                       <span className="text-muted-foreground">Directory will be created</span>
