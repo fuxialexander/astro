@@ -170,21 +170,59 @@ export function InboxHome() {
   // Git repo detection for the selected working directory
   const { detection, refresh: refreshDetection } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
 
+  // Target branch state — defaults to detection but user can override
+  const [targetBranch, setTargetBranch] = useState("")
+
   // Submit playground session
   const handleSubmit = useCallback(async () => {
     if (!planGoal.trim() || isSubmitting || !selectedMachine || pendingUploads > 0) return
     setIsSubmitting(true)
     try {
       const effectiveModel = selectedModel || getModelForProvider(selectedProvider || undefined)
+      const trimmedWorkDir = workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`
+
+      // Auto git-init for discovery mode on non-git directories
+      let gitReady = detection?.isGit ?? false
+      if (discoveryMode && !gitReady) {
+        try {
+          const token = await getAccessToken()
+          const headers: HeadersInit = { "Content-Type": "application/json" }
+          if (token) headers["Authorization"] = `Bearer ${token}`
+          const res = await fetch(apiUrl("/api/repo/git-init"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              workingDirectory: trimmedWorkDir,
+              projectId: crypto.randomUUID(),
+              projectName: planGoal.trim().split('\n')[0].slice(0, 60) || "New Project",
+              targetMachineId: selectedMachine.machineId,
+            }),
+          })
+          if (res.ok) {
+            gitReady = true
+            refreshDetection()
+          } else {
+            const err = await res.json().catch(() => ({}))
+            useToastStore.getState().add({ type: "error", title: "Git init failed", description: err.error || "Cannot use discovery mode without git" })
+            setIsSubmitting(false)
+            return
+          }
+        } catch (err) {
+          useToastStore.getState().add({ type: "error", title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error" })
+          setIsSubmitting(false)
+          return
+        }
+      }
 
       // Extract GitHub context from detection
       const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
-      const source: ProjectSource | undefined = detection?.isGit ? {
-        localPath: workingDir.trim(),
-        isGit: detection.isGit,
-        remoteType: detection.remoteType,
-        baseBranch: detection.baseBranch || 'main',
-        remoteUrl: detection.remoteUrl,
+      const effectiveBaseBranch = targetBranch || detection?.baseBranch || 'main'
+      const source: ProjectSource | undefined = gitReady ? {
+        localPath: trimmedWorkDir,
+        isGit: true,
+        remoteType: detection?.remoteType ?? 'none',
+        baseBranch: effectiveBaseBranch,
+        remoteUrl: detection?.remoteUrl,
       } : undefined
 
       const attachmentSection = attachments.length > 0
@@ -205,7 +243,7 @@ export function InboxHome() {
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
         {
           targetMachineId: selectedMachine.machineId,
-          workingDirectory: workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`,
+          workingDirectory: trimmedWorkDir,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
           visionDoc: combinedVisionDoc || undefined,
@@ -226,7 +264,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode, targetBranch, refreshDetection])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -626,14 +664,12 @@ export function InboxHome() {
               )
             }}
             renderAfterPath={
-              detection?.isGit && detection.currentBranch && selectedMachine ? (
+              detection?.isGit && selectedMachine ? (
                 <BranchSelector
-                  value={detection.currentBranch}
-                  onChange={() => {}}
+                  value={targetBranch || detection.baseBranch || detection.currentBranch || 'main'}
+                  onChange={setTargetBranch}
                   path={workingDir.trim()}
                   machineId={selectedMachine.machineId}
-                  checkoutOnSelect
-                  onCheckout={() => refreshDetection()}
                   compact
                 />
               ) : detection && !detection.isGit && workingDir.trim() && selectedMachine ? (
