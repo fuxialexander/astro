@@ -3149,26 +3149,32 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
 
   // Store cleanup metadata on the nodes so the agent-runner can act on it
   // when it next connects or dispatches a task for this project.
+  let written = 0
   for (const item of cleanupItems) {
     if (item.outputDir || item.branchName) {
-      const existing = nodes.find(n => n.clientId === item.nodeId)
-      const existingMeta = (existing?.metadata ?? {}) as Record<string, unknown>
-      await db.update(planNodes)
-        .set({
-          metadata: {
-            ...existingMeta,
-            pendingCleanup: {
-              deleteBranch: item.branchName || undefined,
-              deleteOutputDir: item.outputDir || undefined,
-              requestedAt: new Date().toISOString(),
+      try {
+        const existing = nodes.find(n => n.clientId === item.nodeId)
+        const existingMeta = (existing?.metadata ?? {}) as Record<string, unknown>
+        await db.update(planNodes)
+          .set({
+            metadata: {
+              ...existingMeta,
+              pendingCleanup: {
+                deleteBranch: item.branchName || undefined,
+                deleteOutputDir: item.outputDir || undefined,
+                requestedAt: new Date().toISOString(),
+              },
             },
-          },
-        })
-        .where(eq(planNodes.clientId, item.nodeId))
+          })
+          .where(eq(planNodes.clientId, item.nodeId))
+        written++
+      } catch (err) {
+        console.error(`[prune-cleanup] Failed to write cleanup metadata for ${item.nodeId}:`, err)
+      }
     }
   }
 
-  return c.json({ success: true, cleanupItems: cleanupItems.length })
+  return c.json({ success: true, cleanupItems: written })
 })
 
 /**
