@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -61,6 +61,9 @@ export function InboxHome() {
 
   // Discovery mode state
   const [discoveryMode, setDiscoveryMode] = useState(false)
+
+  // Plan mode state
+  const [planMode, setPlanMode] = useState(false)
 
   // Path browser state
   const [showPathBrowser, setShowPathBrowser] = useState(false)
@@ -189,8 +192,11 @@ export function InboxHome() {
           ? DISCOVERY_MODE_INSTRUCTIONS
           : baseVisionDoc
 
+      const finalGoal = planMode
+        ? `Please give me a structured plan.\n\n${planGoal.trim()}`
+        : planGoal.trim()
       const { projectId } = await startSession(
-        planGoal.trim(),
+        finalGoal,
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
         {
           targetMachineId: selectedMachine.machineId,
@@ -215,7 +221,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -343,6 +349,14 @@ export function InboxHome() {
           onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); uploadFiles(Array.from(e.dataTransfer?.files || [])) }}
         >
+          {planMode && (
+            <div className="px-4 pt-3 pb-0">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-400 text-xs font-medium select-none">
+                <ListTree className="h-3 w-3" />
+                Please give me a structured plan
+              </span>
+            </div>
+          )}
           <textarea
             value={planGoal}
             onChange={(e) => setPlanGoal(e.target.value)}
@@ -350,6 +364,10 @@ export function InboxHome() {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
                 handleSubmit()
+              }
+              if (e.key === "Tab" && e.shiftKey) {
+                e.preventDefault()
+                setPlanMode((v) => !v)
               }
             }}
             onPaste={(e) => {
@@ -495,6 +513,30 @@ export function InboxHome() {
                   compact
                 />
               )}
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setPlanMode(!planMode)}
+                      className={cn(
+                        "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
+                        planMode
+                          ? "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                          : "border-border hover:bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <ListTree className={cn("h-3.5 w-3.5", planMode && "text-blue-600 dark:text-blue-400")} />
+                      <span className="hidden md:inline">Plan</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {planMode
+                      ? "Plan ON — will generate a structured plan (Shift+Tab)"
+                      : "Plan OFF — direct execution (Shift+Tab)"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
