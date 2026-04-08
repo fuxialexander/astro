@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info, Maximize2, Minimize2, MessageSquare } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -166,9 +166,9 @@ const planGraphDisplayConfig: DisplayPopoverConfig = {
 /** Shared "View as" options — all four view modes listed in logical order */
 const PLAN_VIEW_AS_OPTIONS = [
   { value: "list", label: "List" },
+  { value: "graph", label: "Graph" },
   { value: "board", label: "Board" },
   { value: "timeline", label: "Timeline" },
-  { value: "graph", label: "Graph" },
 ]
 
 
@@ -639,22 +639,22 @@ function ProjectInfoSection({ project }: { project: Project }) {
       <div className="border-b border-border/30">
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none"
+        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none overflow-x-auto scrollbar-none"
       >
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 shrink-0">
               {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
               <FileText className="h-3 w-3 shrink-0" />
-              <span>Notes</span>
+              <span className="whitespace-nowrap">Notes</span>
             </span>
           </TooltipTrigger>
           <TooltipContent>{expanded ? "Click to collapse notes" : "Click to expand notes"}</TooltipContent>
         </Tooltip>
 
         {/* Initiative */}
-        <div className="relative group/initiative" onClick={(e) => e.stopPropagation()}>
-          <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer">
+        <div className="relative group/initiative shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer whitespace-nowrap">
             <Target className="h-3 w-3 shrink-0" />
             <span className="truncate max-w-[120px]">{project.initiativeId ? (initiatives.find(i => i.id === project.initiativeId)?.name ?? "—") : "No initiative"}</span>
           </button>
@@ -682,8 +682,8 @@ function ProjectInfoSection({ project }: { project: Project }) {
 
         {/* Team (multi-team) */}
         {teams.length > 1 && (
-          <div className="relative group/team" onClick={(e) => e.stopPropagation()}>
-            <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer">
+          <div className="relative group/team shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted/40 transition-colors cursor-pointer whitespace-nowrap">
               <Users className="h-3 w-3 shrink-0" />
               <span className="truncate max-w-[100px]">{teams.find(t => t.id === project.teamId)?.name ?? teams[0]?.name}</span>
             </button>
@@ -704,14 +704,14 @@ function ProjectInfoSection({ project }: { project: Project }) {
         )}
 
         {/* skill.md */}
-        <button onClick={(e) => { e.stopPropagation(); setVisionOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors">
-          <FileText className="h-3 w-3" />
+        <button onClick={(e) => { e.stopPropagation(); setVisionOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 whitespace-nowrap">
+          <FileText className="h-3 w-3 shrink-0" />
           <span>skill.md</span>
         </button>
 
         {/* Knowledge */}
-        <button onClick={(e) => { e.stopPropagation(); setKnowledgeOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors">
-          <BookOpen className="h-3 w-3" />
+        <button onClick={(e) => { e.stopPropagation(); setKnowledgeOpen(true) }} className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 whitespace-nowrap">
+          <BookOpen className="h-3 w-3 shrink-0" />
           <span>Knowledge</span>
         </button>
 
@@ -745,185 +745,73 @@ function ProjectInfoSection({ project }: { project: Project }) {
 }
 
 // --- Floating chat bubble: unified for mobile + desktop ---
-const CHAT_SIZE_KEY = 'astro:floating-chat-size'
-const DEFAULT_CHAT_W = 560
-const DEFAULT_CHAT_H = 680
-const MIN_CHAT_W = 340
-const MIN_CHAT_H = 400
-
-const MAX_CHAT_W = 2000
-const MAX_CHAT_H = 2000
-
-function loadChatSize(): { w: number; h: number } {
-  try {
-    const raw = localStorage.getItem(CHAT_SIZE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed.w >= MIN_CHAT_W && parsed.w <= MAX_CHAT_W &&
-          parsed.h >= MIN_CHAT_H && parsed.h <= MAX_CHAT_H) return parsed
-    }
-  } catch { /* ignore */ }
-  return { w: DEFAULT_CHAT_W, h: DEFAULT_CHAT_H }
-}
-
-function clampSize(w: number, h: number): { w: number; h: number } {
-  const maxW = typeof window !== 'undefined' ? window.innerWidth - 80 : MAX_CHAT_W
-  const maxH = typeof window !== 'undefined' ? window.innerHeight - 80 : MAX_CHAT_H
-  return {
-    w: Math.max(MIN_CHAT_W, Math.min(maxW, w)),
-    h: Math.max(MIN_CHAT_H, Math.min(maxH, h)),
-  }
-}
-
-function FloatingChat({
+/** Mobile chat bottom sheet */
+function MobileChatSheet({
   projectId,
   visionDoc,
   initialMessage,
   onNodeSelect,
-  isMobile,
+  onClose,
 }: {
   projectId: string
   visionDoc?: string
   initialMessage?: string
   onNodeSelect: (nodeId: string) => void
-  isMobile: boolean
+  onClose: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  // FAB position — bottom-right
-  const [pos, setPos] = useState(() => ({
-    x: typeof window !== 'undefined' ? window.innerWidth - 72 : 0,
-    y: typeof window !== 'undefined' ? window.innerHeight - (isMobile ? 160 : 130) : 0,
-  }))
-  // Resizable panel size — persisted in localStorage
-  const [panelSize, setPanelSize] = useState(loadChatSize)
-  const dragging = useRef(false)
-  const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 })
-  const hasMoved = useRef(false)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Resize state
-  const resizing = useRef(false)
-  const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 })
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    dragging.current = true
-    hasMoved.current = false
-    dragStart.current = { x: e.clientX, y: e.clientY, posX: pos.x, posY: pos.y }
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    e.preventDefault()
-  }, [pos])
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current) return
-    const dx = e.clientX - dragStart.current.x
-    const dy = e.clientY - dragStart.current.y
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved.current = true
-    setPos({
-      x: Math.max(52, Math.min(window.innerWidth - 56, dragStart.current.posX + dx)),
-      y: Math.max(40, Math.min(window.innerHeight - 56, dragStart.current.posY + dy)),
+  // Animate in on mount
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (sheetRef.current) sheetRef.current.style.transform = 'translateY(0)'
     })
   }, [])
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    dragging.current = false
-    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-    if (!hasMoved.current) setExpanded((v) => !v)
-  }, [])
-
-  // Resize handlers — drag from top-left corner to resize (panel anchored bottom-right)
-  const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
-    resizing.current = true
-    resizeStart.current = { x: e.clientX, y: e.clientY, w: panelSize.w, h: panelSize.h }
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    e.preventDefault()
-    e.stopPropagation()
-  }, [panelSize])
-
-  const handleResizePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!resizing.current) return
-    // Dragging top-left corner: moving left increases width, moving up increases height
-    const dx = resizeStart.current.x - e.clientX
-    const dy = resizeStart.current.y - e.clientY
-    setPanelSize(clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy))
-  }, [])
-
-  const handleResizePointerUp = useCallback((e: React.PointerEvent) => {
-    if (!resizing.current) return
-    resizing.current = false
-    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-    // Persist to localStorage
-    const dx = resizeStart.current.x - e.clientX
-    const dy = resizeStart.current.y - e.clientY
-    const finalSize = clampSize(resizeStart.current.w + dx, resizeStart.current.h + dy)
-    setPanelSize(finalSize)
-    try { localStorage.setItem(CHAT_SIZE_KEY, JSON.stringify(finalSize)) } catch { /* ignore */ }
-  }, [])
-
-  // Panel dimensions — clamped to viewport, anchored to bottom-right
-  const panelW = isMobile ? Math.min(340, window.innerWidth - 32) : Math.min(panelSize.w, window.innerWidth - 80)
-  const panelH = isMobile ? Math.min(460, window.innerHeight - 80) : Math.min(panelSize.h, window.innerHeight - 80)
-  // Anchor bottom-right with margin
-  const panelRight = 16
-  const panelBottom = 16
-
   return (
     <>
-      {/* Expanded floating sheet */}
-      {expanded && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onPointerDown={() => setExpanded(false)}
-          />
-          <div
-            className={cn(
-              "fixed z-40 flex flex-col bg-card overflow-hidden",
-              "rounded-2xl shadow-[0_8px_40px_-8px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.4)]",
-              "border border-border/50",
-              "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200",
-            )}
-            style={{ right: panelRight, bottom: panelBottom, width: panelW, height: panelH }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {/* Resize handle — top-left corner */}
-            {!isMobile && (
-              <div
-                onPointerDown={handleResizePointerDown}
-                onPointerMove={handleResizePointerMove}
-                onPointerUp={handleResizePointerUp}
-                className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 group"
-              >
-                <div className="absolute top-1 left-1 w-2 h-2 rounded-full bg-border opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            )}
-            <ChatPanel
-              projectId={projectId}
-              visionDoc={visionDoc}
-              initialMessage={initialMessage}
-              onNodeSelect={onNodeSelect}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Draggable FAB */}
+      {/* Backdrop */}
       <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px] animate-in fade-in-0 duration-200"
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div
+        ref={sheetRef}
         className={cn(
-          "fixed z-40 flex items-center justify-center rounded-full touch-none select-none cursor-pointer",
-          "transition-all duration-200 ease-out",
-          expanded
-            ? "h-10 w-10 bg-primary text-primary-foreground shadow-md"
-            : "h-12 w-12 bg-card shadow-[0_2px_16px_-2px_rgba(0,0,0,0.12)] dark:shadow-[0_2px_16px_-2px_rgba(0,0,0,0.35)] border border-border/50 hover:shadow-[0_4px_20px_-2px_rgba(0,0,0,0.18)] hover:scale-110 active:scale-95",
+          "fixed z-50 inset-x-0 bottom-0 flex flex-col bg-card rounded-t-2xl overflow-hidden shadow-[0_-8px_40px_-8px_rgba(0,0,0,0.15)] dark:shadow-[0_-8px_40px_-8px_rgba(0,0,0,0.4)] border-t border-border/50",
+          "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         )}
-        style={{ left: pos.x, top: pos.y }}
+        style={{
+          height: isFullscreen ? 'calc(100dvh - 48px)' : '60dvh',
+          transform: 'translateY(100%)',
+        }}
       >
-        {expanded ? (
-          <X className="h-4 w-4" />
-        ) : (
-          <Sparkles className="h-5 w-5 text-primary" />
-        )}
+        {/* Grab handle + controls */}
+        <div className="flex items-center justify-between px-3 pt-2 pb-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
+          <div className="w-8 h-1 rounded-full bg-border mx-auto" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <ChatPanel
+          projectId={projectId}
+          visionDoc={visionDoc}
+          initialMessage={initialMessage}
+          onNodeSelect={onNodeSelect}
+        />
       </div>
     </>
   )
@@ -2240,9 +2128,7 @@ export function PlanView() {
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
-  const projectTaskCount = useMemo(() => planNodes.filter((n) => n.projectId === id && n.type !== "milestone").length, [planNodes, id])
-  // Auto-enable fast edit when project has no tasks (empty plan)
-  const fastEdit = fastEditSetting || projectTaskCount === 0
+  const fastEdit = fastEditSetting
 
   /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
@@ -2265,6 +2151,20 @@ export function PlanView() {
     if (node) handleNodeSelect(node)
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
+  // Chat panel layout mode: hidden | split (right panel) | fullscreen
+  type ChatPanelMode = 'hidden' | 'split' | 'fullscreen'
+  const [chatPanelMode, setChatPanelMode] = useState<ChatPanelMode>('hidden')
+  const toggleChat = useCallback(() => {
+    setChatPanelMode((m) => m === 'hidden' ? 'split' : 'hidden')
+  }, [])
+  // Auto-open split when a decompose triggers an initial message
+  const prevInitialMessage = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (chatInitialMessage && chatInitialMessage !== prevInitialMessage.current) {
+      prevInitialMessage.current = chatInitialMessage
+      setChatPanelMode((m) => m === 'hidden' ? 'split' : m)
+    }
+  }, [chatInitialMessage])
   const [visionOpen, setVisionOpen] = useState(false)
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
@@ -2326,20 +2226,26 @@ export function PlanView() {
       const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
       if (isEditable) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === 'i' && !fastEditSetting) {
+      if (e.key === 'c' && !fastEditSetting) {
+        e.preventDefault()
+        toggleChat()
+      } else if (e.key === 'Escape' && chatPanelMode !== 'hidden') {
+        e.preventDefault()
+        setChatPanelMode('hidden')
+      } else if (e.key === 'i' && !fastEditSetting) {
         e.preventDefault()
         toggleFastEdit()
       } else if (e.key === 'Escape' && fastEditSetting) {
         toggleFastEdit()
       } else if (id) {
-        const viewMap: Record<string, ViewMode> = { '1': 'list', '2': 'board', '3': 'timeline', '4': 'graph' }
+        const viewMap: Record<string, ViewMode> = { '1': 'list', '2': 'graph', '3': 'board', '4': 'timeline' }
         const view = viewMap[e.key]
         if (view) { e.preventDefault(); navigate(`/project/${id}/${view}`) }
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [fastEditSetting, toggleFastEdit, id, navigate])
+  }, [fastEditSetting, toggleFastEdit, id, navigate, toggleChat, chatPanelMode])
 
   // Show help tooltip on first visit to plan view
   const [showHelpTip, setShowHelpTip] = useState(() => {
@@ -2469,11 +2375,11 @@ export function PlanView() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[140px]">
               {([
-                { value: "list", label: "List", icon: List },
-                { value: "board", label: "Board", icon: Columns3 },
-                { value: "timeline", label: "Timeline", icon: CalendarRange },
-                { value: "graph", label: "Graph", icon: Network },
-              ] as const).map(({ value, label, icon: Icon }) => (
+                { value: "list", label: "List", icon: List, key: "1" },
+                { value: "graph", label: "Graph", icon: Network, key: "2" },
+                { value: "board", label: "Board", icon: Columns3, key: "3" },
+                { value: "timeline", label: "Timeline", icon: CalendarRange, key: "4" },
+              ] as const).map(({ value, label, icon: Icon, key }) => (
                 <DropdownMenuItem
                   key={value}
                   onClick={() => navigate(`/project/${project.id}/${value}`)}
@@ -2483,6 +2389,7 @@ export function PlanView() {
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {label}
+                  <kbd className="ml-auto px-1 rounded border border-border bg-muted font-mono text-[10px] text-muted-foreground">{key}</kbd>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -2533,7 +2440,7 @@ export function PlanView() {
                   <Pencil className={cn("h-3.5 w-3.5", fastEdit && "text-primary")} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Fast Edit</TooltipContent>
+              <TooltipContent>Fast Edit <kbd className="ml-1.5 px-1 rounded border border-white/20 dark:border-white/30 bg-white/10 dark:bg-white/15 font-mono text-[10px] text-inherit">I</kbd></TooltipContent>
             </Tooltip>
             <DisplayPopover iconOnly config={{
               ...(viewMode === "list" ? planListDisplayConfig
@@ -2618,6 +2525,19 @@ export function PlanView() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  variant={chatPanelMode !== 'hidden' ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={toggleChat}
+                  className="h-8 w-8 p-0 rounded-full"
+                >
+                  <MessageSquare className={cn("h-3.5 w-3.5", chatPanelMode !== 'hidden' && "text-primary")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Chat <kbd className="ml-1.5 px-1 rounded border border-white/20 dark:border-white/30 bg-white/10 dark:bg-white/15 font-mono text-[10px] text-inherit">C</kbd></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
                   variant={inspectorOpen ? "secondary" : "outline"}
                   size="sm"
                   onClick={() => { setInspectorOpen(!inspectorOpen); if (inspectorOpen) setSelectedNode(null) }}
@@ -2634,7 +2554,19 @@ export function PlanView() {
         {/* Plan history (archived plans restore) */}
         <PlanHistory projectId={project.id} />
 
-        {/* Chat panel toggle */}
+        {/* Mobile chat toggle */}
+        <button
+          onClick={toggleChat}
+          className={cn(
+            "md:hidden flex items-center justify-center h-8 w-8 rounded-lg border transition-colors cursor-pointer",
+            chatPanelMode !== 'hidden'
+              ? "text-primary bg-primary/10 border-primary/30"
+              : "text-foreground border-border hover:bg-muted"
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+        </button>
+
         {/* Mobile overflow menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -2646,9 +2578,9 @@ export function PlanView() {
             {/* View mode options */}
             {([
               { value: "list", label: "List", icon: List },
+              { value: "graph", label: "Graph", icon: Network },
               { value: "board", label: "Board", icon: Columns3 },
               { value: "timeline", label: "Timeline", icon: CalendarRange },
-              { value: "graph", label: "Graph", icon: Network },
             ] as const).map(({ value, label, icon: Icon }) => (
               <DropdownMenuItem key={value} onClick={() => navigate(`/project/${project.id}/${value}`)}>
                 <Icon className={cn("h-3.5 w-3.5 mr-2", viewMode === value && "text-primary")} />
@@ -2727,7 +2659,8 @@ export function PlanView() {
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> fast edit,{" "}
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> confirm,{" "}
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> exit.{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>–<kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> switch views
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>–<kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> switch views,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">C</kbd> chat
           </span>
           <button
             type="button"
@@ -2739,70 +2672,125 @@ export function PlanView() {
         </div>
       )}
 
-      {/* Canvas/List + Detail/Chat pane */}
-      <div className="flex flex-1 overflow-hidden flex-col">
-        {/* Collapsible project info section */}
-        {activeTab === "plan" && <ProjectInfoSection project={project} />}
+      {/* Content + Chat — flex-row so chat pushes content left */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Main content column (notes + plan views) — shrinks when chat opens, collapses in fullscreen */}
+        <div
+          className="flex overflow-hidden flex-col min-w-0 flex-1"
+          style={{
+            opacity: chatPanelMode === 'fullscreen' ? 0 : 1,
+            transition: 'opacity 200ms ease',
+            pointerEvents: chatPanelMode === 'fullscreen' ? 'none' : 'auto',
+          }}
+        >
+            {/* Collapsible project info section */}
+            {activeTab === "plan" && <ProjectInfoSection project={project} />}
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex flex-1 overflow-hidden relative">
-            {activeTab === "repo" ? (
-              isGitHubProject ? (
-                <RepoExplorer project={project} />
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-                  This project is not linked to a GitHub repository.
-                </div>
-              )
-            ) : viewMode === "graph" ? (
-              <div className="flex-1 relative overflow-hidden">
-                <div className="absolute inset-0 touch-pan-x touch-pan-y">
-                  <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
-                </div>
-              </div>
-            ) : viewMode === "list" ? (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            ) : viewMode === "board" ? (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            ) : (
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
-              </div>
-            )}
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex flex-1 overflow-hidden relative">
+                {activeTab === "repo" ? (
+                  isGitHubProject ? (
+                    <RepoExplorer project={project} />
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                      This project is not linked to a GitHub repository.
+                    </div>
+                  )
+                ) : viewMode === "graph" ? (
+                  <div className="flex-1 relative overflow-hidden">
+                    <div className="absolute inset-0 touch-pan-x touch-pan-y">
+                      <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
+                    </div>
+                  </div>
+                ) : viewMode === "list" ? (
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
+                  </div>
+                ) : viewMode === "board" ? (
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
+                  </div>
+                ) : (
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
+                  </div>
+                )}
 
-            {/* Node inspector pane — full-screen sheet on mobile, right sidebar on desktop */}
-            {inspectorOpen && inspectorProps && (
-              <>
-                {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
-                {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
-              </>
-            )}
-            {inspectorOpen && !inspectorProps && !isMobile && (
-              <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
-                <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
-                <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+                {/* Node inspector — hidden when chat panel is open to avoid triple-column clutter */}
+                {inspectorOpen && inspectorProps && chatPanelMode === 'hidden' && (
+                  <>
+                    {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
+                    {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
+                  </>
+                )}
+                {inspectorOpen && !inspectorProps && !isMobile && chatPanelMode === 'hidden' && (
+                  <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
+                    <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
+                    <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
 
+        {/* Chat panel — pushes content left, expands from right edge */}
+        {chatPanelMode !== 'hidden' && !isMobile && (
+          <div
+            className="flex flex-col bg-card overflow-hidden border-l border-border/60 shrink-0"
+            style={{
+              width: chatPanelMode === 'fullscreen' ? '100%' : '420px',
+              transition: 'width 300ms cubic-bezier(0.32, 0.72, 0, 1)',
+              animation: 'chat-slide-in 250ms cubic-bezier(0.32, 0.72, 0, 1) both',
+            }}
+          >
+            {/* Panel header with mode toggle */}
+            <div className="flex h-8 shrink-0 items-center justify-end gap-1 px-2 border-b border-border/40 bg-muted/30">
+              <span className="text-[10px] text-muted-foreground mr-auto pl-1">
+                <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">Esc</kbd> close
+              </span>
+              <button
+                type="button"
+                onClick={() => setChatPanelMode(chatPanelMode === 'split' ? 'fullscreen' : 'split')}
+                className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title={chatPanelMode === 'split' ? 'Expand to full width' : 'Back to split view'}
+              >
+                {chatPanelMode === 'split'
+                  ? <Maximize2 className="h-3.5 w-3.5" />
+                  : <Minimize2 className="h-3.5 w-3.5" />
+                }
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatPanelMode('hidden')}
+                className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Close chat panel (Esc)"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <ChatPanel
+              projectId={project.id}
+              visionDoc={project.visionDoc}
+              initialMessage={chatInitialMessage}
+              onNodeSelect={handleChatNodeSelect}
+            />
+          </div>
+        )}
       </div>
 
       {/* Working directory bar — bottom of plan view */}
       <WorkdirBar project={project} />
 
-      {/* Floating chat bubble — always visible */}
-      <FloatingChat
-        projectId={project.id}
-        visionDoc={project.visionDoc}
-        initialMessage={chatInitialMessage}
-        onNodeSelect={handleChatNodeSelect}
-        isMobile={isMobile}
-      />
+      {/* Mobile chat bottom sheet */}
+      {isMobile && chatPanelMode !== 'hidden' && (
+        <MobileChatSheet
+          projectId={project.id}
+          visionDoc={project.visionDoc}
+          initialMessage={chatInitialMessage}
+          onNodeSelect={handleChatNodeSelect}
+          onClose={() => setChatPanelMode('hidden')}
+        />
+      )}
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />

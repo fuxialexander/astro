@@ -79,8 +79,11 @@ export interface ActivityBlockRendererProps {
  * Renders an array of DisplayBlocks using the shared block component registry.
  * All block types are available in all pathways — irrelevant blocks simply never
  * appear because the agent doesn't have access to the tools that produce them.
+ *
+ * Wrapped in React.memo — blocks array reference only changes when events arrive,
+ * so this prevents expensive re-renders triggered by parent state (e.g. typing in input).
  */
-export function ActivityBlockRenderer({
+export const ActivityBlockRenderer = React.memo(function ActivityBlockRenderer({
   blocks,
   isStreaming,
   onLinkClick,
@@ -261,4 +264,4 @@ export function ActivityBlockRenderer({
       })}
     </>
   )
-}
+})
