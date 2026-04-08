@@ -70,10 +70,12 @@ export function AppLayout() {
         {!effectiveCollapsed && <SidebarResizeHandle />}
       </div>
 
-      <main className="flex-1 overflow-auto w-full md:w-auto">
+      <main className="flex-1 flex flex-col overflow-hidden w-full md:w-auto">
         <SseDisconnectBanner />
         <PasskeyNudgeBanner />
-        <Outlet />
+        <div className="flex-1 overflow-auto min-h-0">
+          <Outlet />
+        </div>
       </main>
 
       <SafetyPromptDialog />
