@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -35,6 +35,8 @@ import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
+import { DISCOVERY_MODE_INSTRUCTIONS } from "@astro/core/prompt-templates"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -57,6 +59,10 @@ export function InboxHome() {
   const [examplesOpen, setExamplesOpen] = useState(false)
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  // Discovery mode state
+  const discoveryFlagEnabled = useFeatureFlag('discovery-mode')
+  const [discoveryMode, setDiscoveryMode] = useState(false)
 
   // Path browser state
   const [showPathBrowser, setShowPathBrowser] = useState(false)
@@ -178,7 +184,12 @@ export function InboxHome() {
       const attachmentSection = attachments.length > 0
         ? `\n\n## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
         : ''
-      const combinedVisionDoc = [visionDoc.trim(), attachmentSection].filter(Boolean).join('\n\n') || undefined
+      const baseVisionDoc = [visionDoc.trim(), attachmentSection].filter(Boolean).join('\n\n') || undefined
+      const combinedVisionDoc = discoveryMode && baseVisionDoc
+        ? baseVisionDoc + '\n\n' + DISCOVERY_MODE_INSTRUCTIONS
+        : discoveryMode
+          ? DISCOVERY_MODE_INSTRUCTIONS
+          : baseVisionDoc
 
       const { projectId } = await startSession(
         planGoal.trim(),
@@ -188,11 +199,16 @@ export function InboxHome() {
           workingDirectory: workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
-          visionDoc: combinedVisionDoc,
+          visionDoc: combinedVisionDoc || undefined,
           ...(github?.owner && { githubOwner: github.owner }),
           ...(github?.repo && { githubRepo: github.repo }),
           ...(source && { source }),
-          ...(detection?.suggestedDeliveryMode && { deliveryMode: detection.suggestedDeliveryMode }),
+          ...(detection?.suggestedDeliveryMode && !discoveryMode && { deliveryMode: detection.suggestedDeliveryMode }),
+          ...(discoveryMode && {
+            deliveryMode: 'branch' as const,
+            useWorktree: false,
+            mergeQueueEnabled: false,
+          }),
         }
       )
       navigate(`/playground?projectId=${projectId}`)
@@ -201,7 +217,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -480,6 +496,32 @@ export function InboxHome() {
                   onSelect={(id) => { setSelectedProvider(id); setSelectedModel("") }}
                   compact
                 />
+              )}
+              {discoveryFlagEnabled && (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setDiscoveryMode(!discoveryMode)}
+                      className={cn(
+                        "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
+                        discoveryMode
+                          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                          : "border-border hover:bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <Microscope className={cn("h-3.5 w-3.5", discoveryMode && "text-emerald-600 dark:text-emerald-400")} />
+                      <span className="hidden md:inline">Discovery</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {discoveryMode
+                      ? "Discovery ON — branch isolation, milestone-scoped outputs in analysis/"
+                      : "Discovery OFF — use standard git workflow"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               )}
               <TooltipProvider delayDuration={200}>
                 <Tooltip>

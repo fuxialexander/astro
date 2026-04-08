@@ -646,6 +646,7 @@ dispatchRoute.post('/task', async (c) => {
           prUrl: planNodes.prUrl,
           prNumber: planNodes.prNumber,
           branchName: planNodes.branchName,
+          metadata: planNodes.metadata,
           markdownSummary: taskExecutions.markdownSummary,
         }).from(planNodes)
           .leftJoin(taskExecutions, eq(planNodes.executionId, taskExecutions.executionId))
@@ -663,6 +664,8 @@ dispatchRoute.post('/task', async (c) => {
 
           const depNode = allProjectNodes.find(n => n.clientId === depId)
           if (!depNode) continue
+          // Skip pruned nodes — their outputs should not contaminate downstream context
+          if (depNode.status === 'pruned') continue
 
           let output: string | null = null
           if (depNode.markdownSummary) {
@@ -685,6 +688,7 @@ dispatchRoute.post('/task', async (c) => {
             const trimmed = output.length > remaining ? output.slice(0, remaining) + '\n[budget exceeded — truncated]' : output
             totalDepChars += trimmed.length
 
+            const depOutputDir = (depNode.metadata as Record<string, unknown> | null)?.outputDir as string | undefined
             dependencyOutputs.push({
               nodeId: depNode.clientId,
               title: depNode.title,
@@ -692,6 +696,7 @@ dispatchRoute.post('/task', async (c) => {
               ...(depNode.prUrl && { prUrl: depNode.prUrl }),
               ...(depNode.prNumber && { prNumber: depNode.prNumber }),
               ...(depNode.branchName && { branchName: depNode.branchName }),
+              ...(depOutputDir && { outputDir: depOutputDir }),
             })
           }
         }
@@ -1297,10 +1302,22 @@ async function dispatchViaRelay(
           const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 200)
           const prInfo = d.prUrl ? `\n**PR:** [#${d.prNumber || '?'}](${d.prUrl})` : ''
           const branchInfo = d.branchName ? `\n**Branch:** \`${d.branchName}\`` : ''
-          return `### ${safeTitle}${prInfo}${branchInfo}\n\n${d.output}`
+          const outputDirInfo = (d as Record<string, unknown>).outputDir ? `\n**Output dir:** \`analysis/${(d as Record<string, unknown>).outputDir}/\`` : ''
+          return `### ${safeTitle}${prInfo}${branchInfo}${outputDirInfo}\n\n${d.output}`
         })
         .join('\n\n---\n\n')
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
+    }
+
+    // Discovery mode: inject output directory instructions
+    const taskOutputDir = (nodeMetadata as Record<string, unknown> | null)?.outputDir as string | undefined
+    if (taskOutputDir) {
+      const inputDirs = dependencyOutputs
+        .filter((d) => (d as Record<string, unknown>).outputDir)
+        .map((d) => `- \`analysis/${(d as Record<string, unknown>).outputDir}/\` (from: "${d.title.replace(/[\r\n]/g, ' ').slice(0, 100)}")`)
+        .join('\n')
+      const inputSection = inputDirs ? `\n\nYour inputs (from upstream tasks):\n${inputDirs}` : ''
+      promptParts.push(`## Output Directory\n\nWrite all generated outputs (figures, tables, data files) to:\n  \`analysis/${taskOutputDir}/\`${inputSection}`)
     }
 
     // Push to GitHub nodes get special instructions — override delivery mode and workspace section
@@ -3080,6 +3097,78 @@ dispatchRoute.post('/prune', async (c) => {
   await cascadePruneDownstream(projectId, nodeId)
 
   return c.json({ success: true, prunedNodes: [nodeId], cancelledTasks })
+})
+
+/**
+ * Prune cleanup: request branch deletion and output directory removal on the machine.
+ * This is best-effort — if the machine is offline, cleanup is skipped.
+ * The prune itself (status change) is handled by the /prune endpoint or frontend store.
+ */
+dispatchRoute.post('/prune-cleanup', async (c) => {
+  const body = await c.req.json<{
+    nodeIds: string[]
+    projectId: string
+    deleteBranches: boolean
+    deleteOutputs: boolean
+  }>()
+
+  if (!body.projectId || !body.nodeIds?.length) {
+    return c.json({ success: false, error: 'Missing projectId or nodeIds' }, 400)
+  }
+
+  const user = c.get('user') as AuthUser | undefined
+  if (user?.id && user.id !== LOCAL_USER_ID) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.id, body.projectId), inArray(projects.teamId, user.teamIds)))
+      .limit(1)
+    if (!project) {
+      return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
+    }
+  }
+
+  // Gather metadata (outputDir, branchName) for each node
+  const nodes = await db.select({
+    clientId: planNodes.clientId,
+    metadata: planNodes.metadata,
+    branchName: planNodes.branchName,
+  }).from(planNodes)
+    .where(and(
+      inArray(planNodes.clientId, body.nodeIds),
+      eq(planNodes.projectId, body.projectId),
+    ))
+
+  const cleanupItems: Array<{ nodeId: string; outputDir?: string; branchName?: string }> = []
+  for (const node of nodes) {
+    const meta = node.metadata as Record<string, unknown> | null
+    cleanupItems.push({
+      nodeId: node.clientId,
+      outputDir: body.deleteOutputs ? (meta?.outputDir as string | undefined) : undefined,
+      branchName: body.deleteBranches ? (node.branchName ?? undefined) : undefined,
+    })
+  }
+
+  // Store cleanup metadata on the nodes so the agent-runner can act on it
+  // when it next connects or dispatches a task for this project.
+  for (const item of cleanupItems) {
+    if (item.outputDir || item.branchName) {
+      const existing = nodes.find(n => n.clientId === item.nodeId)
+      const existingMeta = (existing?.metadata ?? {}) as Record<string, unknown>
+      await db.update(planNodes)
+        .set({
+          metadata: {
+            ...existingMeta,
+            pendingCleanup: {
+              deleteBranch: item.branchName || undefined,
+              deleteOutputDir: item.outputDir || undefined,
+              requestedAt: new Date().toISOString(),
+            },
+          },
+        })
+        .where(eq(planNodes.clientId, item.nodeId))
+    }
+  }
+
+  return c.json({ success: true, cleanupItems: cleanupItems.length })
 })
 
 /**

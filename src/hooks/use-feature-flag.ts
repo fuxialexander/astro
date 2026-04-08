@@ -11,6 +11,7 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'delivery-branches': false,
   'parallel-execution': false,
   'inbox-home': true,
+  'discovery-mode': false,
 }
 
 /**

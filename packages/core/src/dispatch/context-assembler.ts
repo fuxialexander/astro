@@ -476,6 +476,20 @@ export function slugifyTitle(title: string): string {
 }
 
 /**
+ * Slugify a string into a filesystem-safe hyphenated path segment.
+ * "Refined ESR1-TP53 ChIP co-occupancy" → "refined-esr1-tp53-chip-co-occupancy"
+ * Used for output directory paths in discovery mode. Separate from slugifyTitle()
+ * which uses underscores and is for knowledge entry keys.
+ */
+export function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 255)
+}
+
+/**
  * Cap knowledge entries to fit within maxSize.
  * Prioritizes most recent entries first. Always includes at least one entry.
  */

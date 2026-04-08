@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare, Loader2 } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare, Loader2, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -10,6 +10,7 @@ import { PropertyPicker } from "@/components/property-picker"
 import { LabelPicker } from "@/components/label-picker"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { ConvertToProjectDialog } from "@/components/convert-to-project-dialog"
+import { PruneCleanupDialog } from "@/components/prune-cleanup-dialog"
 
 import { ExecutionPanel } from "@/components/execution"
 import { ScheduleForm } from "@/components/schedule/schedule-form"
@@ -230,6 +231,7 @@ export function NodeInspectorContent({
   const [addDepSearch, setAddDepSearch] = useState("")
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [convertDialogOpen, setConvertDialogOpen] = useState(false)
+  const [pruneDialogOpen, setPruneDialogOpen] = useState(false)
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false)
 
   // Schedule state
@@ -307,9 +309,7 @@ export function NodeInspectorContent({
     onNodeUpdate({ ...node, ...updates })
   }, [node, updateNode, onNodeUpdate])
 
-  const handlePrune = useCallback(() => {
-    handleUpdate({ status: "pruned" })
-  }, [handleUpdate])
+  const nodeOutputDir = (node.metadata as Record<string, unknown> | undefined)?.outputDir as string | undefined
 
   // ── Verification state ───────────────────────────────────────
   const execution = useExecutionStore((s) => s.getExecution(node.id))
@@ -818,14 +818,35 @@ export function NodeInspectorContent({
           </div>
         )}
 
-        {node.status !== "pruned" && (
+        {nodeOutputDir && (
           <button
-            onClick={handlePrune}
-            className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-destructive text-sm font-medium hover:bg-muted/50 transition-colors"
+            onClick={() => {
+              navigator.clipboard.writeText(`analysis/${nodeOutputDir}/`)
+              useToastStore.getState().add({ title: "Copied output path", type: "success" })
+            }}
+            className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors"
           >
-            <XCircle className="h-4 w-4" />
-            Prune Branch
+            <Copy className="h-4 w-4" />
+            Copy Output Path
           </button>
+        )}
+
+        {node.status !== "pruned" && (
+          <>
+            <button
+              onClick={() => setPruneDialogOpen(true)}
+              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-destructive text-sm font-medium hover:bg-muted/50 transition-colors"
+            >
+              <XCircle className="h-4 w-4" />
+              {node.type === 'milestone' ? 'Prune Milestone' : 'Prune Branch'}
+            </button>
+            <PruneCleanupDialog
+              open={pruneDialogOpen}
+              onOpenChange={setPruneDialogOpen}
+              node={node}
+              projectId={project.id}
+            />
+          </>
         )}
 
         {isIsolated && node.status !== "pruned" && (

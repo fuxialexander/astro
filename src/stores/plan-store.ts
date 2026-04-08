@@ -214,6 +214,8 @@ interface PlanState {
   markNodesAsUpdating: (nodeIds: string[]) => void
   /** Reset a node for re-execution: close PR, delete branch, clean worktree, reset status */
   resetNode: (nodeId: string, projectId: string) => Promise<{ success: boolean; errors?: string[] }>
+  /** Prune a milestone and all its child tasks */
+  pruneMilestone: (milestoneId: string) => Promise<void>
   /** Soft-delete all live nodes for a project (for replan). Returns archived node IDs. */
   archiveProjectForReplan: (projectId: string) => string[]
   /** Restore an archived plan by clearing deletedAt on all nodes/edges with a given deletionActionId. */
@@ -818,6 +820,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       }
     }
     return result
+  },
+
+  pruneMilestone: async (milestoneId) => {
+    const milestone = get().nodes.find((n) => n.id === milestoneId)
+    if (!milestone) return
+    const childTasks = get().nodes.filter(
+      (n) => n.milestoneId === milestoneId && n.id !== milestoneId && n.status !== 'pruned'
+    )
+    for (const task of childTasks) {
+      get().updateNode(task.id, { status: 'pruned' })
+    }
+    get().updateNode(milestoneId, { status: 'pruned' })
   },
 
   archiveProjectForReplan: (projectId) => {
