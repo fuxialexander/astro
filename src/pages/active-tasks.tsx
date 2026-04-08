@@ -25,6 +25,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
+import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { deriveActiveTasks, deriveCompletedTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
 import { useStreamEvents } from "@/hooks/use-stream-events"
 import type { TaskActivityEvent } from "@/types"
@@ -146,8 +147,11 @@ function JobRow({
           {task.title}
         </span>
 
-        {/* Elapsed time */}
-        <ElapsedTimer startedAt={task.startedAt} />
+        {/* Elapsed time — for chat sessions only show while streaming */}
+        {task.sessionId && !task.executionId
+          ? task.status === "running" && <ElapsedTimer startedAt={task.startedAt} />
+          : <ElapsedTimer startedAt={task.startedAt} />
+        }
       </div>
 
       {/* LLM preview line */}
@@ -444,23 +448,35 @@ function ChatPanel({
     }
   }, [task.sessionId, ensureFullSession])
 
+  // Resolve model from user settings
+  const modelTier = useSettingsStore((s) => s.modelTier)
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const effectiveProviderId = defaultProvider || undefined
+  const effectiveModel = resolveModel(modelTier, effectiveProviderId, customModelMap)
+
   // Determine expand navigation target
   const expandTo = useMemo(() => {
+    const sessionParam = task.sessionId ? `&sessionId=${task.sessionId}` : ''
     if (task.nodeId.startsWith("plan-") || task.status === "generating")
-      return `/project/${projectId}`
+      return `/project/${projectId}?chat=fullscreen${sessionParam}`
     if (task.nodeId.startsWith("session-"))
       return `/playground?projectId=${projectId}`
     if (
       task.nodeId.startsWith("playground-") ||
       task.nodeId.startsWith("followup-playground-")
     )
-      return `/project/${projectId}`
+      return task.sessionId
+        ? `/project/${projectId}?chat=fullscreen${sessionParam}`
+        : `/project/${projectId}`
     if (task.nodeId.startsWith("followup-"))
-      return `/project/${projectId}/task/${task.nodeId.replace("followup-", "")}`
+      return task.sessionId
+        ? `/project/${projectId}?chat=fullscreen${sessionParam}`
+        : `/project/${projectId}/task/${task.nodeId.replace("followup-", "")}`
     if (task.nodeId.startsWith("task-chat-"))
-      return `/project/${projectId}`
+      return `/project/${projectId}?chat=fullscreen${sessionParam}`
     return `/project/${projectId}/task/${task.nodeId}`
-  }, [task.nodeId, task.status, projectId])
+  }, [task.nodeId, task.status, task.sessionId, projectId])
 
   // Determine if this is a playground/session
   const isPlayground =
@@ -502,6 +518,8 @@ function ChatPanel({
             return ''
           })
           .join('\n'),
+        model: effectiveModel,
+        providerId: effectiveProviderId,
       })
     } else {
       store.addMessage(session.id, { role: "user", content: text })
@@ -519,10 +537,12 @@ function ChatPanel({
         sessionId: session.id,
         projectId,
         message: text,
+        model: effectiveModel,
+        providerId: effectiveProviderId,
         messages: historyMessages,
       })
     }
-  }, [inputText, isPlayground, projectId, task.nodeId, task.sessionId, events])
+  }, [inputText, isPlayground, projectId, task.nodeId, task.sessionId, events, effectiveModel, effectiveProviderId])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

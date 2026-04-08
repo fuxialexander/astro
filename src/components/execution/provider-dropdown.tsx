@@ -15,6 +15,10 @@ interface ProviderDropdownProps {
   selectedProvider: string
   onSelect: (providerId: string) => void
   compact?: boolean
+  /** Show only the provider icon, no text or chevron */
+  iconOnly?: boolean
+  /** Optional model label shown after provider name (e.g. "opus", "sonnet") */
+  modelLabel?: string
 }
 
 export function ProviderDropdown({
@@ -22,6 +26,8 @@ export function ProviderDropdown({
   selectedProvider,
   onSelect,
   compact,
+  iconOnly,
+  modelLabel,
 }: ProviderDropdownProps) {
   const [open, setOpen] = useState(false)
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(null)
@@ -56,8 +62,8 @@ export function ProviderDropdown({
           )}
         >
           {getProviderIcon(selectedProvider || "", cn(iconSize, "shrink-0"))}
-          <span className="truncate max-w-[140px] hidden md:inline">{selectedName}</span>
-          <ChevronDown className={cn(iconSize, "shrink-0 opacity-50")} />
+          {!iconOnly && <span className="truncate max-w-[140px] hidden md:inline">{selectedName}{modelLabel ? ` · ${modelLabel}` : ''}</span>}
+          {!iconOnly && <ChevronDown className={cn(iconSize, "shrink-0 opacity-50")} />}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-48 p-1" align="start" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>

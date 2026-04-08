@@ -46,6 +46,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
@@ -639,7 +640,7 @@ function ProjectInfoSection({ project }: { project: Project }) {
       <div className="border-b border-border/30">
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none overflow-x-auto scrollbar-none"
+        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none overflow-hidden"
       >
         <Tooltip>
           <TooltipTrigger asChild>
@@ -735,7 +736,7 @@ function ProjectInfoSection({ project }: { project: Project }) {
             onChange={handleDescriptionChange}
             placeholder="Add notes — goals, context, key details..."
             onImageUpload={handleDescriptionImageUpload}
-            className="min-h-[80px] text-[13px]"
+            className="min-h-[80px] text-[13px] [&_.tiptap]:max-h-[150px] [&_.tiptap]:overflow-y-auto"
           />
         </div>
       )}
@@ -2153,10 +2154,36 @@ export function PlanView() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   // Chat panel layout mode: hidden | split (right panel) | fullscreen
   type ChatPanelMode = 'hidden' | 'split' | 'fullscreen'
-  const [chatPanelMode, setChatPanelMode] = useState<ChatPanelMode>('hidden')
+  // Check URL params for chat=fullscreen (e.g., from active jobs "Open full page")
+  const chatModeFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('chat') as ChatPanelMode | null
+  }, [location.search])
+  const sessionIdFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('sessionId')
+  }, [location.search])
+  const [chatPanelMode, setChatPanelMode] = useState<ChatPanelMode>(
+    chatModeFromUrl === 'fullscreen' || chatModeFromUrl === 'split' ? chatModeFromUrl : 'hidden'
+  )
+  const [chatPanelWidth, setChatPanelWidth] = useState(420)
+  const [chatResizing, setChatResizing] = useState(false)
   const toggleChat = useCallback(() => {
     setChatPanelMode((m) => m === 'hidden' ? 'split' : 'hidden')
   }, [])
+  // Set the active session from URL param (e.g., from active jobs "Open full page")
+  const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
+  useEffect(() => {
+    if (sessionIdFromUrl && id) {
+      setActiveSessionId(id, "project-chat", sessionIdFromUrl)
+      // Clean up URL params after applying
+      const params = new URLSearchParams(location.search)
+      params.delete('chat')
+      params.delete('sessionId')
+      const cleanPath = params.toString() ? `${location.pathname}?${params}` : location.pathname
+      navigate(cleanPath, { replace: true })
+    }
+  }, [sessionIdFromUrl, id, setActiveSessionId, location.search, location.pathname, navigate])
   // Auto-open split when a decompose triggers an initial message
   const prevInitialMessage = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -2362,7 +2389,7 @@ export function PlanView() {
           <DropdownMenu open={viewDropdownOpen} onOpenChange={setViewDropdownOpen}>
             <DropdownMenuTrigger asChild>
               <button
-                className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer text-accent-foreground border-b-2 border-accent flex items-center gap-1.5"
+                className="rounded-full border border-border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer text-accent-foreground hover:bg-accent/10 flex items-center gap-1.5"
                 onPointerEnter={() => setViewDropdownOpen(true)}
               >
                 {viewMode === "list" ? <List className="h-3.5 w-3.5" />
@@ -2716,33 +2743,62 @@ export function PlanView() {
                   </div>
                 )}
 
-                {/* Node inspector — hidden when chat panel is open to avoid triple-column clutter */}
-                {inspectorOpen && inspectorProps && chatPanelMode === 'hidden' && (
-                  <>
-                    {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
-                    {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
-                  </>
-                )}
-                {inspectorOpen && !inspectorProps && !isMobile && chatPanelMode === 'hidden' && (
-                  <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
-                    <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
-                    <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
 
+        {/* Node inspector — pushes content left, like chat panel */}
+        {inspectorOpen && chatPanelMode === 'hidden' && !isMobile && (
+          inspectorProps ? (
+            <NodeInspectorSidebar {...inspectorProps} />
+          ) : (
+            <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
+              <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
+              <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
+            </div>
+          )
+        )}
+        {inspectorOpen && inspectorProps && isMobile && (
+          <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />
+        )}
+
         {/* Chat panel — pushes content left, expands from right edge */}
         {chatPanelMode !== 'hidden' && !isMobile && (
           <div
-            className="flex flex-col bg-card overflow-hidden border-l border-border/60 shrink-0"
+            className="flex flex-col bg-card overflow-hidden border-l border-border/60 shrink-0 relative"
             style={{
-              width: chatPanelMode === 'fullscreen' ? '100%' : '420px',
-              transition: 'width 300ms cubic-bezier(0.32, 0.72, 0, 1)',
+              width: chatPanelMode === 'fullscreen' ? '100%' : `${chatPanelWidth}px`,
+              transition: chatResizing ? 'none' : 'width 300ms cubic-bezier(0.32, 0.72, 0, 1)',
               animation: 'chat-slide-in 250ms cubic-bezier(0.32, 0.72, 0, 1) both',
             }}
           >
+            {/* Resize handle on left edge */}
+            {chatPanelMode === 'split' && (
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  const startX = e.clientX
+                  const startWidth = chatPanelWidth
+                  setChatResizing(true)
+                  const onMouseMove = (ev: MouseEvent) => {
+                    const delta = startX - ev.clientX
+                    setChatPanelWidth(Math.max(320, Math.min(800, startWidth + delta)))
+                  }
+                  const onMouseUp = () => {
+                    setChatResizing(false)
+                    document.body.style.cursor = ''
+                    document.body.style.userSelect = ''
+                    document.removeEventListener('mousemove', onMouseMove)
+                    document.removeEventListener('mouseup', onMouseUp)
+                  }
+                  document.body.style.cursor = 'col-resize'
+                  document.body.style.userSelect = 'none'
+                  document.addEventListener('mousemove', onMouseMove)
+                  document.addEventListener('mouseup', onMouseUp)
+                }}
+              />
+            )}
             <ChatPanel
               projectId={project.id}
               visionDoc={project.visionDoc}
