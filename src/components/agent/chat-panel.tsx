@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef, memo } from "react"
 import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
 import { Link } from "react-router"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -54,6 +55,8 @@ interface ChatPanelProps {
   onNodeSelect?: (nodeId: string) => void
   /** Extra elements rendered in the header bar (right side, before provider selector) */
   headerActions?: React.ReactNode
+  /** Compact mode: no title, slimmer header — used when embedded in plan-view panel */
+  compact?: boolean
 }
 
 export interface ChatInputHandle {
@@ -74,10 +77,11 @@ interface ChatInputAreaProps {
   onSend: (text: string, images: ChatImageAttachment[], editingMessageId: string | null) => void
   onEditingClear: () => void
   onAbort: () => void
+  agentSelector?: React.ReactNode
 }
 
 const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(function ChatInputArea(
-  { projectId, isBusy, isStreaming, resolvedMachineId, workingDirectory, fileTree, slashCmds, mentionItems, editingMessageId, onSend, onEditingClear, onAbort },
+  { projectId, isBusy, isStreaming, resolvedMachineId, workingDirectory, fileTree, slashCmds, mentionItems, editingMessageId, onSend, onEditingClear, onAbort, agentSelector },
   ref
 ) {
   const [input, setInput] = useState("")
@@ -118,43 +122,46 @@ const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(funct
           onImagesChange={setChatImages}
           filePickerRef={filePickerRef}
         />
-        <div className="flex flex-row items-end gap-1 shrink-0">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            onClick={() => filePickerRef.current?.()}
-            title="Attach image (or paste/drag-drop)"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          {isStreaming && (
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {agentSelector}
+          <div className="flex flex-row items-end gap-1">
             <Button
               size="icon"
-              variant="destructive"
-              className="h-9 w-9"
-              onClick={onAbort}
-              title="Stop generation"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => filePickerRef.current?.()}
+              title="Attach image (or paste/drag-drop)"
             >
-              <Square className="h-3.5 w-3.5" />
+              <Paperclip className="h-4 w-4" />
             </Button>
-          )}
-          <Button
-            size="icon"
-            className="h-9 w-9"
-            onClick={handleSend}
-            disabled={!input.trim() && chatImages.length === 0}
-            title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+            {isStreaming && (
+              <Button
+                size="icon"
+                variant="destructive"
+                className="h-9 w-9"
+                onClick={onAbort}
+                title="Stop generation"
+              >
+                <Square className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleSend}
+              disabled={!input.trim() && chatImages.length === 0}
+              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
   )
 }))
 
-export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
+export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions, compact }: ChatPanelProps) {
   /** When set, the next send will truncate the conversation from this message before re-sending */
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const chatInputRef = useRef<ChatInputHandle>(null)
@@ -493,11 +500,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Display labels
   const providerLabel = selectedProviderObj?.name
     ?? (effectiveProviderId ? effectiveProviderId : "Auto")
-  const modelLabel = selectedModel
-    ? shortModelLabel(selectedModel)
-    : effectiveModel
-      ? shortModelLabel(effectiveModel)
-      : "Default"
 
   /** Resolve a node title from its ID for the update banner. */
   const getNodeTitle = useCallback((nodeId: string) => {
@@ -546,9 +548,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-card relative">
       {/* Header with session switcher and model/provider picker */}
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
+      <div className={cn("flex shrink-0 items-center justify-between gap-2 border-b border-border/60", compact ? "h-9 px-2" : "h-12 px-4")}>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Project Chat</span>
+          {!compact && <span className="text-sm font-semibold">Project Chat</span>}
           {/* Session metadata */}
           {isStreaming ? (
             <span className="flex items-center gap-1.5 text-[10px] text-info">
@@ -675,81 +677,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
         <div className="flex items-center gap-2">
           {headerActions}
-          {/* Provider Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button ref={modelDropdownRef} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[180px]">
-                <Bot className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate leading-none">{providerLabel}</span>
-                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[240px]">
-              <DropdownMenuLabel>Agent</DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => { setDefaultProvider(""); setSelectedModel("") }}
-                className="gap-2"
-              >
-                <Bot className="h-3.5 w-3.5" />
-                <span>Auto</span>
-                {!defaultProvider && (
-                  <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
-                )}
-              </DropdownMenuItem>
-              {providers.map((provider) => (
-                <DropdownMenuItem
-                  key={provider.id}
-                  onClick={() => { setDefaultProvider(provider.id); setSelectedModel("") }}
-                  className="gap-2"
-                  disabled={!provider.available}
-                >
-                  <Bot className="h-3.5 w-3.5" />
-                  <div className="flex flex-col">
-                    <span>{provider.name}</span>
-                    {!provider.available && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {provider.installed ? `Auth: ${provider.authStatus}` : "Not installed"}
-                      </span>
-                    )}
-                  </div>
-                  {defaultProvider === provider.id && (
-                    <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Model Selector - only show when provider has models */}
-          {selectedProviderObj?.capabilities?.availableModels &&
-            selectedProviderObj.capabilities.availableModels.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[140px]">
-                  <span className="truncate">{modelLabel}</span>
-                  <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[240px]">
-                <DropdownMenuLabel>Model</DropdownMenuLabel>
-                {selectedProviderObj.capabilities.availableModels.map((m) => (
-                  <DropdownMenuItem
-                    key={m}
-                    onClick={() => setSelectedModel(m)}
-                    className="gap-2"
-                  >
-                    <span className="text-xs truncate">{shortModelLabel(m)}</span>
-                    {m === selectedProviderObj.capabilities?.defaultModel && (
-                      <Badge variant="secondary" className="ml-auto text-[9px] px-1">default</Badge>
-                    )}
-                    {(selectedModel === m || (!selectedModel && m === effectiveModel)) && (
-                      <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
         </div>
       </div>
 
@@ -800,20 +727,20 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           </div>
         )}
 
-      </div>
+        {/* Scroll to bottom button — inside scrollable area so it doesn't overlap input */}
+        {!autoScroll && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="sticky bottom-2 left-1/2 -translate-x-1/2 h-8 gap-1.5 shadow-md z-10 mx-auto flex w-fit whitespace-nowrap"
+            onClick={scrollToBottom}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+            Bottom
+          </Button>
+        )}
 
-      {/* Scroll to bottom button */}
-      {!autoScroll && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
-          onClick={scrollToBottom}
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-          Bottom
-        </Button>
-      )}
+      </div>
 
       {/* Input */}
       <ChatInputArea
@@ -830,6 +757,47 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         onSend={handleSendFromInput}
         onEditingClear={() => setEditingMessageId(null)}
         onAbort={() => currentSession && abortChatStream(currentSession.id)}
+        agentSelector={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button ref={modelDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                <Bot className="h-3 w-3 shrink-0" />
+                <span className="truncate leading-none">{providerLabel}</span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[240px]">
+              <DropdownMenuLabel>Agent</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => { setDefaultProvider(""); setSelectedModel("") }} className="gap-2">
+                <Bot className="h-3.5 w-3.5" /><span>Auto</span>
+                {!defaultProvider && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
+              </DropdownMenuItem>
+              {providers.map((provider) => (
+                <DropdownMenuItem key={provider.id} onClick={() => { setDefaultProvider(provider.id); setSelectedModel("") }} className="gap-2" disabled={!provider.available}>
+                  <Bot className="h-3.5 w-3.5" />
+                  <div className="flex flex-col">
+                    <span>{provider.name}</span>
+                    {!provider.available && <span className="text-[10px] text-muted-foreground">{provider.installed ? `Auth: ${provider.authStatus}` : "Not installed"}</span>}
+                  </div>
+                  {defaultProvider === provider.id && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
+                </DropdownMenuItem>
+              ))}
+              {selectedProviderObj?.capabilities?.availableModels && selectedProviderObj.capabilities.availableModels.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Model</DropdownMenuLabel>
+                  {selectedProviderObj.capabilities.availableModels.map((m) => (
+                    <DropdownMenuItem key={m} onClick={() => setSelectedModel(m)} className="gap-2">
+                      <span className="text-xs truncate">{shortModelLabel(m)}</span>
+                      {m === selectedProviderObj.capabilities?.defaultModel && <Badge variant="secondary" className="ml-auto text-[9px] px-1">default</Badge>}
+                      {(selectedModel === m || (!selectedModel && m === effectiveModel)) && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
       />
 
       {/* Session Edit/Delete Dialog */}

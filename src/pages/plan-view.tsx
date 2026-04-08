@@ -2743,36 +2743,33 @@ export function PlanView() {
               animation: 'chat-slide-in 250ms cubic-bezier(0.32, 0.72, 0, 1) both',
             }}
           >
-            {/* Panel header with mode toggle */}
-            <div className="flex h-8 shrink-0 items-center justify-end gap-1 px-2 border-b border-border/40 bg-muted/30">
-              <span className="text-[10px] text-muted-foreground mr-auto pl-1">
-                <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">Esc</kbd> close
-              </span>
-              <button
-                type="button"
-                onClick={() => setChatPanelMode(chatPanelMode === 'split' ? 'fullscreen' : 'split')}
-                className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title={chatPanelMode === 'split' ? 'Expand to full width' : 'Back to split view'}
-              >
-                {chatPanelMode === 'split'
-                  ? <Maximize2 className="h-3.5 w-3.5" />
-                  : <Minimize2 className="h-3.5 w-3.5" />
-                }
-              </button>
-              <button
-                type="button"
-                onClick={() => setChatPanelMode('hidden')}
-                className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title="Close chat panel (Esc)"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
             <ChatPanel
               projectId={project.id}
               visionDoc={project.visionDoc}
               initialMessage={chatInitialMessage}
               onNodeSelect={handleChatNodeSelect}
+              compact
+              headerActions={<>
+                <button
+                  type="button"
+                  onClick={() => setChatPanelMode(chatPanelMode === 'split' ? 'fullscreen' : 'split')}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title={chatPanelMode === 'split' ? 'Expand to full width' : 'Back to split view'}
+                >
+                  {chatPanelMode === 'split'
+                    ? <Maximize2 className="h-3.5 w-3.5" />
+                    : <Minimize2 className="h-3.5 w-3.5" />
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatPanelMode('hidden')}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Close chat panel (C)"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>}
             />
           </div>
         )}
