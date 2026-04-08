@@ -1,8 +1,6 @@
 import { useEffect, useCallback, useRef } from "react"
 import { Outlet } from "react-router"
-import { cn } from "@/lib/utils"
 import { Sidebar } from "./sidebar"
-import { MobileTabBar } from "./mobile-layout"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 import { ProductTour } from "@/components/product-tour"
@@ -72,14 +70,11 @@ export function AppLayout() {
         {!effectiveCollapsed && <SidebarResizeHandle />}
       </div>
 
-      <main className={cn("flex-1 overflow-auto w-full md:w-auto", isMobile && "pb-20")}>
+      <main className="flex-1 overflow-auto w-full md:w-auto">
         <SseDisconnectBanner />
         <PasskeyNudgeBanner />
         <Outlet />
       </main>
-
-      {/* Mobile bottom tab bar */}
-      {isMobile && <MobileTabBar />}
 
       <SafetyPromptDialog />
       <WelcomeProfileDialog />

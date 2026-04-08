@@ -111,9 +111,9 @@ const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(funct
           value={input}
           onChange={setInput}
           placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
-          rows={3}
+          rows={4}
           onSubmit={handleSend}
-          className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
+          className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors min-h-[100px]"
           images={chatImages}
           onImagesChange={setChatImages}
           filePickerRef={filePickerRef}
@@ -678,9 +678,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           {/* Provider Selector */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button ref={modelDropdownRef} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[140px]">
-                <Bot className="h-3 w-3 shrink-0" />
-                <span className="truncate">{providerLabel}</span>
+              <button ref={modelDropdownRef} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[180px]">
+                <Bot className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate leading-none">{providerLabel}</span>
                 <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
               </button>
             </DropdownMenuTrigger>
