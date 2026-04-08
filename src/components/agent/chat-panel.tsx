@@ -544,7 +544,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [preprocessNodeRefs])
 
   return (
-    <div className="flex h-full flex-col bg-card relative">
+    <div className="flex flex-1 min-h-0 flex-col bg-card relative">
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">

@@ -863,7 +863,7 @@ export function ActiveTasks() {
             </div>
 
             {/* Right panel: chat */}
-            <div className="flex-1 min-w-0 bg-background">
+            <div className="flex-1 min-w-0 bg-background flex flex-col">
               {selectedTask ? (
                 <ChatPanel
                   key={selectedTask.task.nodeId}
