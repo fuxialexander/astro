@@ -1,14 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef, memo } from "react"
-import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
+import { Send, ChevronDown, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
 import { Link } from "react-router"
 import { cn } from "@/lib/utils"
+import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -28,7 +26,7 @@ import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import { usePlanContext } from "@/hooks/use-plan-context"
 import { useAutoScroll } from "@/hooks/use-auto-scroll"
 import type { AppliedMutations } from "@/lib/plan-mutations"
-import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
+import type { Session, TaskActivityEvent } from "@/types"
 
 interface Message {
   role: "user" | "assistant"
@@ -38,13 +36,6 @@ interface Message {
 }
 
 /** Compact label for a model id (strip dates and common prefixes). */
-function shortModelLabel(model: string): string {
-  return model
-    .replace(/^claude-/, "")
-    .replace(/-\d{8}$/, "")
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 interface ChatPanelProps {
   projectId: string
@@ -104,57 +95,57 @@ const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(funct
 
   return (
     <div className="border-t border-border/60 p-3 shrink-0">
-      <div className="flex items-end gap-2">
-        <FileCompletionTextarea
-          projectId={projectId}
-          machineId={resolvedMachineId}
-          workingDirectory={workingDirectory}
-          fileTree={fileTree}
-          slashCommands={slashCmds}
-          mentionItems={mentionItems}
-          value={input}
-          onChange={setInput}
-          placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
-          rows={4}
-          onSubmit={handleSend}
-          className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors min-h-[100px]"
-          images={chatImages}
-          onImagesChange={setChatImages}
-          filePickerRef={filePickerRef}
-        />
-        <div className="flex flex-col items-end gap-1 shrink-0">
+      <FileCompletionTextarea
+        projectId={projectId}
+        machineId={resolvedMachineId}
+        workingDirectory={workingDirectory}
+        fileTree={fileTree}
+        slashCommands={slashCmds}
+        mentionItems={mentionItems}
+        value={input}
+        onChange={setInput}
+        placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
+        rows={3}
+        onSubmit={handleSend}
+        className="w-full rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors min-h-[72px]"
+        images={chatImages}
+        onImagesChange={setChatImages}
+        filePickerRef={filePickerRef}
+      />
+      <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center gap-1">
           {agentSelector}
-          <div className="flex flex-row items-end gap-1">
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={() => filePickerRef.current?.()}
+            title="Attach image (or paste/drag-drop)"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          {isStreaming && (
             <Button
               size="icon"
-              variant="ghost"
+              variant="destructive"
               className="h-8 w-8"
-              onClick={() => filePickerRef.current?.()}
-              title="Attach image (or paste/drag-drop)"
+              onClick={onAbort}
+              title="Stop generation"
             >
-              <Paperclip className="h-4 w-4" />
+              <Square className="h-3.5 w-3.5" />
             </Button>
-            {isStreaming && (
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-9 w-9"
-                onClick={onAbort}
-                title="Stop generation"
-              >
-                <Square className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={handleSend}
-              disabled={!input.trim() && chatImages.length === 0}
-              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+          )}
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleSend}
+            disabled={!input.trim() && chatImages.length === 0}
+            title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>
@@ -195,7 +186,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Slash command autocomplete state
   // Dropdown refs for provider/model menus (for /sessions and /model commands)
   const sessionDropdownRef = useRef<HTMLButtonElement>(null)
-  const modelDropdownRef = useRef<HTMLButtonElement>(null)
+
 
   // Get all project-chat sessions for this project (re-evaluates when sessions map changes)
   const projectChatSessions = useMemo(
@@ -385,10 +376,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
 
-  // Resolve the effective provider object, model, and providerId for the API call
-  const selectedProviderObj: ProviderStatus | undefined =
-    defaultProvider ? providers.find((p) => p.id === defaultProvider) : undefined
-
   const effectiveProviderId = defaultProvider || undefined
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
@@ -497,9 +484,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
   }, [initialMessage, isBusy, sendMessage])
 
-  // Display labels
-  const providerLabel = selectedProviderObj?.name
-    ?? (effectiveProviderId ? effectiveProviderId : "Auto")
+
 
   /** Resolve a node title from its ID for the update banner. */
   const getNodeTitle = useCallback((nodeId: string) => {
@@ -547,23 +532,29 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-card relative">
-      {/* Header with session switcher and model/provider picker */}
-      <div className={cn("flex shrink-0 items-center justify-between gap-2 border-b border-border/60", compact ? "h-9 px-2" : "h-12 px-4")}>
+      {/* Header with session switcher */}
+      <div className={cn("flex shrink-0 items-center justify-between gap-2 border-b border-border/60", compact ? "h-8 px-2 text-[12px]" : "h-12 px-4")}>
         <div className="flex items-center gap-2">
           {!compact && <span className="text-sm font-semibold">Project Chat</span>}
-          {/* Session metadata */}
-          {isStreaming ? (
+          {compact && (
+            <span className="text-[10px] text-muted-foreground">
+              Press <kbd className="px-1 rounded border border-border bg-background font-mono text-[10px]">C</kbd> to toggle
+            </span>
+          )}
+          {/* Session metadata — streaming indicator only */}
+          {isStreaming && (
             <span className="flex items-center gap-1.5 text-[10px] text-info">
               <span className="relative h-2 w-2 shrink-0">
                 <span className="absolute inset-0 rounded-full border-[1.5px] border-info border-t-transparent animate-spin" />
               </span>
               Running
             </span>
-          ) : messages.length > 0 ? (
+          )}
+          {!compact && messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
               {messages.length} msgs
             </span>
-          ) : null}
+          )}
           {/* Unified Session Switcher with Plan link */}
           <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
             <DropdownMenuTrigger asChild>
@@ -758,45 +749,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         onEditingClear={() => setEditingMessageId(null)}
         onAbort={() => currentSession && abortChatStream(currentSession.id)}
         agentSelector={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button ref={modelDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                <Bot className="h-3 w-3 shrink-0" />
-                <span className="truncate leading-none">{providerLabel}</span>
-                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[240px]">
-              <DropdownMenuLabel>Agent</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => { setDefaultProvider(""); setSelectedModel("") }} className="gap-2">
-                <Bot className="h-3.5 w-3.5" /><span>Auto</span>
-                {!defaultProvider && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
-              </DropdownMenuItem>
-              {providers.map((provider) => (
-                <DropdownMenuItem key={provider.id} onClick={() => { setDefaultProvider(provider.id); setSelectedModel("") }} className="gap-2" disabled={!provider.available}>
-                  <Bot className="h-3.5 w-3.5" />
-                  <div className="flex flex-col">
-                    <span>{provider.name}</span>
-                    {!provider.available && <span className="text-[10px] text-muted-foreground">{provider.installed ? `Auth: ${provider.authStatus}` : "Not installed"}</span>}
-                  </div>
-                  {defaultProvider === provider.id && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
-                </DropdownMenuItem>
-              ))}
-              {selectedProviderObj?.capabilities?.availableModels && selectedProviderObj.capabilities.availableModels.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Model</DropdownMenuLabel>
-                  {selectedProviderObj.capabilities.availableModels.map((m) => (
-                    <DropdownMenuItem key={m} onClick={() => setSelectedModel(m)} className="gap-2">
-                      <span className="text-xs truncate">{shortModelLabel(m)}</span>
-                      {m === selectedProviderObj.capabilities?.defaultModel && <Badge variant="secondary" className="ml-auto text-[9px] px-1">default</Badge>}
-                      {(selectedModel === m || (!selectedModel && m === effectiveModel)) && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ProviderDropdown
+            providers={providers}
+            selectedProvider={defaultProvider}
+            onSelect={(id) => { setDefaultProvider(id); setSelectedModel("") }}
+            compact
+            modelLabel={effectiveModel}
+          />
         }
       />
 

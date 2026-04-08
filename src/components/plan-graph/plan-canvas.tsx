@@ -485,7 +485,16 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         const right = (m.position?.x ?? 0) + MILESTONE_WIDTH
         if (right > rightmostX) rightmostX = right
       }
-      const addX = milestoneNodes.length > 0 ? rightmostX + 16 : 40
+      // When no milestones exist, place to the right of all task nodes to avoid overlap
+      if (milestoneNodes.length === 0) {
+        for (const n of projectNodes) {
+          if (n.position) {
+            const right = (n.position.x ?? 0) + 164 // NODE_WIDTH
+            if (right > rightmostX) rightmostX = right
+          }
+        }
+      }
+      const addX = rightmostX > 0 ? rightmostX + 16 : 40
       const addY = milestoneNodes.length > 0 ? (milestoneNodes[0].position?.y ?? 40) : 40
       taskNodes.push({
         id: '__add_milestone__',
@@ -841,30 +850,30 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: STATUS_DOT_COLOR.awaiting_approval,  label: 'awaiting' },
           { color: STATUS_DOT_COLOR.pruned,             label: 'pruned' },
         ] as const).map(({ color, label }) => (
-          <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-            <span className="text-[9px] text-muted-foreground/70">{label}</span>
+          <span key={label} className="flex items-center gap-1.5 shrink-0">
+            <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+            <span className="text-[12px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
-        <div className="w-px h-3 bg-border shrink-0" />
+        <div className="w-px h-4 bg-border shrink-0" />
         {([
           { color: PRIORITY_PIP_COLOR.urgent, label: 'urgent' },
           { color: PRIORITY_PIP_COLOR.high,   label: 'high' },
           { color: PRIORITY_PIP_COLOR.medium, label: 'medium' },
           { color: PRIORITY_PIP_COLOR.low,    label: 'low' },
         ] as const).map(({ color, label }) => (
-          <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5" style={{ background: color }} />
-            <span className="text-[9px] text-muted-foreground/70">{label}</span>
+          <span key={label} className="flex items-center gap-1.5 shrink-0">
+            <span className="h-2 w-2" style={{ background: color }} />
+            <span className="text-[12px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
-        <div className="w-px h-3 bg-border shrink-0" />
+        <div className="w-px h-4 bg-border shrink-0" />
         <span className="flex items-center gap-1 shrink-0">
           <svg width="18" height="6" className="shrink-0">
             <line x1="0" y1="3" x2="14" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" opacity="0.7" />
             <polygon points="14,0 18,3 14,6" fill={GRAPH_EDGE_COLOR} opacity="0.7" />
           </svg>
-          <span className="text-[9px] text-muted-foreground/70">depends on</span>
+          <span className="text-[12px] text-muted-foreground/70">depends on</span>
         </span>
       </div>
 

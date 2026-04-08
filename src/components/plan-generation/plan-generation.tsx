@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, getNodeIdForProject } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useSettingsStore } from "@/stores/settings-store"
+import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useNotificationStore } from "@/stores/notification-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -52,6 +52,11 @@ export function PlanGeneration({
 }: PlanGenerationProps) {
   const navigate = useNavigate()
   const yoloMode = useSettingsStore((s) => s.yoloMode)
+  const modelTier = useSettingsStore((s) => s.modelTier)
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const effectiveProviderId = defaultProvider || undefined
+  const effectiveModel = resolveModel(modelTier, effectiveProviderId, customModelMap)
   // Try session- first, then plan- for backward compat with existing plan sessions
   const nodeId = useExecutionStore((s) =>
     getNodeIdForProject(projectId, s.executions) || `plan-${projectId}`
@@ -274,6 +279,8 @@ export function PlanGeneration({
       projectId,
       message: text,
       visionDoc: project?.visionDoc,
+      model: effectiveModel,
+      providerId: effectiveProviderId,
       planNodes: planNodeContext,
       planEdges: planEdgeContext,
       messages: historyMessages,

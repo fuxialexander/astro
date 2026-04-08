@@ -30,7 +30,7 @@ import { useToastStore } from "@/stores/toast-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useMachinesStore } from "@/stores/machines-store"
-import { useSettingsStore } from "@/stores/settings-store"
+import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { FileBrowser } from "@/components/file-browser"
 import { resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
@@ -95,6 +95,9 @@ export function Playground() {
 
   // Settings — use configured model tier when user hasn't explicitly picked one
   const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
+  const modelTier = useSettingsStore((s) => s.modelTier)
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+  const effectivePlaygroundModel = resolveModel(modelTier, activeProvider || undefined, customModelMap)
 
   // Realtime state for activity events
   const executionId = execution?.executionId || ""
@@ -375,10 +378,11 @@ export function Playground() {
         })
         .join(''),
       visionDoc: project?.visionDoc,
+      model: effectivePlaygroundModel,
       providerId: activeProvider || undefined,
       messages: historyMessages,
     })
-  }, [chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, sendPlaygroundChat])
+  }, [chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, sendPlaygroundChat, effectivePlaygroundModel])
 
   // Route: steer during execution, chat after completion
   const handleSend = useCallback(() => {

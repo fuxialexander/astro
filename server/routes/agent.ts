@@ -448,6 +448,7 @@ agentRoute.post('/project-chat', async (c) => {
   }
 
   const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages, taskType, imageRefs } = body
+  console.log(`[agent] project-chat: model=${model}, providerId=${providerId}`)
   const chatUser = c.get('user') as AuthUser
   // Use streamId as stable taskId across turns (streamId = frontend session.id, stable per conversation).
   // Don't use existingSessionId — that's a provider session ID and changes the relay routing key.

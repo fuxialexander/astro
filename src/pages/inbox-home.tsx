@@ -12,6 +12,7 @@ import { RunningSection } from "@/components/inbox/running-section"
 import { DoneTodaySection } from "@/components/inbox/done-today-section"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
+import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { ExamplePickerDialog, type ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -56,6 +57,9 @@ export function InboxHome() {
   const [examplesOpen, setExamplesOpen] = useState(false)
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  // Path browser state
+  const [showPathBrowser, setShowPathBrowser] = useState(false)
 
   // skill.md state
   const [visionDoc, setVisionDoc] = useState("")
@@ -524,6 +528,7 @@ export function InboxHome() {
             onMachineChange={setSelectedMachine}
             workingDir={workingDir}
             onWorkingDirChange={setWorkingDir}
+            onBrowse={() => setShowPathBrowser(true)}
             renderMachineExtra={(m) => {
               const reg = registeredMachines.find((r) => r.id === m.machineId)
               return (
@@ -548,6 +553,18 @@ export function InboxHome() {
                 />
               ) : undefined
             }
+          />
+        )}
+
+        {/* Remote path browser dialog */}
+        {selectedMachine?.machineId && (
+          <RemotePathBrowser
+            open={showPathBrowser}
+            onOpenChange={setShowPathBrowser}
+            machineId={selectedMachine.machineId}
+            machineName={selectedMachine.name}
+            currentPath={workingDir || undefined}
+            onSelect={(path) => setWorkingDir(path)}
           />
         )}
       </div>
