@@ -99,7 +99,7 @@ const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(funct
   }
 
   return (
-    <div className="border-t border-border/60 p-3">
+    <div className="border-t border-border/60 p-3 shrink-0">
       <div className="flex items-end gap-2">
         <FileCompletionTextarea
           projectId={projectId}
