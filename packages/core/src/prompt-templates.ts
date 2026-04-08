@@ -1102,3 +1102,32 @@ For diagrams, charts, interactive widgets — anything beyond the yaml-spec comp
 **When to use**: "diagram of X", "visualize Y", interactive explorers with sliders/controls, Chart.js/D3 charts, SVG mechanism drawings, mockup presentations.
 
 **BE CREATIVE AND PROACTIVE WITH VISUALIZATION** — Don't wait for the user to ask for visuals. Whenever your response contains structured data (lists, comparisons, metrics, status reports, analysis results, architecture overviews, workflows), render it as yaml-spec or visualizer instead of plain markdown. A well-designed visual communicates faster than a wall of text. Think like a designer: use CardCarousel for options, Table for comparisons, Timeline for sequences, Metric for KPIs, custom components for domain-specific data, and visualizer for diagrams and charts. This hint contains everything you need — do NOT load the render-ui or visualise skills unless the user explicitly requests advanced rendering features.`
+
+/**
+ * Instructions appended to vision doc for
+ * scientific discovery projects using branch-based isolation.
+ */
+export const DISCOVERY_MODE_INSTRUCTIONS = `
+## Project Structure
+
+This project uses discovery mode for exploratory analysis.
+
+- \`src/\` or project root — Scripts and code (git-tracked, commit regularly)
+- \`data/\` — Input data (read-only, do not modify or commit)
+- \`analysis/{milestone}/{task}/\` — All generated outputs go here
+  - Milestone and task directory names will be provided in your task prompt
+  - Each task directory is self-contained: figures, tables, intermediate files
+  - When comparing approaches, use parallel directories under the milestone
+
+## Rules
+
+1. Write all generated outputs to the \`analysis/\` directory specified in your task prompt
+2. Do NOT read from or reference any files in \`.archived/\` or \`deprecated/\`
+3. Commit code changes with descriptive messages at logical checkpoints
+4. Reference output file paths explicitly when reporting findings
+
+## Commit Conventions
+- Use structured messages: \`[milestone-name/task-title] description\`
+- Commit at logical checkpoints (after each analysis step)
+- Use \`git add\` selectively — only stage files relevant to the current task
+`

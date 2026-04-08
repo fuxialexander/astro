@@ -33,6 +33,7 @@ import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
+import { slugify } from '@astro/core/dispatch'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
 import { resolveWritableTeamId } from '../lib/team-utils.js'
@@ -978,6 +979,30 @@ app.post('/plan/nodes', async (c) => {
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     })
+
+    // Discovery mode: generate outputDir for task nodes in branch-delivery projects
+    if (body.type === 'task' && project.deliveryMode === 'branch' && body.title) {
+      const taskSlug = slugify(body.title)
+      let outputDir = taskSlug
+
+      // If the task has a milestone, prefix with milestone slug
+      if (body.milestoneId) {
+        const milestoneNode = await tx.select({ title: planNodes.title })
+          .from(planNodes)
+          .where(and(eq(planNodes.clientId, body.milestoneId), eq(planNodes.projectId, body.projectId)))
+          .limit(1)
+        if (milestoneNode.length > 0 && milestoneNode[0].title) {
+          outputDir = `${slugify(milestoneNode[0].title)}/${taskSlug}`
+        }
+      }
+
+      const existingMetadata = (body.metadata ?? {}) as Record<string, unknown>
+      if (!existingMetadata.outputDir) {
+        await tx.update(planNodes)
+          .set({ metadata: { ...existingMetadata, outputDir } })
+          .where(eq(planNodes.clientId, body.id))
+      }
+    }
   })
   return c.json({ ok: true, number: assignedNumber }, 201)
 })

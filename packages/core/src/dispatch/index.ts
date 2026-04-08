@@ -9,7 +9,7 @@
 export * from './types.js'
 
 // Pure components
-export { ContextAssembler, createContextAssembler } from './context-assembler.js'
+export { ContextAssembler, createContextAssembler, slugify } from './context-assembler.js'
 export { ResultRouter, createResultRouter, DEFAULT_ROUTER_CONFIG } from './result-router.js'
 export type { ResultRouterConfig } from './result-router.js'
 export { BranchManager, createBranchManager } from './branch-manager.js'
