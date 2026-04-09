@@ -779,20 +779,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const node = get().nodes.find((n) => n.id === nodeId)
     if (!node) return
     const metadata = { ...(node.metadata || {}), archived: true, archivedAt: now.toISOString() }
-    get().updateNode(nodeId, { status: 'pruned', metadata })
+    get().updateNode(nodeId, { status: 'pruned', deletedAt: now, metadata })
   },
 
   archiveMilestone: (milestoneId) => {
     const milestone = get().nodes.find((n) => n.id === milestoneId)
     if (!milestone) return
-    // Archive all tasks belonging to this milestone
     const childTasks = get().nodes.filter(
       (n) => n.milestoneId === milestoneId && n.id !== milestoneId
     )
     for (const task of childTasks) {
       get().archiveNode(task.id)
     }
-    // Archive the milestone itself
     get().archiveNode(milestoneId)
   },
 

@@ -320,7 +320,7 @@ export function RepoConfigDialog({
     selectedMachineId !== (project.defaultMachineId ?? "") ||
     (baseBranch && baseBranch !== (project.source?.baseBranch ?? "")) ||
     selectedDeliveryMode !== (project.deliveryMode || '') ||
-    useWorktree !== (project.useWorktree !== false) ||
+    (effectiveDeliveryMode === 'direct' ? false : useWorktree) !== (project.useWorktree !== false) ||
     mergeQueueEnabled !== (project.mergeQueueEnabled ?? false) ||
     mergeMethod !== (project.mergeQueueMergeMethod || 'squash')
 
