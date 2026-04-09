@@ -2,12 +2,11 @@
  * Discovery Pipeline E2E Tests
  *
  * Integration tests using PGlite-backed test server to verify:
- * 1. OutputDir generation on node creation (branch-delivery projects)
+ * 1. OutputDir generation on node creation (discoveryMode projects)
  * 2. Milestone-prefixed output dirs
- * 3. No outputDir for non-branch projects
+ * 3. No outputDir for non-discovery projects
  * 4. No outputDir for milestone-type nodes
  * 5. Prune-cleanup endpoint records pending cleanup metadata
- * 6. Feature flag defaults are consistent
  */
 
 // Must be set BEFORE any server/ imports so PGlite is used instead of Supabase
@@ -35,11 +34,12 @@ beforeEach(async () => {
 // Helper: create a project with a specific delivery mode
 // ============================================================================
 
-async function createProject(opts: { deliveryMode: string; name?: string }): Promise<string> {
+async function createProject(opts: { deliveryMode: string; discoveryMode?: boolean; name?: string }): Promise<string> {
   const res = await postJson('/api/data/projects', {
     name: opts.name ?? `Test Project (${opts.deliveryMode})`,
     description: 'Discovery pipeline E2E test',
     deliveryMode: opts.deliveryMode,
+    ...(opts.discoveryMode !== undefined && { discoveryMode: opts.discoveryMode }),
   })
   expect(res.status).toBe(201)
   const body = await res.json()
@@ -89,9 +89,9 @@ async function getNodeMetadata(projectId: string, nodeId: string): Promise<Recor
 // OutputDir Generation on Node Creation
 // ============================================================================
 
-describe('OutputDir generation — branch-delivery projects', () => {
+describe('OutputDir generation — discovery mode projects', () => {
   beforeEach(async () => {
-    branchProjectId = await createProject({ deliveryMode: 'branch' })
+    branchProjectId = await createProject({ deliveryMode: 'direct', discoveryMode: true })
   })
 
   it('generates outputDir for a standalone task node', async () => {
@@ -141,7 +141,7 @@ describe('OutputDir generation — branch-delivery projects', () => {
   })
 })
 
-describe('OutputDir generation — non-branch projects', () => {
+describe('OutputDir generation — non-discovery projects', () => {
   it('does NOT generate outputDir for direct-delivery project', async () => {
     directProjectId = await createProject({ deliveryMode: 'direct' })
     await createTaskNode(directProjectId, 'task-direct', 'Some direct task')
@@ -156,11 +156,18 @@ describe('OutputDir generation — non-branch projects', () => {
     const metadata = await getNodeMetadata(prProjectId, 'task-pr')
     expect(metadata?.outputDir).toBeUndefined()
   })
+
+  it('does NOT generate outputDir for branch-delivery without discoveryMode', async () => {
+    const branchNonDiscovery = await createProject({ deliveryMode: 'branch' })
+    await createTaskNode(branchNonDiscovery, 'task-branch', 'Some branch task')
+    const metadata = await getNodeMetadata(branchNonDiscovery, 'task-branch')
+    expect(metadata?.outputDir).toBeUndefined()
+  })
 })
 
 describe('OutputDir generation — milestone nodes', () => {
   it('does NOT generate outputDir for milestone-type nodes', async () => {
-    branchProjectId = await createProject({ deliveryMode: 'branch' })
+    branchProjectId = await createProject({ deliveryMode: 'direct', discoveryMode: true })
     await createMilestoneNode(branchProjectId, 'ms-only', 'Big Milestone')
     const metadata = await getNodeMetadata(branchProjectId, 'ms-only')
     // Milestones should not have outputDir (only task nodes do)
@@ -176,7 +183,7 @@ describe('POST /api/dispatch/prune-cleanup', () => {
   let projectId: string
 
   beforeEach(async () => {
-    projectId = await createProject({ deliveryMode: 'branch' })
+    projectId = await createProject({ deliveryMode: 'direct', discoveryMode: true })
   })
 
   it('returns 400 for missing projectId', async () => {
@@ -293,8 +300,8 @@ describe('POST /api/dispatch/prune-cleanup', () => {
 // ============================================================================
 
 describe('GET /api/data/plan/:projectId — includes outputDir in metadata', () => {
-  it('returns outputDir in node metadata for branch projects', async () => {
-    const pid = await createProject({ deliveryMode: 'branch' })
+  it('returns outputDir in node metadata for discovery projects', async () => {
+    const pid = await createProject({ deliveryMode: 'direct', discoveryMode: true })
     await createMilestoneNode(pid, 'ms-get', 'Milestone Alpha')
     await createTaskNode(pid, 'task-get', 'Fetch ChIP-seq peaks', { milestoneId: 'ms-get' })
 
