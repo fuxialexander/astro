@@ -489,7 +489,7 @@ export function RepoConfigDialog({
                     )}
                     <button
                       type="button"
-                      onClick={() => setSelectedDeliveryMode('direct')}
+                      onClick={() => { setSelectedDeliveryMode('direct'); setUseWorktree(false) }}
                       className={cn(
                         "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
                         effectiveDeliveryMode === 'direct'

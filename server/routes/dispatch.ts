@@ -708,6 +708,8 @@ dispatchRoute.post('/task', async (c) => {
       //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
       useWorktree ??= dbProject.useWorktree ?? undefined
+      // Direct mode cannot use worktrees — force off to prevent invalid combinations
+      if (deliveryMode === 'direct') useWorktree = false
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; isGit?: boolean; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       isGit = source?.isGit
