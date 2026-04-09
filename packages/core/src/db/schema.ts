@@ -33,6 +33,7 @@ export const projects = pgTable('projects', {
   source: jsonb('source'),
   deliveryMode: text('delivery_mode'),
   discoveryMode: boolean('discovery_mode').default(false),
+  useWorktree: boolean('use_worktree').default(true),
   projectType: text('project_type').default('default'), // 'default' | 'playground' | 'github'
   githubOwner: text('github_owner'),
   githubRepo: text('github_repo'),

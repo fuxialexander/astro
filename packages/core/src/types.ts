@@ -204,6 +204,7 @@ export interface Project {
   deliveryMode?: DeliveryMode
   discoveryMode?: boolean
   agentDir?: string
+  useWorktree?: boolean
   worktreeStrategy?: WorktreeStrategy
   projectType?: 'default' | 'playground' | 'github' | 'plan'
   githubOwner?: string

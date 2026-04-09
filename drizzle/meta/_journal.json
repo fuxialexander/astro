@@ -267,6 +267,13 @@
       "when": 1775701798735,
       "tag": "0037_lucky_leo",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1775762045172,
+      "tag": "0038_heavy_blink",
+      "breakpoints": true
     }
   ]
 }

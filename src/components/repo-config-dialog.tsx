@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react"
-import { FolderGit2, Save, Github, Search, Loader2, AlertCircle, CheckCircle2, GitBranch, X, TriangleAlert } from "lucide-react"
+import { FolderGit2, Save, Github, Search, Loader2, AlertCircle, CheckCircle2, GitBranch, X, TriangleAlert, GitPullRequest, Upload, GitFork, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
@@ -22,7 +22,7 @@ import { validateGitUrl } from "@/lib/git-url-utils"
 import { deriveDeliveryMode } from "@/lib/project-source"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
-import type { Project } from "@/types"
+import type { Project, DeliveryMode } from "@/types"
 
 export function RepoConfigDialog({
   open,
@@ -60,12 +60,46 @@ export function RepoConfigDialog({
   const [searchQuery, setSearchQuery] = useState("")
   const [repoAutoFilled, setRepoAutoFilled] = useState(false)
   const [baseBranch, setBaseBranch] = useState(project.source?.baseBranch ?? "")
-  const [directMode, setDirectMode] = useState(project.deliveryMode === 'direct')
+  const [selectedDeliveryMode, setSelectedDeliveryMode] = useState<string>(project.deliveryMode || '')
   const [directConfirmed, setDirectConfirmed] = useState(project.deliveryMode === 'direct')
   const [isInitingGit, setIsInitingGit] = useState(false)
+  const [useWorktree, setUseWorktree] = useState(project.useWorktree !== false)
+  const [mergeQueueEnabled, setMergeQueueEnabled] = useState(project.mergeQueueEnabled ?? false)
+  const [mergeMethod, setMergeMethod] = useState<'merge' | 'squash' | 'rebase'>(project.mergeQueueMergeMethod || 'squash')
+
+  // Reset local state when the project changes (e.g. switching projects in sidebar)
+  useEffect(() => {
+    setRepoUrl(project.repository ?? project.source?.remoteUrl ?? "")
+    setWorkDir(project.workingDirectory ?? "")
+    setSelectedMachineId(project.defaultMachineId ?? "")
+    setBaseBranch(project.source?.baseBranch ?? "")
+    setSelectedDeliveryMode(project.deliveryMode || '')
+    setDirectConfirmed(project.deliveryMode === 'direct')
+    setUseWorktree(project.useWorktree !== false)
+    setMergeQueueEnabled(project.mergeQueueEnabled ?? false)
+    setMergeMethod(project.mergeQueueMergeMethod || 'squash')
+    setRepoAutoFilled(false)
+    setPathError(null)
+    setRepoUrlError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
 
   // Directory detection — auto-detects git info as user types
   const { detection, isDetecting, refresh: refreshDetection } = useDirectoryDetection(workDir, selectedMachineId)
+
+  // Auto-suggest delivery mode from detection (only when no explicit mode set)
+  useEffect(() => {
+    if (!selectedDeliveryMode && detection) {
+      const suggested = detection.isGit
+        ? (detection.remoteUrl ? 'pr' : 'branch')
+        : 'direct'
+      setSelectedDeliveryMode(suggested)
+      if (suggested === 'direct') setDirectConfirmed(true)
+    }
+  }, [detection, selectedDeliveryMode])
+
+  // Effective delivery mode for conditional UI
+  const effectiveDeliveryMode = selectedDeliveryMode || (detection?.isGit ? (detection?.remoteUrl ? 'pr' : 'branch') : 'direct')
 
   // Auto-fill repo URL from detection
   useEffect(() => {
@@ -202,15 +236,16 @@ export function RepoConfigDialog({
       const userWorkDir = workDir.trim() || undefined
       const userRepo = finalRepoUrl || undefined
       const effectiveBranch = baseBranch || detection?.baseBranch || undefined
-      // Compute the delivery mode: explicit 'direct' override, or auto-derived from source
-      const resolvedDeliveryMode = directMode && directConfirmed
-        ? 'direct' as const
-        : (project.source ? deriveDeliveryMode(project.source) : undefined)
+      // Store the explicitly selected delivery mode
+      const resolvedDeliveryMode = (selectedDeliveryMode || (project.source ? deriveDeliveryMode(project.source) : undefined)) as DeliveryMode | undefined
       updateProject(project.id, {
         repository: userRepo,
         workingDirectory: userWorkDir,
         defaultMachineId: selectedMachineId || undefined,
         deliveryMode: resolvedDeliveryMode,
+        useWorktree: effectiveDeliveryMode === 'direct' ? false : useWorktree,
+        mergeQueueEnabled,
+        mergeQueueMergeMethod: mergeMethod as 'merge' | 'squash' | 'rebase',
         ...(effectiveBranch && project.source ? {
           source: { ...project.source, baseBranch: effectiveBranch },
         } : {}),
@@ -257,11 +292,12 @@ export function RepoConfigDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, project.source, repoUrl, workDir, selectedMachineId, baseBranch, detection, onOpenChange, addToast, directMode, directConfirmed])
+  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, project.source, repoUrl, workDir, selectedMachineId, baseBranch, detection, onOpenChange, addToast, selectedDeliveryMode, effectiveDeliveryMode, useWorktree, mergeQueueEnabled, mergeMethod])
 
   const handleWorkDirChange = (value: string) => {
     setWorkDir(value)
     setRepoAutoFilled(false)
+    setSelectedDeliveryMode('') // reset so auto-suggest re-fires with new detection
     if (repoAutoFilled) {
       setRepoUrl("")
     }
@@ -283,7 +319,10 @@ export function RepoConfigDialog({
     workDir !== (project.workingDirectory ?? "") ||
     selectedMachineId !== (project.defaultMachineId ?? "") ||
     (baseBranch && baseBranch !== (project.source?.baseBranch ?? "")) ||
-    directMode !== (project.deliveryMode === 'direct')
+    selectedDeliveryMode !== (project.deliveryMode || '') ||
+    (effectiveDeliveryMode === 'direct' ? false : useWorktree) !== (project.useWorktree !== false) ||
+    mergeQueueEnabled !== (project.mergeQueueEnabled ?? false) ||
+    mergeMethod !== (project.mergeQueueMergeMethod || 'squash')
 
   const selectedMachineName = allMachines.find((m) => m.id === selectedMachineId)?.name
   const showFields = allMachines.length === 0 || !!selectedMachineId
@@ -381,67 +420,172 @@ export function RepoConfigDialog({
                   </div>
               )}
 
-              {/* Target branch + Execution mode — shown when git is detected */}
+              {/* Target branch — shown when git is detected */}
               {detection?.isGit && (
-                <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Target branch</span>
-                    <BranchSelector
-                      value={baseBranch || detection.baseBranch || 'main'}
-                      onChange={setBaseBranch}
-                      path={workDir.trim()}
-                      machineId={selectedMachineId || undefined}
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 md:shrink-0">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Target branch</span>
+                  <BranchSelector
+                    value={baseBranch || detection.baseBranch || 'main'}
+                    onChange={setBaseBranch}
+                    path={workDir.trim()}
+                    machineId={selectedMachineId || undefined}
+                  />
+                </div>
+              )}
+              </div>
+
+              {/* ── Execution Settings ──────────────────── */}
+              <div className="flex flex-col gap-3 pt-1">
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Execution</span>
+
+                {/* Delivery Mode Picker */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[11px] text-muted-foreground">Delivery mode</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {detection?.isGit && detection?.remoteUrl && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedDeliveryMode('pr'); setDirectConfirmed(false) }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          effectiveDeliveryMode === 'pr'
+                            ? "border-primary bg-primary/10 text-primary font-medium"
+                            : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        <GitPullRequest className="h-3 w-3" />
+                        PR
+                      </button>
+                    )}
+                    {detection?.isGit && detection?.remoteUrl && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedDeliveryMode('push'); setDirectConfirmed(false) }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          effectiveDeliveryMode === 'push'
+                            ? "border-primary bg-primary/10 text-primary font-medium"
+                            : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        <Upload className="h-3 w-3" />
+                        Push
+                      </button>
+                    )}
+                    {detection?.isGit && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedDeliveryMode('branch'); setDirectConfirmed(false) }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          effectiveDeliveryMode === 'branch'
+                            ? "border-primary bg-primary/10 text-primary font-medium"
+                            : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        <GitFork className="h-3 w-3" />
+                        Branch
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
+                      onClick={() => { setSelectedDeliveryMode('direct'); setUseWorktree(false) }}
                       className={cn(
-                        "px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
-                        !directMode
-                          ? "border-primary bg-primary/10 text-primary font-medium"
-                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
-                      )}
-                    >
-                      {detection.remoteUrl ? 'Git workflow (PR)' : 'Git workflow (branch)'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDirectMode(true)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
-                        directMode
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
+                        effectiveDeliveryMode === 'direct'
                           ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
                           : "border-input bg-background text-muted-foreground hover:bg-muted/50",
                       )}
                     >
-                      Direct (in-place)
+                      <Pencil className="h-3 w-3" />
+                      Direct
                     </button>
                   </div>
                 </div>
-              )}
-              {detection?.isGit && directMode && !directConfirmed && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
-                  <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
-                  <div className="flex-1 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                    <span className="font-medium">
-                      {detection?.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
-                    </span>
-                    <br />
-                    <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
+
+                {/* Direct mode confirmation */}
+                {effectiveDeliveryMode === 'direct' && detection?.isGit && !directConfirmed && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+                    <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
+                    <div className="flex-1 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                      <span className="font-medium">
+                        {detection?.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
+                      </span>
+                      <br />
+                      <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[11px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                      onClick={() => setDirectConfirmed(true)}
+                    >
+                      OK
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-6 text-[11px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
-                    onClick={() => setDirectConfirmed(true)}
-                  >
-                    OK
-                  </Button>
-                </div>
-              )}
+                )}
+
+                {/* Worktree Toggle — shown for git modes except direct */}
+                {effectiveDeliveryMode !== 'direct' && detection?.isGit && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">Worktree isolation</span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {useWorktree ? 'Each task gets its own worktree — parallel execution OK' : 'Tasks share the working directory — serial execution'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setUseWorktree(!useWorktree)}
+                      className={cn(
+                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer shrink-0",
+                        useWorktree ? "bg-primary" : "bg-muted-foreground/30",
+                      )}
+                    >
+                      <span className={cn(
+                        "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                        useWorktree ? "translate-x-[18px]" : "translate-x-[3px]",
+                      )} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Auto-merge PRs — shown only for PR mode */}
+                {effectiveDeliveryMode === 'pr' && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">Auto-merge PRs</span>
+                    <button
+                      type="button"
+                      onClick={() => setMergeQueueEnabled(!mergeQueueEnabled)}
+                      className={cn(
+                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer shrink-0",
+                        mergeQueueEnabled ? "bg-primary" : "bg-muted-foreground/30",
+                      )}
+                    >
+                      <span className={cn(
+                        "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                        mergeQueueEnabled ? "translate-x-[18px]" : "translate-x-[3px]",
+                      )} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Merge method — shown when auto-merge is enabled */}
+                {effectiveDeliveryMode === 'pr' && mergeQueueEnabled && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">Merge method</span>
+                    <select
+                      className="text-[11px] rounded-md border border-input bg-background px-2 py-1"
+                      value={mergeMethod}
+                      onChange={(e) => setMergeMethod(e.target.value as 'merge' | 'squash' | 'rebase')}
+                    >
+                      <option value="squash">Squash</option>
+                      <option value="merge">Merge</option>
+                      <option value="rebase">Rebase</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Repository URL */}
@@ -563,7 +707,7 @@ export function RepoConfigDialog({
             size="sm"
             className="h-7 text-xs gap-1.5"
             onClick={handleSave}
-            disabled={!hasChanges || isSaving || !!pathError || !!repoUrlError || (directMode && !directConfirmed)}
+            disabled={!hasChanges || isSaving || !!pathError || !!repoUrlError || (effectiveDeliveryMode === 'direct' && detection?.isGit && !directConfirmed)}
           >
             {isSaving ? (
               <Loader2 className="h-3 w-3 animate-spin" />

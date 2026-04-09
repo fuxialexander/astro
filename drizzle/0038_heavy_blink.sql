@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "use_worktree" boolean DEFAULT true;
