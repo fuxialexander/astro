@@ -590,41 +590,6 @@ The "keyFindings" field should contain 2-5 concise bullet points (under 100 char
 }
 
 /**
- * Instructions appended to the vision doc when Discovery mode is enabled.
- * Guides the agent on commit conventions and directory organization for
- * scientific discovery projects using direct execution mode.
- */
-export const DISCOVERY_MODE_INSTRUCTIONS = `
-## Scientific Discovery Mode
-
-This project uses **direct execution mode** for scientific discovery. There are no git branches, worktrees, or PRs — all work happens in-place in the working directory.
-
-### Commit Conventions
-- Commit your changes with structured messages: \`[milestone-name/task-title] description\`
-- Commit at logical checkpoints (after each analysis step, after generating key outputs), not just at task completion
-- Use \`git add\` selectively — only stage files relevant to the current task
-
-### Directory Organization
-- Organize outputs by milestone when practical:
-  \`\`\`
-  milestone-1-hypothesis/
-    task-a-data-prep/
-      outputs/
-    task-b-analysis/
-      outputs/
-  milestone-2-revised/
-    ...
-  \`\`\`
-- Keep scripts and their outputs together in the same task directory
-- When a milestone's directory hint is provided, use it as the working subdirectory
-
-### Context Hygiene
-- Do not modify files belonging to other milestones unless explicitly asked
-- When pivoting direction, work in a new milestone directory — do not overwrite previous analysis
-- Previous milestone outputs are preserved for reference but should not contaminate new analysis
-`
-
-/**
  * Build the system prompt for interactive plan generation.
  *
  * Unlike buildPlanSystemPrompt (which is a one-shot JSON generator), this prompt
