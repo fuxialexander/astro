@@ -30,7 +30,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
-import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT, DISCOVERY_MODE_INSTRUCTIONS } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
@@ -180,24 +180,11 @@ function pickBestMachineFromCandidates(
  *   generic                  → 'push'   (remote git, unknown host)
  *   none / undefined         → 'direct' (safe default for ambiguous cases)
  *
- * Why 'direct' for 'none' and undefined:
- * The server doesn't have an `isGit` boolean — only `remoteType`. The value
- * 'none' is sent by the agent-runner for BOTH "non-git directory" (isGit=false)
- * and "local git, no remote" (isGit=true). The server cannot distinguish them.
- *
- * For local-git projects, the DB deliveryMode is set to 'branch' during
- * project creation (from the agent's suggestedDeliveryMode). Additionally,
- * the self-healing block (search: "Self-heal") derives deliveryMode from
- * the project's source column for projects that were created without it
- * (e.g., playground sessions, legacy projects). This fallback only fires
- * when none of the above provides a deliveryMode.
- *
- * 'direct' is the safe default: it activates the server-side serial execution
- * check (preventing concurrent dispatch) and works for both git and non-git
- * directories. If the directory actually has git, the agent-runner's
- * prepareTaskWorkspace() detects it and uses worktree isolation regardless.
+ * Last-resort fallback when deliveryMode is not in the request body, DB, or source column.
+ * Now accepts isGit to disambiguate remoteType='none' (local-git vs non-git),
+ * matching the frontend's deriveDeliveryMode() in project-source.ts.
  */
-function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
+function deriveDefaultDeliveryMode(remoteType?: string, isGit?: boolean): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
     case 'github':
     case 'gitlab':
@@ -206,6 +193,9 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
+      // Local git with no remote → 'branch' (worktree isolation)
+      // Non-git or unknown → 'direct' (in-place, serial execution)
+      return isGit ? 'branch' : 'direct'
     default:
       return 'direct'
   }
@@ -499,24 +489,31 @@ dispatchRoute.post('/task', async (c) => {
   // Also checks plan_nodes in 'in_progress'/'dispatched' state as a secondary guard:
   // the dispatch queue may have already been cleaned up while the node is still running.
   if (deliveryMode === 'direct' && !dryRun) {
-    const [activeCheck] = await db.execute<{ active: number }>(sql`
-      SELECT (
-        (SELECT count(*) FROM dispatch_queue_entries
-         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
-        +
-        (SELECT count(*) FROM plan_nodes
-         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
-           AND deleted_at IS NULL)
-      )::int AS active
-    `)
-    if (activeCheck && activeCheck.active > 0) {
-      return c.json(
-        {
-          success: false,
-          error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
-        },
-        409
-      )
+    // Discovery mode allows parallel execution: tasks write to isolated directories
+    // (analysis/{milestone}/{task}/) so there are no file conflicts.
+    const [projCheck] = await db.select({ discoveryMode: projects.discoveryMode })
+      .from(projects).where(eq(projects.id, projectId)).limit(1)
+    if (!projCheck?.discoveryMode) {
+      const activeResult = await db.execute<{ active: number }>(sql`
+        SELECT (
+          (SELECT count(*) FROM dispatch_queue_entries
+           WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
+          +
+          (SELECT count(*) FROM plan_nodes
+           WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
+             AND deleted_at IS NULL)
+        )::int AS active
+      `)
+      const activeCheck = Array.isArray(activeResult) ? activeResult[0] : (activeResult as { rows?: Array<{ active: number }> }).rows?.[0]
+      if (activeCheck && activeCheck.active > 0) {
+        return c.json(
+          {
+            success: false,
+            error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
+          },
+          409
+        )
+      }
     }
   }
 
@@ -534,6 +531,7 @@ dispatchRoute.post('/task', async (c) => {
   let deliveryBranchId: string | null | undefined
   let nodeMetadata: Record<string, unknown> | null | undefined
   let discoveryMode: boolean | undefined
+  let isGit: boolean | undefined
   // Parallel execution: set to true when another user's execution is already running on this node.
   // When true, we skip plan_nodes status/executionId updates (keep pointing to the first execution).
   let isParallelDispatch = false
@@ -714,6 +712,7 @@ dispatchRoute.post('/task', async (c) => {
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; isGit?: boolean; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
+      isGit = source?.isGit
 
       // Self-heal: if deliveryMode is null but source has enough info, derive and backfill.
       // This catches playground-created projects (startPlaygroundSession skips detection)
@@ -836,8 +835,8 @@ dispatchRoute.post('/task', async (c) => {
   // Guard: !dryRun — dry-run requests don't actually execute tasks.
   // Uses combined dispatch_queue + plan_nodes check to close the TOCTOU window.
   const deliveryModeResolvedFromDb = !body.deliveryMode
-  if (deliveryMode === 'direct' && deliveryModeResolvedFromDb && !dryRun) {
-    const [activeCheck] = await db.execute<{ active: number }>(sql`
+  if (deliveryMode === 'direct' && deliveryModeResolvedFromDb && !dryRun && !discoveryMode) {
+    const activeResult = await db.execute<{ active: number }>(sql`
       SELECT (
         (SELECT count(*) FROM dispatch_queue_entries
          WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
@@ -847,6 +846,7 @@ dispatchRoute.post('/task', async (c) => {
            AND deleted_at IS NULL)
       )::int AS active
     `)
+    const activeCheck = Array.isArray(activeResult) ? activeResult[0] : (activeResult as { rows?: Array<{ active: number }> }).rows?.[0]
     if (activeCheck && activeCheck.active > 0) {
       return c.json(
         {
@@ -880,6 +880,7 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     deliveryMode,
     remoteType,
+    isGit,
     baseBranch,
     agentDir,
     worktreeStrategy,
@@ -941,6 +942,7 @@ async function dispatchViaRelay(
     computeBackend?: string
     deliveryMode?: string
     remoteType?: string
+    isGit?: boolean
     baseBranch?: string
     agentDir?: string
     worktreeStrategy?: string
@@ -999,6 +1001,7 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode: deliveryModeParam,
     remoteType,
+    isGit,
     baseBranch,
     agentDir,
     worktreeStrategy,
@@ -1442,36 +1445,30 @@ ${subPrSection}
 This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
     } else {
 
-    // Discovery mode: dedicated workspace section (overrides standard delivery-mode section)
+    // Discovery mode: inject shared instructions + task-specific workspace details
     const isDiscoveryMode = discoveryModeParam === true
     if (isDiscoveryMode && taskOutputDir && workingDirectory) {
       const taskWorkDir = `${workingDirectory}/analysis/${taskOutputDir}`
-      promptParts.push(`## Workspace — Discovery Mode
+      // General discovery mode rules (single source of truth from prompt-templates)
+      promptParts.push(DISCOVERY_MODE_INSTRUCTIONS.trim())
+      // Task-specific workspace details (concrete paths for this task)
+      promptParts.push(`## Your Task Workspace
 
-You are working in a task-scoped directory:
-  \`${taskWorkDir}/\`
-
-The project root is: \`${workingDirectory}/\`
+Your assigned task directory: \`${taskWorkDir}/\`
+Project root: \`${workingDirectory}/\`
 
 **FIRST STEP — create your task directory:**
 \`\`\`bash
 mkdir -p "${taskWorkDir}"
 \`\`\`
 
-**IMPORTANT:**
-- Write ALL scripts AND outputs to your task directory (\`${taskWorkDir}/\`)
-- Read shared input data from \`${workingDirectory}/data/\` (read-only)
-- Read upstream task outputs from paths listed in your "Input Data" section below
-- Do NOT modify files outside your task directory
-- Commit scripts with: \`git add analysis/${taskOutputDir}/\`
-- Use structured commit messages: \`[${taskOutputDir}] description\`
-- Do NOT read from \`analysis/.archived/\` — those contain invalidated analysis
-- At the end, write a \`_manifest.json\` in your task directory listing output files`)
+Commit with: \`git add analysis/${taskOutputDir}/\`
+Commit message prefix: \`[${taskOutputDir}]\``)
     }
 
     // Build delivery-mode-aware workspace instructions (skipped in discovery mode)
     if (!isDiscoveryMode) {
-      const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType)
+      const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)
       const effectiveUseWorktree = useWorktree !== false
       const effectiveAgentDir = agentDir ?? '.astro'
       const usesWorktree = workingDirectory && effectiveUseWorktree && effectiveDelivery !== 'direct'
@@ -1701,7 +1698,7 @@ ${verificationSection}${executiveSummarySection}`)
         astroBaseUrl,
         githubIssueUrl,
         githubIssueNumber,
-        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
+        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)),
         shortProjectId,
         shortNodeId,
       },
@@ -1761,7 +1758,7 @@ ${verificationSection}${executiveSummarySection}`)
   // Look up cached safety decision for this working directory.
   // Used only for skipSafetyCheck below — does NOT override delivery mode.
   // Delivery mode is always derived from the normal chain:
-  //   request body → project DB → deriveDefaultDeliveryMode(remoteType)
+  //   request body → project DB → deriveDefaultDeliveryMode(remoteType, isGit)
   // Previously this block forced deliveryMode='direct' when safetyDecision='proceed',
   // which caused stale overrides when the user initialized git after the original decision.
   const safetyDecision = workingDirectory
@@ -1785,7 +1782,7 @@ ${verificationSection}${executiveSummarySection}`)
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
-    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
+    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)),
     remoteType,
     baseBranch: baseBranch || undefined,
     deliveryBranch: projectBranch, // Primary field for new agent runners

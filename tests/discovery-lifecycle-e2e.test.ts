@@ -244,8 +244,13 @@ describe('Discovery project full lifecycle', () => {
     expect(result.success).toBe(true)
     const prompt = result.prompt
 
-    // Discovery workspace section present
-    expect(prompt).toContain('## Workspace — Discovery Mode')
+    // Discovery mode instructions (from DISCOVERY_MODE_INSTRUCTIONS constant)
+    expect(prompt).toContain('## Discovery Mode — Directory-Scoped Project')
+    expect(prompt).toContain('analysis/')
+    expect(prompt).toContain('_manifest.json')
+
+    // Task-specific workspace section with concrete paths
+    expect(prompt).toContain('## Your Task Workspace')
     expect(prompt).toContain(`${WORKING_DIR}/analysis/chip-analysis/peak-calling-with-macs2/`)
 
     // Task directory creation instruction
@@ -331,7 +336,7 @@ describe('Discovery project full lifecycle', () => {
     })
 
     expect(result.success).toBe(true)
-    expect(result.prompt).not.toContain('## Workspace — Discovery Mode')
+    expect(result.prompt).not.toContain('## Discovery Mode — Directory-Scoped Project')
     expect(result.prompt).not.toContain('_manifest.json')
   })
 
@@ -405,7 +410,7 @@ describe('Discovery project full lifecycle', () => {
       workingDirectory: WORKING_DIR,
     })
     expect(dispatchA.success).toBe(true)
-    expect(dispatchA.prompt).toContain('## Workspace — Discovery Mode')
+    expect(dispatchA.prompt).toContain('## Discovery Mode — Directory-Scoped Project')
     expect(dispatchA.prompt).toContain('co-binding-analysis/prepare-esr1-tp53-co-binding-data')
     // No upstream deps for first task
     expect(dispatchA.prompt).not.toContain('## Previous Task Outputs')
@@ -593,5 +598,109 @@ describe('Discovery lifecycle edge cases', () => {
     // Both output dirs referenced as input
     expect(prompt).toContain('alpha-analysis/alpha-task-result/')
     expect(prompt).toContain('beta-analysis/beta-task-result/')
+  })
+})
+
+// ============================================================================
+// Serial Execution: discovery mode allows parallel dispatch
+// ============================================================================
+
+describe('Discovery mode parallel dispatch', () => {
+  it('allows concurrent dispatch for discovery projects (no serial execution block)', async () => {
+    const pid = await createDiscoveryProject()
+
+    // Create two independent tasks
+    await createTask(pid, 'parallel-a', 'Analysis A')
+    await createTask(pid, 'parallel-b', 'Analysis B')
+
+    // Simulate task A as in-progress
+    await patchJson('/api/data/plan/nodes/parallel-a', {
+      status: 'in_progress',
+    })
+
+    // Dispatch task B — should NOT be blocked by serial execution check
+    const res = await postJson('/api/dispatch/task', {
+      nodeId: 'parallel-b',
+      projectId: pid,
+      dryRun: true,
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Should succeed (not blocked by serial execution)
+    expect(body.success).toBe(true)
+    expect(body.dryRun).toBe(true)
+  })
+
+  it('blocks concurrent dispatch for non-discovery direct projects', async () => {
+    const res = await postJson('/api/data/projects', {
+      name: 'Non-Discovery Direct',
+      description: 'Direct mode without discovery',
+      deliveryMode: 'direct',
+    })
+    expect(res.status).toBe(201)
+    const pid = (await res.json()).id
+
+    await createTask(pid, 'serial-a', 'Task A')
+    await createTask(pid, 'serial-b', 'Task B')
+
+    // Simulate task A as in-progress
+    await patchJson('/api/data/plan/nodes/serial-a', {
+      status: 'in_progress',
+    })
+
+    // Dispatch task B — should be blocked
+    const dispatchRes = await postJson('/api/dispatch/task', {
+      nodeId: 'serial-b',
+      projectId: pid,
+      deliveryMode: 'direct',
+    })
+    expect(dispatchRes.status).toBe(409)
+    const body = await dispatchRes.json()
+    expect(body.error).toContain('Serial execution required')
+  })
+})
+
+// ============================================================================
+// Discovery mode enforces deliveryMode: 'direct'
+// ============================================================================
+
+describe('Discovery mode delivery mode enforcement', () => {
+  it('forces deliveryMode to direct when creating a discovery project', async () => {
+    const res = await postJson('/api/data/projects', {
+      name: 'Discovery with PR attempt',
+      description: 'Tries to set pr delivery',
+      deliveryMode: 'pr',
+      discoveryMode: true,
+    })
+    expect(res.status).toBe(201)
+    const pid = (await res.json()).id
+
+    // Should have been overridden to 'direct'
+    const projRes = await request(`/api/data/projects`)
+    const projects = await projRes.json()
+    const proj = projects.find((p: { id: string }) => p.id === pid)
+    expect(proj.deliveryMode).toBe('direct')
+    expect(proj.discoveryMode).toBe(true)
+  })
+
+  it('forces deliveryMode to direct when enabling discovery on existing project', async () => {
+    const res = await postJson('/api/data/projects', {
+      name: 'Project to convert',
+      description: 'Will become discovery',
+      deliveryMode: 'pr',
+    })
+    expect(res.status).toBe(201)
+    const pid = (await res.json()).id
+
+    // Enable discovery mode via PATCH
+    await patchJson(`/api/data/projects/${pid}`, {
+      discoveryMode: true,
+    })
+
+    const projRes = await request(`/api/data/projects`)
+    const projects = await projRes.json()
+    const proj = projects.find((p: { id: string }) => p.id === pid)
+    expect(proj.deliveryMode).toBe('direct')
+    expect(proj.discoveryMode).toBe(true)
   })
 })
