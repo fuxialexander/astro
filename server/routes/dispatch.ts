@@ -3174,6 +3174,7 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
     .where(and(
       inArray(planNodes.clientId, body.nodeIds),
       eq(planNodes.projectId, body.projectId),
+      isNull(planNodes.deletedAt),
     ))
 
   const cleanupItems: Array<{ nodeId: string; outputDir?: string; branchName?: string }> = []
@@ -3204,7 +3205,7 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
               },
             },
           })
-          .where(eq(planNodes.clientId, item.nodeId))
+          .where(and(eq(planNodes.clientId, item.nodeId), eq(planNodes.projectId, body.projectId)))
         written++
       } catch (err) {
         console.error(`[prune-cleanup] Failed to write cleanup metadata for ${item.nodeId}:`, err)
