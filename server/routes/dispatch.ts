@@ -533,6 +533,7 @@ dispatchRoute.post('/task', async (c) => {
   // Fields extracted from dbNode for dispatchViaRelay (dbNode is scoped to the try block)
   let deliveryBranchId: string | null | undefined
   let nodeMetadata: Record<string, unknown> | null | undefined
+  let discoveryMode: boolean | undefined
   // Parallel execution: set to true when another user's execution is already running on this node.
   // When true, we skip plan_nodes status/executionId updates (keep pointing to the first execution).
   let isParallelDispatch = false
@@ -704,6 +705,7 @@ dispatchRoute.post('/task', async (c) => {
     }
 
     if (dbProject) {
+      discoveryMode = dbProject.discoveryMode === true
       visionDoc ??= dbProject.visionDoc || undefined
       // Resolution precedence: body > DB > undefined.
       // This precedence is relied upon by the two serial execution checks:
@@ -913,6 +915,7 @@ dispatchRoute.post('/task', async (c) => {
     isParallelDispatch,
     deliveryBranchId,
     nodeMetadata,
+    discoveryMode,
   })
 })
 
@@ -973,6 +976,7 @@ async function dispatchViaRelay(
     isParallelDispatch?: boolean
     deliveryBranchId?: string | null
     nodeMetadata?: Record<string, unknown> | null
+    discoveryMode?: boolean
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -1030,6 +1034,7 @@ async function dispatchViaRelay(
     isParallelDispatch = false,
     deliveryBranchId,
     nodeMetadata,
+    discoveryMode: discoveryModeParam,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1311,7 +1316,7 @@ async function dispatchViaRelay(
 
     // Discovery mode: inject output directory and input data instructions
     const taskOutputDir = (nodeMetadata as Record<string, unknown> | null)?.outputDir as string | undefined
-    const isDiscoveryProject = dbProject?.discoveryMode === true
+    const isDiscoveryProject = discoveryModeParam === true
     if (taskOutputDir) {
       const inputDirs = dependencyOutputs
         .filter((d) => (d as Record<string, unknown>).outputDir)
@@ -1438,7 +1443,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     } else {
 
     // Discovery mode: dedicated workspace section (overrides standard delivery-mode section)
-    const isDiscoveryMode = dbProject?.discoveryMode === true
+    const isDiscoveryMode = discoveryModeParam === true
     if (isDiscoveryMode && taskOutputDir && workingDirectory) {
       const taskWorkDir = `${workingDirectory}/analysis/${taskOutputDir}`
       promptParts.push(`## Workspace — Discovery Mode
