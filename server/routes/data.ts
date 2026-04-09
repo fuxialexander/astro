@@ -162,7 +162,7 @@ app.post('/projects', async (c) => {
       mergeQueueEnabled: body.mergeQueueEnabled ?? false,
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
-      deliveryMode: body.deliveryMode ?? null,
+      deliveryMode: body.discoveryMode ? 'direct' : (body.deliveryMode ?? null),
       discoveryMode: body.discoveryMode ?? false,
       projectType: body.projectType ?? 'default',
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
@@ -250,6 +250,8 @@ app.patch('/projects/:id', async (c) => {
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
   if (body.discoveryMode !== undefined) patch.discoveryMode = body.discoveryMode ?? false
+  // Discovery mode enforces direct delivery — override if discoveryMode is being enabled
+  if (patch.discoveryMode === true) patch.deliveryMode = 'direct'
   if (body.projectType !== undefined) patch.projectType = body.projectType
   if (body.computeBackends !== undefined) patch.computeBackends = body.computeBackends
 

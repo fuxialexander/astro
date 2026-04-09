@@ -37,7 +37,6 @@ import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
-import { DISCOVERY_MODE_INSTRUCTIONS } from "@astro/core/prompt-templates"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -229,11 +228,9 @@ export function InboxHome() {
         ? `\n\n## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
         : ''
       const baseVisionDoc = [visionDoc.trim(), attachmentSection].filter(Boolean).join('\n\n') || undefined
-      const combinedVisionDoc = discoveryMode && baseVisionDoc
-        ? baseVisionDoc + '\n\n' + DISCOVERY_MODE_INSTRUCTIONS
-        : discoveryMode
-          ? DISCOVERY_MODE_INSTRUCTIONS
-          : baseVisionDoc
+      // Discovery mode instructions are injected by the dispatch route (single source of truth)
+      // — do NOT append them to visionDoc to avoid duplication
+      const combinedVisionDoc = baseVisionDoc
 
       const finalGoal = planMode
         ? `Please give me a structured plan.\n\n${planGoal.trim()}`

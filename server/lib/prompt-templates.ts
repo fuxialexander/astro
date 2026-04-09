@@ -20,6 +20,7 @@ export {
   DEFAULT_MACHINE_INSTRUCTION_NAME,
   MACHINE_INSTRUCTION_PRESET_META,
   GENERATIVE_UI_HINT,
+  DISCOVERY_MODE_INSTRUCTIONS,
 } from '../../packages/core/src/prompt-templates.js'
 
 export type {
