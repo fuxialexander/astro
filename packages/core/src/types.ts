@@ -202,6 +202,7 @@ export interface Project {
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
   source?: ProjectSource
   deliveryMode?: DeliveryMode
+  discoveryMode?: boolean
   agentDir?: string
   worktreeStrategy?: WorktreeStrategy
   projectType?: 'default' | 'playground' | 'github' | 'plan'

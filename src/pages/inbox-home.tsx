@@ -252,9 +252,10 @@ export function InboxHome() {
           ...(source && { source }),
           ...(detection?.suggestedDeliveryMode && !discoveryMode && { deliveryMode: detection.suggestedDeliveryMode }),
           ...(discoveryMode && {
-            deliveryMode: 'branch' as const,
+            deliveryMode: 'direct' as const,
             useWorktree: false,
             mergeQueueEnabled: false,
+            discoveryMode: true,
           }),
         }
       )

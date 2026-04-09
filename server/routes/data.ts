@@ -163,6 +163,7 @@ app.post('/projects', async (c) => {
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
       deliveryMode: body.deliveryMode ?? null,
+      discoveryMode: body.discoveryMode ?? false,
       projectType: body.projectType ?? 'default',
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
@@ -248,6 +249,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  if (body.discoveryMode !== undefined) patch.discoveryMode = body.discoveryMode ?? false
   if (body.projectType !== undefined) patch.projectType = body.projectType
   if (body.computeBackends !== undefined) patch.computeBackends = body.computeBackends
 
@@ -980,8 +982,8 @@ app.post('/plan/nodes', async (c) => {
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     })
 
-    // Discovery mode: generate outputDir for task nodes in branch-delivery projects
-    if (body.type === 'task' && project.deliveryMode === 'branch' && body.title) {
+    // Discovery mode: generate outputDir for task nodes in discovery projects
+    if (body.type === 'task' && project.discoveryMode && body.title) {
       const taskSlug = slugify(body.title)
       let outputDir = taskSlug
 
