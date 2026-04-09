@@ -998,12 +998,11 @@ app.post('/plan/nodes', async (c) => {
         }
       }
 
+      // Always overwrite outputDir with server-generated slug (never trust client-supplied value)
       const existingMetadata = (body.metadata ?? {}) as Record<string, unknown>
-      if (!existingMetadata.outputDir) {
-        await tx.update(planNodes)
-          .set({ metadata: { ...existingMetadata, outputDir } })
-          .where(eq(planNodes.clientId, body.id))
-      }
+      await tx.update(planNodes)
+        .set({ metadata: { ...existingMetadata, outputDir } })
+        .where(eq(planNodes.clientId, body.id))
     }
   })
   return c.json({ ok: true, number: assignedNumber }, 201)

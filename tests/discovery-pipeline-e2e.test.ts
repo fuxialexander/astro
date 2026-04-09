@@ -111,13 +111,14 @@ describe('OutputDir generation — discovery mode projects', () => {
     expect(metadata!.outputDir).toBe('esr1-downstream-analysis/pathway-enrichment-on-esr1-tp53-target-genes')
   })
 
-  it('does NOT overwrite pre-existing outputDir in metadata', async () => {
+  it('always overwrites client-supplied outputDir with server-generated slug', async () => {
     await createTaskNode(branchProjectId, 'task-custom', 'Some task', {
       metadata: { outputDir: 'custom/path' },
     })
     const metadata = await getNodeMetadata(branchProjectId, 'task-custom')
     expect(metadata).not.toBeNull()
-    expect(metadata!.outputDir).toBe('custom/path')
+    // Server always generates outputDir from title, ignoring client-supplied value
+    expect(metadata!.outputDir).toBe('some-task')
   })
 
   it('generates hyphenated slugs (not underscores)', async () => {
