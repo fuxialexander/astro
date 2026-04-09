@@ -256,11 +256,11 @@ describe('Discovery project full lifecycle', () => {
     // Task directory creation instruction
     expect(prompt).toContain('mkdir -p')
 
-    // Output directory section
-    expect(prompt).toContain('## Output Directory')
-    expect(prompt).toContain('Write ALL scripts and outputs here')
+    // Discovery mode uses "## Your Task Workspace" (not separate "## Output Directory")
+    // to avoid duplicate prompt sections
+    expect(prompt).not.toContain('## Output Directory')
 
-    // _manifest.json instruction
+    // _manifest.json instruction (from DISCOVERY_MODE_INSTRUCTIONS)
     expect(prompt).toContain('_manifest.json')
 
     // .archived exclusion

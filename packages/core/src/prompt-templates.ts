@@ -1104,8 +1104,8 @@ For diagrams, charts, interactive widgets — anything beyond the yaml-spec comp
 **BE CREATIVE AND PROACTIVE WITH VISUALIZATION** — Don't wait for the user to ask for visuals. Whenever your response contains structured data (lists, comparisons, metrics, status reports, analysis results, architecture overviews, workflows), render it as yaml-spec or visualizer instead of plain markdown. A well-designed visual communicates faster than a wall of text. Think like a designer: use CardCarousel for options, Table for comparisons, Timeline for sequences, Metric for KPIs, custom components for domain-specific data, and visualizer for diagrams and charts. This hint contains everything you need — do NOT load the render-ui or visualise skills unless the user explicitly requests advanced rendering features.`
 
 /**
- * Instructions appended to vision doc for
- * scientific discovery projects using branch-based isolation.
+ * Instructions injected into agent prompts for
+ * scientific discovery projects using directory-scoped isolation.
  */
 export const DISCOVERY_MODE_INSTRUCTIONS = `
 ## Discovery Mode — Directory-Scoped Project
