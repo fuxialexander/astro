@@ -67,6 +67,23 @@ export function RepoConfigDialog({
   const [mergeQueueEnabled, setMergeQueueEnabled] = useState(project.mergeQueueEnabled ?? false)
   const [mergeMethod, setMergeMethod] = useState<'merge' | 'squash' | 'rebase'>(project.mergeQueueMergeMethod || 'squash')
 
+  // Reset local state when the project changes (e.g. switching projects in sidebar)
+  useEffect(() => {
+    setRepoUrl(project.repository ?? project.source?.remoteUrl ?? "")
+    setWorkDir(project.workingDirectory ?? "")
+    setSelectedMachineId(project.defaultMachineId ?? "")
+    setBaseBranch(project.source?.baseBranch ?? "")
+    setSelectedDeliveryMode(project.deliveryMode || '')
+    setDirectConfirmed(project.deliveryMode === 'direct')
+    setUseWorktree(project.useWorktree !== false)
+    setMergeQueueEnabled(project.mergeQueueEnabled ?? false)
+    setMergeMethod(project.mergeQueueMergeMethod || 'squash')
+    setRepoAutoFilled(false)
+    setPathError(null)
+    setRepoUrlError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+
   // Directory detection — auto-detects git info as user types
   const { detection, isDetecting, refresh: refreshDetection } = useDirectoryDetection(workDir, selectedMachineId)
 
