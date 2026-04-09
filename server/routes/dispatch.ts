@@ -489,12 +489,11 @@ dispatchRoute.post('/task', async (c) => {
   //
   // Also checks plan_nodes in 'in_progress'/'dispatched' state as a secondary guard:
   // the dispatch queue may have already been cleaned up while the node is still running.
-  // Early serial execution check: when the client explicitly sends deliveryMode='direct'.
-  // Note: we cannot check discoveryMode here because the user hasn't been auth-verified
-  // yet and the project query would lack team-scoping (IDOR). Instead, we defer all
-  // serial execution enforcement to the late check (after the auth-guarded DB fetch)
-  // which has discoveryMode available. This means the early check only runs for the
-  // non-body-deliveryMode path (the late check handles body.deliveryMode='direct' too).
+  // Early serial execution check: fires when the client explicitly sends deliveryMode='direct'.
+  // We cannot check discoveryMode here because the project query would lack team-scoping
+  // (requireAuth verifies the user, but we don't have teamIds-scoped project data yet).
+  // Instead, we store the result and defer the enforcement decision (including discovery
+  // mode bypass) to the late check, which runs after the auth-guarded DB fetch.
   // See "Late serial execution check" below.
   if (deliveryMode === 'direct' && !dryRun) {
     const activeResult = await db.execute<{ active: number }>(sql`
@@ -1337,8 +1336,8 @@ async function dispatchViaRelay(
     // Discovery mode tasks get a more comprehensive "## Your Task Workspace" section later,
     // which includes output dir, mkdir, commit conventions. Non-discovery tasks get this simpler block.
     const taskOutputDir = (nodeMetadata as Record<string, unknown> | null)?.outputDir as string | undefined
-    const isDiscoveryProject = discoveryModeParam === true
-    if (taskOutputDir && !isDiscoveryProject) {
+    const isDiscoveryMode = discoveryModeParam === true
+    if (taskOutputDir && !isDiscoveryMode) {
       const inputDirs = dependencyOutputs
         .filter((d) => (d as Record<string, unknown>).outputDir)
         .map((d) => {
@@ -1457,7 +1456,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     } else {
 
     // Discovery mode: inject shared instructions + task-specific workspace details
-    const isDiscoveryMode = discoveryModeParam === true
     if (isDiscoveryMode && taskOutputDir) {
       // General discovery mode rules (single source of truth from prompt-templates)
       promptParts.push(DISCOVERY_MODE_INSTRUCTIONS.trim())
