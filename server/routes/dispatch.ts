@@ -11,6 +11,7 @@ import {
   dispatchEngine,
   capKnowledgeEntries,
   slugifyTitle,
+  slugify,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -30,7 +31,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
-import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT, DISCOVERY_MODE_INSTRUCTIONS } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
@@ -180,24 +181,11 @@ function pickBestMachineFromCandidates(
  *   generic                  → 'push'   (remote git, unknown host)
  *   none / undefined         → 'direct' (safe default for ambiguous cases)
  *
- * Why 'direct' for 'none' and undefined:
- * The server doesn't have an `isGit` boolean — only `remoteType`. The value
- * 'none' is sent by the agent-runner for BOTH "non-git directory" (isGit=false)
- * and "local git, no remote" (isGit=true). The server cannot distinguish them.
- *
- * For local-git projects, the DB deliveryMode is set to 'branch' during
- * project creation (from the agent's suggestedDeliveryMode). Additionally,
- * the self-healing block (search: "Self-heal") derives deliveryMode from
- * the project's source column for projects that were created without it
- * (e.g., playground sessions, legacy projects). This fallback only fires
- * when none of the above provides a deliveryMode.
- *
- * 'direct' is the safe default: it activates the server-side serial execution
- * check (preventing concurrent dispatch) and works for both git and non-git
- * directories. If the directory actually has git, the agent-runner's
- * prepareTaskWorkspace() detects it and uses worktree isolation regardless.
+ * Last-resort fallback when deliveryMode is not in the request body, DB, or source column.
+ * Now accepts isGit to disambiguate remoteType='none' (local-git vs non-git),
+ * matching the frontend's deriveDeliveryMode() in project-source.ts.
  */
-function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
+function deriveDefaultDeliveryMode(remoteType?: string, isGit?: boolean): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
     case 'github':
     case 'gitlab':
@@ -206,6 +194,9 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
+      // Local git with no remote → 'branch' (worktree isolation)
+      // Non-git or unknown → 'direct' (in-place, serial execution)
+      return isGit ? 'branch' : 'direct'
     default:
       return 'direct'
   }
@@ -498,8 +489,14 @@ dispatchRoute.post('/task', async (c) => {
   //
   // Also checks plan_nodes in 'in_progress'/'dispatched' state as a secondary guard:
   // the dispatch queue may have already been cleaned up while the node is still running.
+  // Early serial execution check: fires when the client explicitly sends deliveryMode='direct'.
+  // We cannot check discoveryMode here because the project query would lack team-scoping
+  // (requireAuth verifies the user, but we don't have teamIds-scoped project data yet).
+  // Instead, we store the result and defer the enforcement decision (including discovery
+  // mode bypass) to the late check, which runs after the auth-guarded DB fetch.
+  // See "Late serial execution check" below.
   if (deliveryMode === 'direct' && !dryRun) {
-    const [activeCheck] = await db.execute<{ active: number }>(sql`
+    const activeResult = await db.execute<{ active: number }>(sql`
       SELECT (
         (SELECT count(*) FROM dispatch_queue_entries
          WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
@@ -509,14 +506,11 @@ dispatchRoute.post('/task', async (c) => {
            AND deleted_at IS NULL)
       )::int AS active
     `)
+    const activeCheck = Array.isArray(activeResult) ? activeResult[0] : (activeResult as { rows?: Array<{ active: number }> }).rows?.[0]
     if (activeCheck && activeCheck.active > 0) {
-      return c.json(
-        {
-          success: false,
-          error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
-        },
-        409
-      )
+      // Defer to the late check which can see discoveryMode (after auth-guarded DB fetch).
+      // Store the result so the late check doesn't need to re-query.
+      ;(c as unknown as Record<string, unknown>).__earlySerialActive = true
     }
   }
 
@@ -533,6 +527,8 @@ dispatchRoute.post('/task', async (c) => {
   // Fields extracted from dbNode for dispatchViaRelay (dbNode is scoped to the try block)
   let deliveryBranchId: string | null | undefined
   let nodeMetadata: Record<string, unknown> | null | undefined
+  let discoveryMode: boolean | undefined
+  let isGit: boolean | undefined
   // Parallel execution: set to true when another user's execution is already running on this node.
   // When true, we skip plan_nodes status/executionId updates (keep pointing to the first execution).
   let isParallelDispatch = false
@@ -704,6 +700,7 @@ dispatchRoute.post('/task', async (c) => {
     }
 
     if (dbProject) {
+      discoveryMode = dbProject.discoveryMode === true
       visionDoc ??= dbProject.visionDoc || undefined
       // Resolution precedence: body > DB > undefined.
       // This precedence is relied upon by the two serial execution checks:
@@ -712,6 +709,7 @@ dispatchRoute.post('/task', async (c) => {
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; isGit?: boolean; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
+      isGit = source?.isGit
 
       // Self-heal: if deliveryMode is null but source has enough info, derive and backfill.
       // This catches playground-created projects (startPlaygroundSession skips detection)
@@ -826,26 +824,22 @@ dispatchRoute.post('/task', async (c) => {
   }
 
   // ── Late serial execution check for 'direct' delivery mode ──────
+  // ── Late serial execution check for 'direct' delivery mode ──────
   // Without git isolation, parallel execution on the same directory is unsafe.
-  // This check only runs when deliveryMode was resolved from the project's DB
-  // record (not provided in the request body). If the client explicitly sent
-  // deliveryMode='direct', the early check (search: "Early serial execution check")
-  // already handled it before DB lookups.
+  // Discovery mode bypasses this: tasks write to isolated directories.
+  //
+  // This check handles TWO cases:
+  // 1. deliveryMode resolved from DB (client didn't send it) — query active tasks now
+  // 2. deliveryMode='direct' sent by client — the early check (pre-auth) deferred
+  //    to here by storing __earlySerialActive, since it couldn't check discoveryMode
+  //    without an un-scoped project query (IDOR risk).
+  //
   // Guard: !dryRun — dry-run requests don't actually execute tasks.
-  // Uses combined dispatch_queue + plan_nodes check to close the TOCTOU window.
+  const earlySerialActive = (c as unknown as Record<string, unknown>).__earlySerialActive === true
   const deliveryModeResolvedFromDb = !body.deliveryMode
-  if (deliveryMode === 'direct' && deliveryModeResolvedFromDb && !dryRun) {
-    const [activeCheck] = await db.execute<{ active: number }>(sql`
-      SELECT (
-        (SELECT count(*) FROM dispatch_queue_entries
-         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
-        +
-        (SELECT count(*) FROM plan_nodes
-         WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
-           AND deleted_at IS NULL)
-      )::int AS active
-    `)
-    if (activeCheck && activeCheck.active > 0) {
+  if (deliveryMode === 'direct' && !dryRun && !discoveryMode) {
+    if (earlySerialActive) {
+      // Early check already found active tasks — block now (discoveryMode confirmed false)
       return c.json(
         {
           success: false,
@@ -853,6 +847,29 @@ dispatchRoute.post('/task', async (c) => {
         },
         409
       )
+    }
+    if (deliveryModeResolvedFromDb) {
+      // deliveryMode came from DB, early check didn't run — check now
+      const activeResult = await db.execute<{ active: number }>(sql`
+        SELECT (
+          (SELECT count(*) FROM dispatch_queue_entries
+           WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress'))
+          +
+          (SELECT count(*) FROM plan_nodes
+           WHERE project_id = ${projectId} AND status IN ('dispatched', 'in_progress')
+             AND deleted_at IS NULL)
+        )::int AS active
+      `)
+      const activeCheck = Array.isArray(activeResult) ? activeResult[0] : (activeResult as { rows?: Array<{ active: number }> }).rows?.[0]
+      if (activeCheck && activeCheck.active > 0) {
+        return c.json(
+          {
+            success: false,
+            error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
+          },
+          409
+        )
+      }
     }
   }
 
@@ -878,6 +895,7 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     deliveryMode,
     remoteType,
+    isGit,
     baseBranch,
     agentDir,
     worktreeStrategy,
@@ -913,6 +931,7 @@ dispatchRoute.post('/task', async (c) => {
     isParallelDispatch,
     deliveryBranchId,
     nodeMetadata,
+    discoveryMode,
   })
 })
 
@@ -938,6 +957,7 @@ async function dispatchViaRelay(
     computeBackend?: string
     deliveryMode?: string
     remoteType?: string
+    isGit?: boolean
     baseBranch?: string
     agentDir?: string
     worktreeStrategy?: string
@@ -973,6 +993,7 @@ async function dispatchViaRelay(
     isParallelDispatch?: boolean
     deliveryBranchId?: string | null
     nodeMetadata?: Record<string, unknown> | null
+    discoveryMode?: boolean
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -995,6 +1016,7 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode: deliveryModeParam,
     remoteType,
+    isGit,
     baseBranch,
     agentDir,
     worktreeStrategy,
@@ -1030,6 +1052,7 @@ async function dispatchViaRelay(
     isParallelDispatch = false,
     deliveryBranchId,
     nodeMetadata,
+    discoveryMode: discoveryModeParam,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1309,14 +1332,21 @@ async function dispatchViaRelay(
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
     }
 
-    // Discovery mode: inject output directory instructions
+    // Output directory + input data instructions.
+    // Discovery mode tasks get a more comprehensive "## Your Task Workspace" section later,
+    // which includes output dir, mkdir, commit conventions. Non-discovery tasks get this simpler block.
     const taskOutputDir = (nodeMetadata as Record<string, unknown> | null)?.outputDir as string | undefined
-    if (taskOutputDir) {
+    const isDiscoveryMode = discoveryModeParam === true
+    if (taskOutputDir && !isDiscoveryMode) {
       const inputDirs = dependencyOutputs
         .filter((d) => (d as Record<string, unknown>).outputDir)
-        .map((d) => `- \`analysis/${(d as Record<string, unknown>).outputDir}/\` (from: "${d.title.replace(/[\r\n]/g, ' ').slice(0, 100)}")`)
+        .map((d) => {
+          const depOutputDir = (d as Record<string, unknown>).outputDir as string
+          const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 100)
+          return `- \`analysis/${depOutputDir}/\` (from: "${safeTitle}")`
+        })
         .join('\n')
-      const inputSection = inputDirs ? `\n\nYour inputs (from upstream tasks):\n${inputDirs}` : ''
+      const inputSection = inputDirs ? `\n\n### Input Data (from upstream tasks)\n${inputDirs}` : ''
       promptParts.push(`## Output Directory\n\nWrite all generated outputs (figures, tables, data files) to:\n  \`analysis/${taskOutputDir}/\`${inputSection}`)
     }
 
@@ -1425,9 +1455,46 @@ ${subPrSection}
 This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
     } else {
 
-    // Build delivery-mode-aware workspace instructions
-    {
-      const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType)
+    // Discovery mode: inject shared instructions + task-specific workspace details
+    if (isDiscoveryMode && taskOutputDir) {
+      // General discovery mode rules (single source of truth from prompt-templates)
+      promptParts.push(DISCOVERY_MODE_INSTRUCTIONS.trim())
+
+      if (workingDirectory) {
+        const taskWorkDir = `${workingDirectory}/analysis/${taskOutputDir}`
+        // Build input data section from upstream dependency output dirs
+        const inputDirs = dependencyOutputs
+          .filter((d) => (d as Record<string, unknown>).outputDir)
+          .map((d) => {
+            const depOutputDir = (d as Record<string, unknown>).outputDir as string
+            const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 100)
+            return `- \`${workingDirectory}/analysis/${depOutputDir}/\` (from: "${safeTitle}")`
+          })
+          .join('\n')
+        const inputSection = inputDirs ? `\n\n### Input Data (from upstream tasks)\n${inputDirs}` : ''
+
+        // Task-specific workspace details (concrete paths for this task)
+        promptParts.push(`## Your Task Workspace
+
+Your assigned task directory: \`${taskWorkDir}/\`
+Project root: \`${workingDirectory}/\`
+
+**FIRST STEP — create your task directory:**
+\`\`\`bash
+mkdir -p "${taskWorkDir}"
+\`\`\`
+
+Commit with: \`git add analysis/${taskOutputDir}/\`
+Commit message prefix: \`[${taskOutputDir}]\`${inputSection}`)
+      } else {
+        // No workingDirectory — provide relative paths only
+        promptParts.push(`## Output Directory\n\nWrite all scripts and outputs to:\n  \`analysis/${taskOutputDir}/\``)
+      }
+    }
+
+    // Build delivery-mode-aware workspace instructions (skipped in discovery mode)
+    if (!isDiscoveryMode) {
+      const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)
       const effectiveUseWorktree = useWorktree !== false
       const effectiveAgentDir = agentDir ?? '.astro'
       const usesWorktree = workingDirectory && effectiveUseWorktree && effectiveDelivery !== 'direct'
@@ -1657,7 +1724,7 @@ ${verificationSection}${executiveSummarySection}`)
         astroBaseUrl,
         githubIssueUrl,
         githubIssueNumber,
-        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
+        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)),
         shortProjectId,
         shortNodeId,
       },
@@ -1717,7 +1784,7 @@ ${verificationSection}${executiveSummarySection}`)
   // Look up cached safety decision for this working directory.
   // Used only for skipSafetyCheck below — does NOT override delivery mode.
   // Delivery mode is always derived from the normal chain:
-  //   request body → project DB → deriveDefaultDeliveryMode(remoteType)
+  //   request body → project DB → deriveDefaultDeliveryMode(remoteType, isGit)
   // Previously this block forced deliveryMode='direct' when safetyDecision='proceed',
   // which caused stale overrides when the user initialized git after the original decision.
   const safetyDecision = workingDirectory
@@ -1741,7 +1808,7 @@ ${verificationSection}${executiveSummarySection}`)
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
-    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
+    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)),
     remoteType,
     baseBranch: baseBranch || undefined,
     deliveryBranch: projectBranch, // Primary field for new agent runners
@@ -3135,20 +3202,26 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
     .where(and(
       inArray(planNodes.clientId, body.nodeIds),
       eq(planNodes.projectId, body.projectId),
+      isNull(planNodes.deletedAt),
     ))
 
   const cleanupItems: Array<{ nodeId: string; outputDir?: string; branchName?: string }> = []
   for (const node of nodes) {
     const meta = node.metadata as Record<string, unknown> | null
+    // Sanitize outputDir: metadata can be patched by clients, so re-slugify each segment
+    // to prevent path traversal (e.g., "../../.ssh" → "ssh")
+    const rawOutputDir = body.deleteOutputs ? (meta?.outputDir as string | undefined) : undefined
+    const safeOutputDir = rawOutputDir
+      ? rawOutputDir.split('/').map(segment => slugify(segment)).filter(Boolean).join('/')
+      : undefined
     cleanupItems.push({
       nodeId: node.clientId,
-      outputDir: body.deleteOutputs ? (meta?.outputDir as string | undefined) : undefined,
+      outputDir: safeOutputDir,
       branchName: body.deleteBranches ? (node.branchName ?? undefined) : undefined,
     })
   }
 
-  // Store cleanup metadata on the nodes so the agent-runner can act on it
-  // when it next connects or dispatches a task for this project.
+  // Store cleanup metadata on the nodes
   let written = 0
   for (const item of cleanupItems) {
     if (item.outputDir || item.branchName) {
@@ -3166,10 +3239,34 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
               },
             },
           })
-          .where(eq(planNodes.clientId, item.nodeId))
+          .where(and(eq(planNodes.clientId, item.nodeId), eq(planNodes.projectId, body.projectId)))
         written++
       } catch (err) {
         console.error(`[prune-cleanup] Failed to write cleanup metadata for ${item.nodeId}:`, err)
+      }
+    }
+  }
+
+  // Discovery mode: send archive command to move output dirs to .archived/
+  const [project] = await db.select({
+    discoveryMode: projects.discoveryMode,
+    workingDirectory: projects.workingDirectory,
+    defaultMachineId: projects.defaultMachineId,
+  }).from(projects).where(eq(projects.id, body.projectId)).limit(1)
+
+  if (project?.discoveryMode && project.workingDirectory && body.deleteOutputs) {
+    const dirsToArchive = cleanupItems
+      .filter(item => item.outputDir)
+      .map(item => `analysis/${item.outputDir}`)
+    if (dirsToArchive.length > 0 && project.defaultMachineId) {
+      const { relayServer } = await import('../lib/relay-server.js')
+      const sent = relayServer.archiveDiscoveryDirs(
+        project.defaultMachineId,
+        project.workingDirectory,
+        dirsToArchive
+      )
+      if (!sent) {
+        console.warn(`[prune-cleanup] Machine not connected for discovery archive — dirs saved to pendingCleanup metadata`)
       }
     }
   }

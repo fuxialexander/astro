@@ -111,7 +111,7 @@ describe('DISCOVERY_MODE_INSTRUCTIONS', () => {
 
   it('includes commit conventions', () => {
     expect(DISCOVERY_MODE_INSTRUCTIONS).toContain('Commit Conventions')
-    expect(DISCOVERY_MODE_INSTRUCTIONS).toContain('[milestone-name/task-title]')
+    expect(DISCOVERY_MODE_INSTRUCTIONS).toContain('[{milestone}/{task}]')
   })
 
   it('does NOT reference direct execution mode', () => {

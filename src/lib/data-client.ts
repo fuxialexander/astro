@@ -115,6 +115,7 @@ function mapProject(row: Record<string, unknown>): Project {
     labels: (r.labels as Project["labels"]) ?? [],
     source: r.source as Project["source"],
     deliveryMode: (['pr', 'push', 'branch', 'copy', 'direct'].includes(r.deliveryMode as string) ? r.deliveryMode : undefined) as Project["deliveryMode"],
+    discoveryMode: r.discoveryMode === true,
   } as Project
 }
 

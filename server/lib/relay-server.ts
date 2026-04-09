@@ -2154,6 +2154,33 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Archive discovery mode directories (move to .archived/).
+   * Used when pruning milestones/tasks in discovery mode projects.
+   */
+  archiveDiscoveryDirs(machineId: string, projectDir: string, dirs: string[]): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.warn(`[relay] Machine ${machineId} not connected for discovery archive`);
+      return false;
+    }
+
+    const msg = {
+      type: 'discovery_archive',
+      timestamp: new Date().toISOString(),
+      payload: { projectDir, dirs },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== 1 /* WebSocket.OPEN */) {
+      console.warn(`[relay] Socket not open for discovery archive on machine ${machineId}`);
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    console.log(`[relay] Discovery archive request sent to machine ${machineId}: ${dirs.length} dirs`);
+    return true;
+  }
+
+  /**
    * Broadcast project cleanup to ALL connected machines.
    * Used when a project has no defaultMachineId — any machine may have
    * auto-provisioned a workspace for it.

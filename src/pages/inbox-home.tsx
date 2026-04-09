@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,13 +29,14 @@ import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { BranchSelector } from "@/components/branch-selector"
 import { isServerMode } from "@/lib/app-mode"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import { dataClient } from "@/lib/data-client"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
-import { DISCOVERY_MODE_INSTRUCTIONS } from "@astro/core/prompt-templates"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -61,6 +62,12 @@ export function InboxHome() {
 
   // Discovery mode state
   const [discoveryMode, setDiscoveryMode] = useState(false)
+
+  // Plan mode state
+  const [planMode, setPlanMode] = useState(false)
+
+  // Git init state
+  const [isInitingGit, setIsInitingGit] = useState(false)
 
   // Path browser state
   const [showPathBrowser, setShowPathBrowser] = useState(false)
@@ -162,39 +169,78 @@ export function InboxHome() {
   // Git repo detection for the selected working directory
   const { detection, refresh: refreshDetection } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
 
+  // Target branch state — defaults to detection but user can override
+  const [targetBranch, setTargetBranch] = useState("")
+
   // Submit playground session
   const handleSubmit = useCallback(async () => {
     if (!planGoal.trim() || isSubmitting || !selectedMachine || pendingUploads > 0) return
     setIsSubmitting(true)
     try {
       const effectiveModel = selectedModel || getModelForProvider(selectedProvider || undefined)
+      const trimmedWorkDir = workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`
+
+      // Auto git-init for discovery mode on non-git directories
+      let gitReady = detection?.isGit ?? false
+      if (discoveryMode && !gitReady) {
+        try {
+          const token = await getAccessToken()
+          const headers: HeadersInit = { "Content-Type": "application/json" }
+          if (token) headers["Authorization"] = `Bearer ${token}`
+          const res = await fetch(apiUrl("/api/repo/git-init"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              workingDirectory: trimmedWorkDir,
+              projectId: crypto.randomUUID(),
+              projectName: planGoal.trim().split('\n')[0].slice(0, 60) || "New Project",
+              targetMachineId: selectedMachine.machineId,
+            }),
+          })
+          if (res.ok) {
+            gitReady = true
+            refreshDetection()
+          } else {
+            const err = await res.json().catch(() => ({}))
+            useToastStore.getState().add({ type: "error", title: "Git init failed", description: err.error || "Cannot use discovery mode without git" })
+            setIsSubmitting(false)
+            return
+          }
+        } catch (err) {
+          useToastStore.getState().add({ type: "error", title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error" })
+          setIsSubmitting(false)
+          return
+        }
+      }
 
       // Extract GitHub context from detection
       const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
-      const source: ProjectSource | undefined = detection?.isGit ? {
-        localPath: workingDir.trim(),
-        isGit: detection.isGit,
-        remoteType: detection.remoteType,
-        baseBranch: detection.baseBranch || 'main',
-        remoteUrl: detection.remoteUrl,
+      const effectiveBaseBranch = targetBranch || detection?.baseBranch || 'main'
+      const source: ProjectSource | undefined = gitReady ? {
+        localPath: trimmedWorkDir,
+        isGit: true,
+        remoteType: detection?.remoteType ?? 'none',
+        baseBranch: effectiveBaseBranch,
+        remoteUrl: detection?.remoteUrl,
       } : undefined
 
       const attachmentSection = attachments.length > 0
         ? `\n\n## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
         : ''
       const baseVisionDoc = [visionDoc.trim(), attachmentSection].filter(Boolean).join('\n\n') || undefined
-      const combinedVisionDoc = discoveryMode && baseVisionDoc
-        ? baseVisionDoc + '\n\n' + DISCOVERY_MODE_INSTRUCTIONS
-        : discoveryMode
-          ? DISCOVERY_MODE_INSTRUCTIONS
-          : baseVisionDoc
+      // Discovery mode instructions are injected by the dispatch route (single source of truth)
+      // — do NOT append them to visionDoc to avoid duplication
+      const combinedVisionDoc = baseVisionDoc
 
+      const finalGoal = planMode
+        ? `Please give me a structured plan.\n\n${planGoal.trim()}`
+        : planGoal.trim()
       const { projectId } = await startSession(
-        planGoal.trim(),
+        finalGoal,
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
         {
           targetMachineId: selectedMachine.machineId,
-          workingDirectory: workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`,
+          workingDirectory: trimmedWorkDir,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
           visionDoc: combinedVisionDoc || undefined,
@@ -203,9 +249,10 @@ export function InboxHome() {
           ...(source && { source }),
           ...(detection?.suggestedDeliveryMode && !discoveryMode && { deliveryMode: detection.suggestedDeliveryMode }),
           ...(discoveryMode && {
-            deliveryMode: 'branch' as const,
+            deliveryMode: 'direct' as const,
             useWorktree: false,
             mergeQueueEnabled: false,
+            discoveryMode: true,
           }),
         }
       )
@@ -215,7 +262,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode, targetBranch, refreshDetection])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -343,6 +390,14 @@ export function InboxHome() {
           onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); uploadFiles(Array.from(e.dataTransfer?.files || [])) }}
         >
+          {planMode && (
+            <div className="px-4 pt-3 pb-0">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-400 text-xs font-medium select-none">
+                <ListTree className="h-3 w-3" />
+                Please give me a structured plan
+              </span>
+            </div>
+          )}
           <textarea
             value={planGoal}
             onChange={(e) => setPlanGoal(e.target.value)}
@@ -350,6 +405,10 @@ export function InboxHome() {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
                 handleSubmit()
+              }
+              if (e.key === "Tab" && e.shiftKey) {
+                e.preventDefault()
+                setPlanMode((v) => !v)
               }
             }}
             onPaste={(e) => {
@@ -500,6 +559,30 @@ export function InboxHome() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
+                      onClick={() => setPlanMode(!planMode)}
+                      className={cn(
+                        "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
+                        planMode
+                          ? "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                          : "border-border hover:bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <ListTree className={cn("h-3.5 w-3.5", planMode && "text-blue-600 dark:text-blue-400")} />
+                      <span className="hidden md:inline">Plan</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {planMode
+                      ? "Plan ON — will generate a structured plan (Shift+Tab)"
+                      : "Plan OFF — direct execution (Shift+Tab)"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
                       onClick={() => setDiscoveryMode(!discoveryMode)}
                       className={cn(
                         "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
@@ -579,16 +662,52 @@ export function InboxHome() {
               )
             }}
             renderAfterPath={
-              detection?.isGit && detection.currentBranch && selectedMachine ? (
+              detection?.isGit && selectedMachine ? (
                 <BranchSelector
-                  value={detection.currentBranch}
-                  onChange={() => {}}
+                  value={targetBranch || detection.baseBranch || detection.currentBranch || 'main'}
+                  onChange={setTargetBranch}
                   path={workingDir.trim()}
                   machineId={selectedMachine.machineId}
-                  checkoutOnSelect
-                  onCheckout={() => refreshDetection()}
                   compact
                 />
+              ) : detection && !detection.isGit && workingDir.trim() && selectedMachine ? (
+                <button
+                  type="button"
+                  disabled={isInitingGit}
+                  onClick={async () => {
+                    setIsInitingGit(true)
+                    try {
+                      const token = await getAccessToken()
+                      const headers: HeadersInit = { "Content-Type": "application/json" }
+                      if (token) headers["Authorization"] = `Bearer ${token}`
+                      const res = await fetch(apiUrl("/api/repo/git-init"), {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify({
+                          workingDirectory: workingDir.trim(),
+                          projectId: crypto.randomUUID(),
+                          projectName: planGoal.trim().split('\n')[0].slice(0, 60) || "New Project",
+                          targetMachineId: selectedMachine.machineId,
+                        }),
+                      })
+                      if (res.ok) {
+                        useToastStore.getState().add({ type: "success", title: "Git initialized" })
+                        refreshDetection()
+                      } else {
+                        const err = await res.json().catch(() => ({}))
+                        useToastStore.getState().add({ type: "error", title: "Git init failed", description: err.error || "Unknown error" })
+                      }
+                    } catch (err) {
+                      useToastStore.getState().add({ type: "error", title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error" })
+                    } finally {
+                      setIsInitingGit(false)
+                    }
+                  }}
+                  className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium transition-colors cursor-pointer hover:bg-amber-500/20 disabled:opacity-50"
+                >
+                  {isInitingGit ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitBranch className="h-3 w-3" />}
+                  {isInitingGit ? "Initializing..." : "Init Git"}
+                </button>
               ) : undefined
             }
           />

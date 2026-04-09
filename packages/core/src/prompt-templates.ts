@@ -1104,30 +1104,50 @@ For diagrams, charts, interactive widgets — anything beyond the yaml-spec comp
 **BE CREATIVE AND PROACTIVE WITH VISUALIZATION** — Don't wait for the user to ask for visuals. Whenever your response contains structured data (lists, comparisons, metrics, status reports, analysis results, architecture overviews, workflows), render it as yaml-spec or visualizer instead of plain markdown. A well-designed visual communicates faster than a wall of text. Think like a designer: use CardCarousel for options, Table for comparisons, Timeline for sequences, Metric for KPIs, custom components for domain-specific data, and visualizer for diagrams and charts. This hint contains everything you need — do NOT load the render-ui or visualise skills unless the user explicitly requests advanced rendering features.`
 
 /**
- * Instructions appended to vision doc for
- * scientific discovery projects using branch-based isolation.
+ * Instructions injected into agent prompts for
+ * scientific discovery projects using directory-scoped isolation.
  */
 export const DISCOVERY_MODE_INSTRUCTIONS = `
-## Project Structure
+## Discovery Mode — Directory-Scoped Project
 
-This project uses discovery mode for exploratory analysis.
+This project uses **discovery mode**: each task runs in its own directory under \`analysis/\`.
+Scripts AND outputs live together in the task directory — self-contained and isolated.
 
-- \`src/\` or project root — Scripts and code (git-tracked, commit regularly)
-- \`data/\` — Input data (read-only, do not modify or commit)
-- \`analysis/{milestone}/{task}/\` — All generated outputs go here
-  - Milestone and task directory names will be provided in your task prompt
-  - Each task directory is self-contained: figures, tables, intermediate files
-  - When comparing approaches, use parallel directories under the milestone
+### Directory Structure
+\`\`\`
+project-root/
+├── data/                              # Shared input data (read-only, do NOT modify)
+├── src/                               # Shared utility scripts (optional, git-tracked)
+├── analysis/
+│   ├── {milestone}/{task}/            # Each task's workspace
+│   │   ├── *.py / *.R / *.sh         # Scripts (git-tracked)
+│   │   ├── *.bed / *.tsv / *.png     # Outputs (may be gitignored)
+│   │   └── _manifest.json            # Output registry (auto-generated)
+│   └── .archived/                     # Pruned milestones (DO NOT read)
+└── .gitignore
+\`\`\`
 
-## Rules
+### Rules
+1. **Work in your assigned directory.** Your task prompt specifies the output directory — write ALL scripts and outputs there.
+2. **Do NOT read from \`.archived/\` or \`deprecated/\`.** These contain invalidated analysis.
+3. **Reference upstream outputs by path.** Your task prompt lists input directories from dependency tasks — read from those paths.
+4. **Commit scripts, not large outputs.** Use \`git add\` selectively for \`.py\`, \`.R\`, \`.sh\`, \`.md\` files. Large binary outputs (\`.bed\`, \`.bam\`, \`.h5\`, \`.png\`) should stay untracked.
+5. **Write a \`_manifest.json\`** at the end listing your output files with brief descriptions.
 
-1. Write all generated outputs to the \`analysis/\` directory specified in your task prompt
-2. Do NOT read from or reference any files in \`.archived/\` or \`deprecated/\`
-3. Commit code changes with descriptive messages at logical checkpoints
-4. Reference output file paths explicitly when reporting findings
-
-## Commit Conventions
-- Use structured messages: \`[milestone-name/task-title] description\`
+### Commit Conventions
+- Use structured messages: \`[{milestone}/{task}] description\`
 - Commit at logical checkpoints (after each analysis step)
-- Use \`git add\` selectively — only stage files relevant to the current task
+- Only stage files from your task directory
+
+### Output Manifest
+At the end of your task, write \`_manifest.json\` in your output directory:
+\`\`\`json
+{
+  "outputs": [
+    {"file": "result.tsv", "description": "Gene-level summary table", "rows": 19509},
+    {"file": "enrichment_barplot.png", "description": "GO enrichment bar chart"}
+  ],
+  "summary": "Brief 1-2 sentence summary of findings"
+}
+\`\`\`
 `
