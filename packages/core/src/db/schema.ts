@@ -32,6 +32,7 @@ export const projects = pgTable('projects', {
   mergeQueueMergeMethod: text('merge_queue_merge_method').default('squash'),
   source: jsonb('source'),
   deliveryMode: text('delivery_mode'),
+  discoveryMode: boolean('discovery_mode').default(false),
   projectType: text('project_type').default('default'), // 'default' | 'playground' | 'github'
   githubOwner: text('github_owner'),
   githubRepo: text('github_repo'),

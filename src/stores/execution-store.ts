@@ -327,6 +327,7 @@ interface ExecutionState {
       githubRepoId?: number
       source?: ProjectSource
       deliveryMode?: string
+      discoveryMode?: boolean
       resumeSessionId?: string
       forkSession?: boolean
       selectedBackends?: string[]
@@ -1512,6 +1513,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           },
         } : {}),
       ...(options.deliveryMode && { deliveryMode: options.deliveryMode }),
+      ...(options.discoveryMode && { discoveryMode: true }),
     } as Project)
 
     const nodeId = `session-${projectId}`

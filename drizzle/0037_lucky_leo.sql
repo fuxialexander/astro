@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "discovery_mode" boolean DEFAULT false;

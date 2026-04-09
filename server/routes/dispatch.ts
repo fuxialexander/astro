@@ -1309,15 +1309,27 @@ async function dispatchViaRelay(
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
     }
 
-    // Discovery mode: inject output directory instructions
+    // Discovery mode: inject output directory and input data instructions
     const taskOutputDir = (nodeMetadata as Record<string, unknown> | null)?.outputDir as string | undefined
+    const isDiscoveryProject = dbProject?.discoveryMode === true
     if (taskOutputDir) {
       const inputDirs = dependencyOutputs
         .filter((d) => (d as Record<string, unknown>).outputDir)
-        .map((d) => `- \`analysis/${(d as Record<string, unknown>).outputDir}/\` (from: "${d.title.replace(/[\r\n]/g, ' ').slice(0, 100)}")`)
+        .map((d) => {
+          const depOutputDir = (d as Record<string, unknown>).outputDir as string
+          const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 100)
+          return isDiscoveryProject && workingDirectory
+            ? `- \`${workingDirectory}/analysis/${depOutputDir}/\` (from: "${safeTitle}")`
+            : `- \`analysis/${depOutputDir}/\` (from: "${safeTitle}")`
+        })
         .join('\n')
-      const inputSection = inputDirs ? `\n\nYour inputs (from upstream tasks):\n${inputDirs}` : ''
-      promptParts.push(`## Output Directory\n\nWrite all generated outputs (figures, tables, data files) to:\n  \`analysis/${taskOutputDir}/\`${inputSection}`)
+      const inputSection = inputDirs ? `\n\n### Input Data (from upstream tasks)\n${inputDirs}` : ''
+      if (isDiscoveryProject && workingDirectory) {
+        // Discovery mode: absolute paths since task runs in its own directory
+        promptParts.push(`## Output Directory\n\nYour task directory: \`${workingDirectory}/analysis/${taskOutputDir}/\`\n\nWrite ALL scripts and outputs here.${inputSection}`)
+      } else {
+        promptParts.push(`## Output Directory\n\nWrite all generated outputs (figures, tables, data files) to:\n  \`analysis/${taskOutputDir}/\`${inputSection}`)
+      }
     }
 
     // Push to GitHub nodes get special instructions — override delivery mode and workspace section
@@ -1425,8 +1437,35 @@ ${subPrSection}
 This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
     } else {
 
-    // Build delivery-mode-aware workspace instructions
-    {
+    // Discovery mode: dedicated workspace section (overrides standard delivery-mode section)
+    const isDiscoveryMode = dbProject?.discoveryMode === true
+    if (isDiscoveryMode && taskOutputDir && workingDirectory) {
+      const taskWorkDir = `${workingDirectory}/analysis/${taskOutputDir}`
+      promptParts.push(`## Workspace — Discovery Mode
+
+You are working in a task-scoped directory:
+  \`${taskWorkDir}/\`
+
+The project root is: \`${workingDirectory}/\`
+
+**FIRST STEP — create your task directory:**
+\`\`\`bash
+mkdir -p "${taskWorkDir}"
+\`\`\`
+
+**IMPORTANT:**
+- Write ALL scripts AND outputs to your task directory (\`${taskWorkDir}/\`)
+- Read shared input data from \`${workingDirectory}/data/\` (read-only)
+- Read upstream task outputs from paths listed in your "Input Data" section below
+- Do NOT modify files outside your task directory
+- Commit scripts with: \`git add analysis/${taskOutputDir}/\`
+- Use structured commit messages: \`[${taskOutputDir}] description\`
+- Do NOT read from \`analysis/.archived/\` — those contain invalidated analysis
+- At the end, write a \`_manifest.json\` in your task directory listing output files`)
+    }
+
+    // Build delivery-mode-aware workspace instructions (skipped in discovery mode)
+    if (!isDiscoveryMode) {
       const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType)
       const effectiveUseWorktree = useWorktree !== false
       const effectiveAgentDir = agentDir ?? '.astro'
@@ -3147,8 +3186,7 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
     })
   }
 
-  // Store cleanup metadata on the nodes so the agent-runner can act on it
-  // when it next connects or dispatches a task for this project.
+  // Store cleanup metadata on the nodes
   let written = 0
   for (const item of cleanupItems) {
     if (item.outputDir || item.branchName) {
@@ -3170,6 +3208,30 @@ dispatchRoute.post('/prune-cleanup', async (c) => {
         written++
       } catch (err) {
         console.error(`[prune-cleanup] Failed to write cleanup metadata for ${item.nodeId}:`, err)
+      }
+    }
+  }
+
+  // Discovery mode: send archive command to move output dirs to .archived/
+  const [project] = await db.select({
+    discoveryMode: projects.discoveryMode,
+    workingDirectory: projects.workingDirectory,
+    defaultMachineId: projects.defaultMachineId,
+  }).from(projects).where(eq(projects.id, body.projectId)).limit(1)
+
+  if (project?.discoveryMode && project.workingDirectory && body.deleteOutputs) {
+    const dirsToArchive = cleanupItems
+      .filter(item => item.outputDir)
+      .map(item => `analysis/${item.outputDir}`)
+    if (dirsToArchive.length > 0 && project.defaultMachineId) {
+      const { relayServer } = await import('../lib/relay-server.js')
+      const sent = relayServer.archiveDiscoveryDirs(
+        project.defaultMachineId,
+        project.workingDirectory,
+        dirsToArchive
+      )
+      if (!sent) {
+        console.warn(`[prune-cleanup] Machine not connected for discovery archive — dirs saved to pendingCleanup metadata`)
       }
     }
   }
