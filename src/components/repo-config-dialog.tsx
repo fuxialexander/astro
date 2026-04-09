@@ -280,6 +280,7 @@ export function RepoConfigDialog({
   const handleWorkDirChange = (value: string) => {
     setWorkDir(value)
     setRepoAutoFilled(false)
+    setSelectedDeliveryMode('') // reset so auto-suggest re-fires with new detection
     if (repoAutoFilled) {
       setRepoUrl("")
     }
