@@ -596,7 +596,7 @@ export function InboxHome() {
                   </TooltipTrigger>
                   <TooltipContent>
                     {discoveryMode
-                      ? "Discovery ON — branch isolation, milestone-scoped outputs in analysis/"
+                      ? "Discovery ON — directory-scoped outputs in analysis/, parallel execution"
                       : "Discovery OFF — use standard git workflow"}
                   </TooltipContent>
                 </Tooltip>

@@ -25,7 +25,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams, deliveryBranches } from '../lib/db/schema.js'
+import { projects, planNodes, planEdges, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams, deliveryBranches } from '../lib/db/schema.js'
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -96,26 +96,29 @@ async function autoDispatchReadyPlanTasks(projectId: string): Promise<number> {
   )
 
   const liveTasks = projectTaskNodes.filter((node) =>
-    node.type === 'task' && node.status === 'planned'
+    (node.type === 'task' || node.type === 'loop') && node.status === 'planned'
   )
   if (liveTasks.length === 0) return 0
 
-  const depsRows = await db.select({
-    nodeId: planNodeDependencies.nodeClientId,
-    dependencyId: planNodeDependencies.dependsOnClientId,
-  }).from(planNodeDependencies).where(
+  // Read dependencies from planEdges (the authoritative source populated during plan creation).
+  // planNodeDependencies is a legacy table that is never populated by the plan creation flow,
+  // so reading from it would make every task appear to have zero dependencies.
+  const edgeRows = await db.select({
+    sourceClientId: planEdges.sourceClientId,
+    targetClientId: planEdges.targetClientId,
+  }).from(planEdges).where(
     and(
-      eq(planNodeDependencies.nodeProjectId, projectId),
-      inArray(planNodeDependencies.nodeClientId, liveTasks.map((node) => node.id)),
+      eq(planEdges.projectId, projectId),
+      isNull(planEdges.deletedAt),
     )
   )
 
   const nodeStatus = new Map(projectTaskNodes.map((node) => [node.id, node.status]))
   const depsByNode = new Map<string, string[]>()
-  for (const row of depsRows) {
-    const deps = depsByNode.get(row.nodeId) || []
-    deps.push(row.dependencyId)
-    depsByNode.set(row.nodeId, deps)
+  for (const edge of edgeRows) {
+    const deps = depsByNode.get(edge.targetClientId) || []
+    deps.push(edge.sourceClientId)
+    depsByNode.set(edge.targetClientId, deps)
   }
 
   const readyTaskIds = liveTasks
@@ -616,13 +619,15 @@ dispatchRoute.post('/task', async (c) => {
         followUpBranchName = dbNode.branchName ?? undefined
       }
 
-      // Resolve dependencies from DB if not provided
+      // Resolve dependencies from DB if not provided.
+      // Uses planEdges (the authoritative source populated during plan creation).
       if (dependencies.length === 0) {
-        const depRows = await db.select({ depId: planNodeDependencies.dependsOnClientId })
-          .from(planNodeDependencies)
+        const depRows = await db.select({ depId: planEdges.sourceClientId })
+          .from(planEdges)
           .where(and(
-            eq(planNodeDependencies.nodeProjectId, projectId),
-            eq(planNodeDependencies.nodeClientId, nodeId)
+            eq(planEdges.projectId, projectId),
+            eq(planEdges.targetClientId, nodeId),
+            isNull(planEdges.deletedAt),
           ))
         dependencies = depRows.map(r => r.depId)
       }

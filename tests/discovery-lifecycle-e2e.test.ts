@@ -21,7 +21,6 @@ import {
   projects,
   planNodes,
   planEdges,
-  planNodeDependencies,
   taskExecutions,
 } from '../server/lib/db/schema.js'
 import { eq } from 'drizzle-orm'
@@ -33,7 +32,6 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Clean all test data between tests
   await db.delete(taskExecutions)
-  await db.delete(planNodeDependencies)
   await db.delete(planEdges)
   await db.delete(planNodes)
   await db.delete(projects)
@@ -95,15 +93,6 @@ async function createTask(
     content: opts?.content,
   })
   expect(res.status).toBe(201)
-}
-
-async function addDependency(projectId: string, nodeId: string, dependsOn: string): Promise<void> {
-  // Insert into planNodeDependencies directly (the dispatch resolver reads from here)
-  await db.insert(planNodeDependencies).values({
-    nodeProjectId: projectId,
-    nodeClientId: nodeId,
-    dependsOnClientId: dependsOn,
-  })
 }
 
 async function addEdge(projectId: string, edgeId: string, source: string, target: string): Promise<void> {
@@ -289,7 +278,6 @@ describe('Discovery project full lifecycle', () => {
     await createTask(projectId, 'task-b', 'Pathway enrichment on ESR1 targets', {
       milestoneId: 'ms-chip',
     })
-    await addDependency(projectId, 'task-b', 'task-a')
     await addEdge(projectId, 'edge-a-b', 'task-a', 'task-b')
 
     // Dispatch Task B in dry-run
@@ -396,7 +384,6 @@ describe('Discovery project full lifecycle', () => {
       description: 'Run HOMER/MEME on co-binding peaks to identify enriched motifs',
     })
 
-    await addDependency(projectId, 'task-motif', 'task-data-prep')
     await addEdge(projectId, 'edge-prep-motif', 'task-data-prep', 'task-motif')
 
     // === Verify outputDirs ===
@@ -518,7 +505,7 @@ describe('Discovery lifecycle edge cases', () => {
     await createTask(projectId, 'task-downstream', 'Downstream task', {
       milestoneId: 'ms-edge',
     })
-    await addDependency(projectId, 'task-downstream', 'task-upstream')
+    await addEdge(projectId, 'edge-upstream-downstream', 'task-upstream', 'task-downstream')
 
     const result = await dispatchDryRun(projectId, 'task-downstream', {
       workingDirectory: '/home/user/projects/esr1-analysis',
@@ -544,7 +531,7 @@ describe('Discovery lifecycle edge cases', () => {
     await createTask(projectId, 'task-after-prune', 'Task after pruned dep', {
       milestoneId: 'ms-pruned',
     })
-    await addDependency(projectId, 'task-after-prune', 'task-pruned-dep')
+    await addEdge(projectId, 'edge-pruned-after', 'task-pruned-dep', 'task-after-prune')
 
     const res = await postJson('/api/dispatch/task', {
       nodeId: 'task-after-prune',
@@ -581,8 +568,8 @@ describe('Discovery lifecycle edge cases', () => {
 
     // Integrator task depends on both
     await createTask(projectId, 'task-integrate', 'Cross-analysis integration')
-    await addDependency(projectId, 'task-integrate', 'task-alpha-1')
-    await addDependency(projectId, 'task-integrate', 'task-beta-1')
+    await addEdge(projectId, 'edge-alpha-integrate', 'task-alpha-1', 'task-integrate')
+    await addEdge(projectId, 'edge-beta-integrate', 'task-beta-1', 'task-integrate')
 
     const result = await dispatchDryRun(projectId, 'task-integrate', {
       workingDirectory: '/home/user/projects/esr1-analysis',

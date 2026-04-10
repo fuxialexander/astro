@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router"
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Sparkles,
   Play,
@@ -29,6 +30,7 @@ import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { deriveActiveTasks, deriveCompletedTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
 import { useStreamEvents } from "@/hooks/use-stream-events"
 import type { TaskActivityEvent } from "@/types"
+import { cn } from "@/lib/utils"
 import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import { JsonRenderView } from "@/components/ui/json-render-view"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
@@ -101,16 +103,19 @@ function JobRow({
       [task.executionId],
     ),
   )
-  const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
+  const hasPendingApproval = useRealtimeStore(
+    useCallback(
+      (s) => {
+        if (!task.executionId) return false
+        for (const approval of s.dynamicApprovals.values()) {
+          if (approval.taskId === task.executionId) return true
+        }
+        return false
+      },
+      [task.executionId],
+    ),
+  )
   const preview = useLlmPreview(task.executionId)
-
-  const hasPendingApproval = useMemo(() => {
-    if (!task.executionId) return false
-    for (const approval of dynamicApprovals.values()) {
-      if (approval.taskId === task.executionId) return true
-    }
-    return false
-  }, [dynamicApprovals, task.executionId])
 
   return (
     <button
@@ -273,12 +278,16 @@ function ProjectGroup({
 
 // ─── Chat Message Rendering ────────────────────────────────────────
 
-function ChatMessages({ events, isRunning }: { events: TaskActivityEvent[]; isRunning: boolean }) {
+function ChatMessages({ events, isRunning, onNewEvents }: { events: TaskActivityEvent[]; isRunning: boolean; onNewEvents?: () => void }) {
   const endRef = useRef<HTMLDivElement>(null)
+  const prevLength = useRef(events.length)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [events.length])
+    if (events.length !== prevLength.current) {
+      prevLength.current = events.length
+      onNewEvents?.()
+    }
+  }, [events.length, onNewEvents])
 
   // Group consecutive tool events into collapsed pills
   const rendered: React.ReactNode[] = []
@@ -426,12 +435,15 @@ function ChatMessages({ events, isRunning }: { events: TaskActivityEvent[]; isRu
 function ChatPanel({
   task,
   projectId,
+  onBack,
 }: {
   task: ActiveTaskEntry
   projectId: string
+  onBack?: () => void
 }) {
   const navigate = useNavigate()
   const [inputText, setInputText] = useState("")
+  const chatScrollRef = useRef<HTMLDivElement>(null)
   // For chat sessions, stream events are keyed by session ID; for executions, by execution ID
   const streamId = task.sessionId ?? task.executionId
   const { activityEvents, isHydrating } = useStreamEvents(streamId)
@@ -559,6 +571,15 @@ function ChatPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="shrink-0 p-1 -ml-1 rounded-md hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
           {isRunning ? (
             <div className="relative h-3.5 w-3.5 shrink-0">
               <div className="absolute inset-0 rounded-full border-2 border-info border-t-transparent animate-spin" />
@@ -581,7 +602,7 @@ function ChatPanel({
       </div>
 
       {/* Chat content */}
-      <div className="flex-1 overflow-auto">
+      <div ref={chatScrollRef} className="flex-1 overflow-auto">
         {events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
             <p className="text-sm text-muted-foreground">
@@ -593,7 +614,10 @@ function ChatPanel({
             </p>
           </div>
         ) : (
-          <ChatMessages events={events} isRunning={isRunning} />
+          <ChatMessages events={events} isRunning={isRunning} onNewEvents={() => {
+            const el = chatScrollRef.current
+            if (el) el.scrollTop = el.scrollHeight
+          }} />
         )}
       </div>
 
@@ -785,7 +809,7 @@ export function ActiveTasks() {
   })
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-8 h-14 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
@@ -837,8 +861,8 @@ export function ActiveTasks() {
           </div>
         ) : (
           <>
-            {/* Left panel: job list */}
-            <div className="w-[420px] min-w-[320px] shrink-0 border-r border-border/60 overflow-y-auto overflow-x-hidden">
+            {/* Left panel: job list — hidden on mobile when chat is open */}
+            <div className={cn("w-full md:w-[420px] md:min-w-[320px] shrink-0 border-r border-border/60 overflow-y-auto overflow-x-hidden", selectedTask ? "hidden md:block" : "block")}>
               {/* Filter row */}
               <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-muted/20">
                 <span className="text-xs text-muted-foreground">{filteredCount} active</span>
@@ -882,13 +906,14 @@ export function ActiveTasks() {
               ))}
             </div>
 
-            {/* Right panel: chat */}
-            <div className="flex-1 min-w-0 bg-background flex flex-col">
+            {/* Right panel: chat — hidden on mobile until a task is selected */}
+            <div className={cn("flex-1 min-w-0 bg-background flex flex-col", selectedTask ? "flex" : "hidden md:flex")}>
               {selectedTask ? (
                 <ChatPanel
                   key={selectedTask.task.nodeId}
                   task={selectedTask.task}
                   projectId={selectedTask.projectId}
+                  onBack={() => setSelectedJobId(null)}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
