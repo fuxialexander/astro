@@ -30,7 +30,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'webhook-automation': false,
   'loop-nodes': false,
   'team-machines': true,
-  'delivery-branches': false,
+  'delivery-branches': true,
   'parallel-execution': false,
   'inbox-home': true,
 }
