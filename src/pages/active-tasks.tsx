@@ -278,20 +278,16 @@ function ProjectGroup({
 
 // ─── Chat Message Rendering ────────────────────────────────────────
 
-function ChatMessages({ events, isRunning }: { events: TaskActivityEvent[]; isRunning: boolean }) {
+function ChatMessages({ events, isRunning, onNewEvents }: { events: TaskActivityEvent[]; isRunning: boolean; onNewEvents?: () => void }) {
   const endRef = useRef<HTMLDivElement>(null)
+  const prevLength = useRef(events.length)
 
   useEffect(() => {
-    // Scroll within the nearest scrollable ancestor only — not the entire viewport.
-    // scrollIntoView({ block: 'nearest' }) without 'smooth' avoids yanking the
-    // parent page scroll position, which caused the sidebar to "jump up".
-    const el = endRef.current
-    if (!el) return
-    const scrollParent = el.closest('[class*="overflow-auto"]') as HTMLElement | null
-    if (scrollParent) {
-      scrollParent.scrollTop = scrollParent.scrollHeight
+    if (events.length !== prevLength.current) {
+      prevLength.current = events.length
+      onNewEvents?.()
     }
-  }, [events.length])
+  }, [events.length, onNewEvents])
 
   // Group consecutive tool events into collapsed pills
   const rendered: React.ReactNode[] = []
@@ -447,6 +443,7 @@ function ChatPanel({
 }) {
   const navigate = useNavigate()
   const [inputText, setInputText] = useState("")
+  const chatScrollRef = useRef<HTMLDivElement>(null)
   // For chat sessions, stream events are keyed by session ID; for executions, by execution ID
   const streamId = task.sessionId ?? task.executionId
   const { activityEvents, isHydrating } = useStreamEvents(streamId)
@@ -605,7 +602,7 @@ function ChatPanel({
       </div>
 
       {/* Chat content */}
-      <div className="flex-1 overflow-auto">
+      <div ref={chatScrollRef} className="flex-1 overflow-auto">
         {events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
             <p className="text-sm text-muted-foreground">
@@ -617,7 +614,10 @@ function ChatPanel({
             </p>
           </div>
         ) : (
-          <ChatMessages events={events} isRunning={isRunning} />
+          <ChatMessages events={events} isRunning={isRunning} onNewEvents={() => {
+            const el = chatScrollRef.current
+            if (el) el.scrollTop = el.scrollHeight
+          }} />
         )}
       </div>
 
@@ -809,7 +809,7 @@ export function ActiveTasks() {
   })
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-8 h-14 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
