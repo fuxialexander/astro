@@ -110,6 +110,7 @@ async function autoDispatchReadyPlanTasks(projectId: string): Promise<number> {
     and(
       eq(planEdges.projectId, projectId),
       isNull(planEdges.deletedAt),
+      inArray(planEdges.targetClientId, liveTasks.map((node) => node.id)),
     )
   )
 
