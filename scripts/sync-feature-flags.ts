@@ -201,7 +201,6 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
   'webhook-automation': true,
   'loop-nodes': true,
 
-  'delivery-branches': true,
   'parallel-execution': true,
 }
 

@@ -279,7 +279,6 @@ function ProjectGroup({
 // ─── Chat Message Rendering ────────────────────────────────────────
 
 function ChatMessages({ events, isRunning, onNewEvents }: { events: TaskActivityEvent[]; isRunning: boolean; onNewEvents?: () => void }) {
-  const endRef = useRef<HTMLDivElement>(null)
   const prevLength = useRef(events.length)
 
   useEffect(() => {
@@ -425,7 +424,6 @@ function ChatMessages({ events, isRunning, onNewEvents }: { events: TaskActivity
           </div>
         </div>
       )}
-      <div ref={endRef} />
     </div>
   )
 }
