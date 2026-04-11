@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef, memo } from "react"
 import { Send, ChevronDown, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
+import { Link } from "react-router"
 import { cn } from "@/lib/utils"
 import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { Button } from "@/components/ui/button"
@@ -167,7 +168,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const registerMounted = useSessionStore((s) => s.registerMounted)
   const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
   const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
-  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
   const getActiveSessionId = useSessionStore((s) => s.getActiveSessionId)
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
   const getSession = useSessionStore((s) => s.getSession)
@@ -195,17 +195,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     [getSessionsForProject, projectId, sessions]
   )
 
-  // Find the original planning conversation session for this project.
-  // Current flow: task-chat session with nodeId "session-{projectId}" (created by playground).
-  // Legacy flow: plan-generation session for the project.
-  const planSession = useMemo(
-    () =>
-      getSessionsForNode(`session-${projectId}`, "task-chat")[0]
-      || getSessionsForProject(projectId, "plan-generation")[0],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getSessionsForNode, getSessionsForProject, projectId, sessions]
-  )
-
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
     () => getActiveSessionId(projectId, "project-chat"),
@@ -217,7 +206,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (activeSessionId) {
       const session = getSession(activeSessionId)
       // Verify the session still exists and belongs to this project
-      if (session && session.projectId === projectId && (session.type === "project-chat" || session.type === "plan-generation" || session.type === "task-chat")) {
+      if (session && session.projectId === projectId && session.type === "project-chat") {
         return session
       }
     }
@@ -576,25 +565,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-[240px]">
-              {/* Plan session — switch to the original planning conversation */}
-              {planSession && (
-                <button
-                  onClick={() => {
-                    handleSessionSwitch(planSession.id)
-                    setSessionDropdownOpen(false)
-                  }}
-                  className={cn(
-                    "flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors w-full text-left",
-                    currentSession?.id === planSession.id && "bg-accent"
-                  )}
-                >
-                  <Sparkles className="h-3 w-3 text-primary shrink-0" />
-                  <span className="text-xs font-medium flex-1">Plan Session</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {planSession.messageCount ?? planSession.messages.length} msgs
-                  </span>
-                </button>
-              )}
+              {/* Plan session — navigate to the playground where the original planning conversation is rendered */}
+              <Link
+                to={`/playground?projectId=${projectId}`}
+                onClick={() => setSessionDropdownOpen(false)}
+                className="flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
+              >
+                <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                <span className="text-xs font-medium flex-1">Plan Session</span>
+              </Link>
               <DropdownMenuSeparator />
               <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-xs font-semibold">Chat Sessions</span>

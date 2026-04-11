@@ -600,7 +600,6 @@ function ProjectInfoSection({ project }: { project: Project }) {
   const descriptionEditorRef = useRef<RichTextEditorRef>(null)
   const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-
   const handleDescriptionChange = useCallback((html: string) => {
     setDescriptionDraft(html)
     if (html === project.description) return
@@ -2711,7 +2710,7 @@ export function PlanView() {
           }}
         >
             {/* Collapsible project info section */}
-            {activeTab === "plan" && <ProjectInfoSection project={project} />}
+            {activeTab === "plan" && <ProjectInfoSection key={project.id} project={project} />}
 
             <div className="flex flex-1 overflow-hidden">
               <div className="flex flex-1 overflow-hidden relative">
