@@ -567,7 +567,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             <DropdownMenuContent align="start" className="w-[240px]">
               {/* Plan session link — always on top */}
               <Link
-                to={`/welcome?projectId=${projectId}`}
+                to={`/project/${projectId}`}
                 onClick={() => setSessionDropdownOpen(false)}
                 className="flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
               >
