@@ -167,6 +167,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const registerMounted = useSessionStore((s) => s.registerMounted)
   const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
   const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
+  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
   const getActiveSessionId = useSessionStore((s) => s.getActiveSessionId)
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
   const getSession = useSessionStore((s) => s.getSession)
@@ -194,11 +195,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     [getSessionsForProject, projectId, sessions]
   )
 
-  // Find the plan-generation session for this project (the original planning conversation)
+  // Find the original planning conversation session for this project.
+  // Current flow: task-chat session with nodeId "session-{projectId}" (created by playground).
+  // Legacy flow: plan-generation session for the project.
   const planSession = useMemo(
-    () => getSessionsForProject(projectId, "plan-generation")[0],
+    () =>
+      getSessionsForNode(`session-${projectId}`, "task-chat")[0]
+      || getSessionsForProject(projectId, "plan-generation")[0],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getSessionsForProject, projectId, sessions]
+    [getSessionsForNode, getSessionsForProject, projectId, sessions]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
@@ -211,8 +216,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     // If we have an active session ID, try to get that session
     if (activeSessionId) {
       const session = getSession(activeSessionId)
-      // Verify the session still exists and belongs to this project (allow both project-chat and plan-generation)
-      if (session && session.projectId === projectId && (session.type === "project-chat" || session.type === "plan-generation")) {
+      // Verify the session still exists and belongs to this project
+      if (session && session.projectId === projectId && (session.type === "project-chat" || session.type === "plan-generation" || session.type === "task-chat")) {
         return session
       }
     }
