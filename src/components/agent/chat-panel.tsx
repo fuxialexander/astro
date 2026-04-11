@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef, memo } from "react"
 import { Send, ChevronDown, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
-import { Link } from "react-router"
 import { cn } from "@/lib/utils"
 import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { Button } from "@/components/ui/button"
@@ -195,6 +194,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     [getSessionsForProject, projectId, sessions]
   )
 
+  // Find the plan-generation session for this project (the original planning conversation)
+  const planSession = useMemo(
+    () => getSessionsForProject(projectId, "plan-generation")[0],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getSessionsForProject, projectId, sessions]
+  )
+
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
     () => getActiveSessionId(projectId, "project-chat"),
@@ -205,8 +211,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     // If we have an active session ID, try to get that session
     if (activeSessionId) {
       const session = getSession(activeSessionId)
-      // Verify the session still exists and belongs to this project
-      if (session && session.projectId === projectId && session.type === "project-chat") {
+      // Verify the session still exists and belongs to this project (allow both project-chat and plan-generation)
+      if (session && session.projectId === projectId && (session.type === "project-chat" || session.type === "plan-generation")) {
         return session
       }
     }
@@ -565,15 +571,25 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-[240px]">
-              {/* Plan session link — always on top */}
-              <Link
-                to={`/project/${projectId}`}
-                onClick={() => setSessionDropdownOpen(false)}
-                className="flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
-              >
-                <Sparkles className="h-3 w-3 text-primary shrink-0" />
-                <span className="text-xs font-medium flex-1">Plan Session</span>
-              </Link>
+              {/* Plan session — switch to the original planning conversation */}
+              {planSession && (
+                <button
+                  onClick={() => {
+                    handleSessionSwitch(planSession.id)
+                    setSessionDropdownOpen(false)
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors w-full text-left",
+                    currentSession?.id === planSession.id && "bg-accent"
+                  )}
+                >
+                  <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                  <span className="text-xs font-medium flex-1">Plan Session</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {planSession.messageCount ?? planSession.messages.length} msgs
+                  </span>
+                </button>
+              )}
               <DropdownMenuSeparator />
               <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-xs font-semibold">Chat Sessions</span>
