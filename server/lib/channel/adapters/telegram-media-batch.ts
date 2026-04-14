@@ -39,7 +39,11 @@ export interface BufferedMedia {
 export interface BatchResult {
   mediaGroupId: string
   items: BufferedMedia[]
-  /** First non-empty caption encountered across the batch. */
+  /**
+   * Merged caption across the batch. Unique captions (compared after trim,
+   * exact match — not substring) are joined with "\n\n" in arrival order.
+   * Duplicates are dropped.
+   */
   caption?: string
   chatId: string
   threadId?: string
@@ -50,8 +54,10 @@ interface PendingMeta {
   chatId: string
   threadId?: string
   fromId?: string
-  /** First non-empty caption seen so far. */
+  /** Merged caption (deduped, joined with "\n\n"). */
   caption?: string
+  /** Set of trimmed captions already merged, for O(1) dedup. */
+  seenCaptions: Set<string>
 }
 
 type Resolver = (result: BatchResult | null) => void
@@ -72,6 +78,31 @@ const DEBOUNCE_MS = 800
 const WATCHDOG_MS = 5000
 
 const pending = new Map<string, PendingEntry>()
+
+/**
+ * Merge a new caption into an existing (possibly undefined) merged caption,
+ * mirroring hermes-agent `TelegramAdapter._merge_caption`. Dedup is exact
+ * match on trimmed text — a shorter caption that is a substring of an
+ * existing one is NOT considered a duplicate. Empty/whitespace-only new
+ * captions are ignored.
+ *
+ * @param existing Current merged caption, or undefined if none yet.
+ * @param next New caption to potentially merge in (raw, not trimmed).
+ * @param seen Set of trimmed captions already merged (mutated).
+ */
+export function mergeCaption(
+  existing: string | undefined,
+  next: string | undefined,
+  seen: Set<string>,
+): string | undefined {
+  if (!next) return existing
+  const trimmed = next.trim()
+  if (trimmed.length === 0) return existing
+  if (seen.has(trimmed)) return existing
+  seen.add(trimmed)
+  if (!existing || existing.length === 0) return trimmed
+  return `${existing}\n\n${trimmed}`
+}
 
 function flush(mediaGroupId: string): void {
   const entry = pending.get(mediaGroupId)
@@ -130,7 +161,8 @@ export function bufferMedia(
         chatId: meta.chatId,
         threadId: meta.threadId,
         fromId: meta.fromId,
-        caption: meta.caption && meta.caption.length > 0 ? meta.caption : undefined,
+        caption: undefined,
+        seenCaptions: new Set<string>(),
       }
       entry = {
         items: [],
@@ -148,16 +180,11 @@ export function bufferMedia(
     } else {
       // Clear only the debounce timer; keep the watchdog running.
       clearTimeout(entry.timer)
-      // Capture first non-empty caption if we don't yet have one.
-      if (!entry.meta.caption && meta.caption && meta.caption.length > 0) {
-        entry.meta.caption = meta.caption
-      }
     }
 
-    // Also capture the item's own caption if the meta didn't have one.
-    if (!entry.meta.caption && item.caption && item.caption.length > 0) {
-      entry.meta.caption = item.caption
-    }
+    // Merge captions from both meta.caption and item.caption with dedup.
+    entry.meta.caption = mergeCaption(entry.meta.caption, meta.caption, entry.meta.seenCaptions)
+    entry.meta.caption = mergeCaption(entry.meta.caption, item.caption, entry.meta.seenCaptions)
 
     entry.items.push(item)
     entry.resolvers.push(resolve)
