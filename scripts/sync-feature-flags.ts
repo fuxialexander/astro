@@ -202,7 +202,6 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
   'loop-nodes': true,
 
   'parallel-execution': true,
-  'telegram-full-client': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────

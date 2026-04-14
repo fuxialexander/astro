@@ -9,10 +9,9 @@ import { Hono } from 'hono'
 import { telegramChannel } from '../lib/channel/adapters/telegram-channel.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
-import { connectedAccounts, teams, projects, teamMembers } from '../lib/db/schema.js'
+import { connectedAccounts, projects, teamMembers } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
-import { hasFeature } from '../lib/feature-flags.js'
 import { setWebhook } from '../lib/channel/adapters/telegram-api.js'
 
 const app = new Hono()
@@ -43,32 +42,12 @@ app.post('/webhook', async (c) => {
   return c.json({ ok: true })
 })
 
-// ── Authenticated endpoints (gated by telegram-full-client flag) ─
+// ── Authenticated endpoints ──────────────────────────────────────
 
 app.use('/link', requireAuth)
 app.use('/status', requireAuth)
 app.use('/disconnect', requireAuth)
 app.use('/setup-webhook', requireAuth)
-
-/**
- * Middleware: check the telegram-full-client feature flag.
- * Applied to all authenticated Telegram endpoints below.
- * The webhook endpoint above is NOT gated — notifications work regardless.
- */
-const requireTelegramFullClient = async (c: Parameters<Parameters<typeof app.use>[1]>[0], next: () => Promise<void>) => {
-  const user = c.get('user') as AuthUser
-  const [teamRow] = await db.select({ featureFlags: teams.featureFlags })
-    .from(teams).where(eq(teams.id, user.teamId)).limit(1)
-  if (!hasFeature(teamRow?.featureFlags ?? null, 'telegram-full-client')) {
-    return c.json({ error: 'Telegram full client is not enabled for this team' }, 403)
-  }
-  await next()
-}
-
-app.use('/link', requireTelegramFullClient)
-app.use('/status', requireTelegramFullClient)
-app.use('/disconnect', requireTelegramFullClient)
-app.use('/setup-webhook', requireTelegramFullClient)
 
 /** POST /link — Generate a deep-link URL for connecting Telegram */
 app.post('/link', async (c) => {
