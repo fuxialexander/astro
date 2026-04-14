@@ -38,6 +38,11 @@ import {
 import { parseAllowlist, isUserAllowed } from './telegram-auth.js'
 import { bufferMedia, type BufferedMedia, type BatchResult } from './telegram-media-batch.js'
 import {
+  enqueueText,
+  forceFlushPending as forceFlushPendingText,
+  isTelegramCommand,
+} from './telegram-text-batch.js'
+import {
   compileMentionPatterns,
   shouldProcessMessage,
   type CompiledMention,
@@ -298,6 +303,9 @@ class TelegramChannelAdapter {
     let batchCaption = caption
 
     if (mediaItem) {
+      // A non-text message arrived for this conversation: flush any pending
+      // text batch first so message ordering is preserved.
+      forceFlushPendingText({ chatId, threadId, userId: fromId })
       let batchItems: BufferedMedia[] = [mediaItem]
       if (mediaGroupId) {
         const batch: BatchResult | null = await bufferMedia(mediaGroupId, mediaItem, {
@@ -398,6 +406,10 @@ class TelegramChannelAdapter {
     }
 
     // ── Slash command routing (both private and group chats) ─────────────────
+    if (isTelegramCommand(text)) {
+      // Commands never batch; flush any pending text first.
+      forceFlushPendingText({ chatId, threadId, userId: fromId })
+    }
     if (text.startsWith('/')) {
       const response = await handleCommand(text, chatId, this.botToken, {
         fromId: isGroupChat ? fromId : undefined,
@@ -454,7 +466,26 @@ class TelegramChannelAdapter {
 
     // ── Private chat non-command text → AI chat session ─────────────────────
     if (!isGroupChat) {
-      await this.handleChatMessage(text, chatId, attachments)
+      // If this update has no attachments, batch rapid successive plain-text
+      // messages into a single dispatch (Telegram clients sometimes split
+      // long messages). Items with attachments bypass batching entirely so
+      // media context is preserved.
+      if (!attachments || attachments.length === 0) {
+        const batchKey = { chatId, threadId, userId: fromId }
+        // Fire-and-forget the batch promise; whichever caller's promise
+        // resolves first will dispatch. We deduplicate by checking whether
+        // the merged text differs from the just-arrived message — the
+        // earliest awaiter sees a longer (merged) text and dispatches it,
+        // and later awaiters see the same merged text and skip.
+        const ourText = text
+        const batch = await enqueueText(batchKey, { text: ourText })
+        // The first item in the merged batch "owns" the dispatch.
+        if (batch.items[0]?.text === ourText) {
+          await this.handleChatMessage(batch.text, chatId, attachments)
+        }
+      } else {
+        await this.handleChatMessage(text, chatId, attachments)
+      }
     }
   }
 
