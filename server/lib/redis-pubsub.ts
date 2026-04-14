@@ -43,6 +43,7 @@ const KEYS = {
   SAFETY_DIR: 'relay:safety:dir:', // + workingDirectory → decision
   NOTIFIED_APPROVAL: 'relay:notified:approval:', // + requestId → '1' (dedup)
   PENDING_APPROVAL: 'relay:pending:approval:', // + executionId → '1' (cross-instance watchdog check)
+  SESSION_APPROVAL_GRANT: 'relay:session:approval:grant:', // + dispatcherUserId:sessionKey → set<subroutineName>
 } as const;
 
 /** Message published for task dispatch routing */
@@ -770,6 +771,64 @@ export class RedisPubSub extends EventEmitter {
   async removePendingApproval(executionId: string): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.del(`${KEYS.PENDING_APPROVAL}${executionId}`);
+  }
+
+  // =========================================================================
+  // Session Approval Grants (cross-instance)
+  // =========================================================================
+  //
+  // When a user taps "Session" on a Telegram approval, we grant auto-approval
+  // for that subroutine for the remainder of the session. Grants are stored
+  // as a Redis SET per (dispatcherUserId, sessionKey) with a sliding TTL so
+  // any Fly instance handling a subsequent approval sees the same grant.
+  //
+  // In single-instance dev without Redis, all methods return
+  // no-op / false — callers should keep an in-process fallback.
+
+  private sessionGrantKey(dispatcherUserId: string, sessionKey: string): string {
+    return `${KEYS.SESSION_APPROVAL_GRANT}${dispatcherUserId}:${sessionKey}`;
+  }
+
+  /**
+   * Record that `subroutineName` is auto-approved for this dispatcher's
+   * current session. Refreshes the TTL on every call so active sessions
+   * stay granted as long as they keep using the subroutine.
+   */
+  async addSessionApprovalGrant(
+    dispatcherUserId: string,
+    sessionKey: string,
+    subroutineName: string,
+    ttlSeconds = 14400, // 4h — matches EXEC_CONTEXT TTL
+  ): Promise<void> {
+    if (!this.publisher) return;
+    const key = this.sessionGrantKey(dispatcherUserId, sessionKey);
+    const pipeline = this.publisher.pipeline();
+    pipeline.sadd(key, subroutineName);
+    pipeline.expire(key, ttlSeconds);
+    await pipeline.exec();
+  }
+
+  /**
+   * Check whether a subroutine is auto-approved for this dispatcher's
+   * current session. Refreshes the TTL on every hit (sliding window) so
+   * active sessions don't expire mid-use.
+   */
+  async hasSessionApprovalGrant(
+    dispatcherUserId: string,
+    sessionKey: string,
+    subroutineName: string,
+    ttlSeconds = 14400,
+  ): Promise<boolean> {
+    if (!this.publisher) return false;
+    const key = this.sessionGrantKey(dispatcherUserId, sessionKey);
+    const hit = await this.publisher.sismember(key, subroutineName);
+    if (hit === 1) {
+      // Sliding TTL: extend on every read so continuously-active sessions
+      // keep the grant alive until they go idle for ttlSeconds.
+      await this.publisher.expire(key, ttlSeconds);
+      return true;
+    }
+    return false;
   }
 
   // =========================================================================

@@ -776,7 +776,9 @@ export class DispatchEngine extends EventEmitter {
    * Scope rules:
    * - Grants are always checked under the dispatcher's user id. Another
    *   user's "always" grant NEVER auto-approves my task.
-   * - Session grants live in memory and expire on process restart.
+   * - Session grants live in Redis with a 4h sliding TTL (so they survive
+   *   cross-instance routing on Fly). A local in-memory fallback is kept
+   *   for single-instance dev without Redis.
    * - "always" grants are persisted on the dispatcher's Telegram
    *   connected-account `settings.autoApprovedSubroutines` array.
    */
@@ -787,10 +789,27 @@ export class DispatchEngine extends EventEmitter {
   ): Promise<boolean> {
     if (!subroutineName || !dispatcherUserId) return false
 
-    // 1. Session grants (in-memory)
+    // 1. Session grants — check local cache first, then Redis (for cross-instance).
     if (sessionKey) {
-      const grant = this.sessionGrants.get(this.sessionGrantKey(dispatcherUserId, sessionKey))
+      const localKey = this.sessionGrantKey(dispatcherUserId, sessionKey)
+      const grant = this.sessionGrants.get(localKey)
       if (grant && grant.has(subroutineName)) return true
+      try {
+        const hit = await redisPubSub.hasSessionApprovalGrant(
+          dispatcherUserId,
+          sessionKey,
+          subroutineName,
+        )
+        if (hit) {
+          // Warm the local cache so subsequent checks on this instance are free.
+          const set = this.sessionGrants.get(localKey) ?? new Set<string>()
+          set.add(subroutineName)
+          this.sessionGrants.set(localKey, set)
+          return true
+        }
+      } catch (err) {
+        console.warn('[dispatch] session-grant Redis lookup failed:', err)
+      }
     }
 
     // 2. Always grants (connected_accounts.settings JSONB)
@@ -984,6 +1003,18 @@ export class DispatchEngine extends EventEmitter {
         const set = this.sessionGrants.get(key) ?? new Set<string>()
         set.add(pending.subroutineName)
         this.sessionGrants.set(key, set)
+        // Write-through to Redis so other Fly instances see the grant.
+        // In single-instance dev without Redis this is a no-op and the
+        // in-memory map above is the only store.
+        try {
+          await redisPubSub.addSessionApprovalGrant(
+            pending.dispatcherUserId,
+            pending.sessionKey,
+            pending.subroutineName,
+          )
+        } catch (err) {
+          console.warn('[dispatch] session-grant Redis write failed:', err)
+        }
         console.log(
           `[dispatch] session-grant recorded: user=${pending.dispatcherUserId} session=${pending.sessionKey} subroutine=${pending.subroutineName}`,
         )
