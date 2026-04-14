@@ -639,7 +639,7 @@ function ProjectInfoSection({ project }: { project: Project }) {
       <div className="border-b border-border/30">
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none overflow-hidden"
+        className="flex items-center gap-2 px-4 h-8 text-[12px] text-muted-foreground hover:bg-muted/20 transition-colors cursor-pointer select-none"
       >
         <Tooltip>
           <TooltipTrigger asChild>
