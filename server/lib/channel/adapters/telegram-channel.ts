@@ -37,6 +37,12 @@ import {
 } from './telegram-api.js'
 import { parseAllowlist, isUserAllowed } from './telegram-auth.js'
 import { bufferMedia, type BufferedMedia, type BatchResult } from './telegram-media-batch.js'
+import {
+  compileMentionPatterns,
+  shouldProcessMessage,
+  type CompiledMention,
+} from './telegram-mention.js'
+import { getModelProviders } from './telegram-commands.js'
 
 // ---------------------------------------------------------------------------
 // Thin local wrappers — preserve the call-site signatures used throughout
@@ -88,7 +94,9 @@ const LINK_TOKEN_TTL_MS = 5 * 60 * 1000 // 5 minutes
 class TelegramChannelAdapter {
   private botToken: string | null = null
   private botUsername: string | null = null
+  private botId: number | null = null
   private _started = false
+  private mentionPatterns: CompiledMention | null = null
 
   get isConfigured(): boolean {
     return this.botToken !== null && this.botUsername !== null
@@ -116,9 +124,22 @@ class TelegramChannelAdapter {
       return
     }
 
-    const botInfo = me.result as { username?: string; first_name?: string }
+    const botInfo = me.result as { id?: number; username?: string; first_name?: string }
     this.botToken = token
     this.botUsername = botInfo.username || process.env.TELEGRAM_BOT_USERNAME || null
+    this.botId = typeof botInfo.id === 'number' ? botInfo.id : null
+
+    // Compile mention-gating patterns once at startup. Per-account settings
+    // are not yet wired; we only honour the env-level configuration.
+    const requireMention = (() => {
+      const raw = (process.env.TELEGRAM_REQUIRE_MENTION ?? '').trim().toLowerCase()
+      if (raw === '0' || raw === 'false' || raw === 'no') return false
+      return true
+    })()
+    this.mentionPatterns = compileMentionPatterns(
+      process.env.TELEGRAM_MENTION_PATTERNS,
+      { requireMention },
+    )
 
     if (!this.botUsername) {
       console.error('[telegram] Could not determine bot username — adapter disabled')
@@ -400,11 +421,35 @@ class TelegramChannelAdapter {
     if (isGroupChat && threadId) {
       const projectId = await this.resolveTopicProject(chatId, threadId)
       if (projectId) {
+        // Bound forum topics bypass mention gating — the binding is itself
+        // the opt-in signal that the bot should respond to every message.
         await this.handleTopicChatMessage(chatId, threadId, text, projectId, from, attachments)
         return
       }
       // Message in an unbound topic — silently ignore (don't spam the group)
       return
+    }
+
+    // ── Group-chat mention gating ───────────────────────────────────────────
+    // For plain group messages (not commands, not in a bound forum topic),
+    // only respond when the user explicitly addresses the bot. Private chats
+    // are unaffected.
+    if (isGroupChat && this.mentionPatterns && this.botUsername) {
+      const replyTo = msg.reply_to_message as { from?: { id?: number | string } } | undefined
+      const decision = shouldProcessMessage(
+        {
+          text,
+          chatId,
+          threadId,
+          botUsername: this.botUsername,
+          botId: this.botId ?? undefined,
+          replyToFromId: replyTo?.from?.id,
+        },
+        this.mentionPatterns,
+      )
+      if (!decision.process) {
+        return
+      }
     }
 
     // ── Private chat non-command text → AI chat session ─────────────────────
@@ -754,10 +799,12 @@ class TelegramChannelAdapter {
     }
 
     // Verify the button tapper has a connected Astro account — prevents replay attacks
-    // and anonymous users from responding to approvals.
+    // and anonymous users from responding to approvals. Also capture the caller's
+    // Astro userId so respondToApproval can check dispatcher-level authorization.
+    let callerUserId: string | null = null
     if (fromId) {
       const [account] = await db
-        .select({ id: connectedAccounts.id })
+        .select({ id: connectedAccounts.id, userId: connectedAccounts.userId })
         .from(connectedAccounts)
         .where(
           and(
@@ -776,6 +823,7 @@ class TelegramChannelAdapter {
         )
         return
       }
+      callerUserId = account.userId ?? null
     }
 
     // Parse callback data
@@ -812,15 +860,16 @@ class TelegramChannelAdapter {
       selectedOption = parts.slice(1).join(':')
       approved = true
     } else if (data.startsWith('mp:') || data.startsWith('mm:')) {
-      // /model drill-down callbacks. This is a parity shim for wave 3 —
-      // the full picker UI lives in telegram-commands.ts and will wire up
-      // properly in a follow-up. For now we acknowledge the tap so the
-      // user gets feedback and the spinner clears.
-      if (data === 'mp:cancel') {
+      // /model picker callbacks.
+      //   mp:__cancel__       → cancel
+      //   mp:__back__         → re-show provider list
+      //   mp:<providerSlug>   → drill into that provider's model list
+      //   mm:<provider>:<model> → persist selection
+      if (data === 'mp:cancel' || data === 'mp:__cancel__') {
         await answerCallbackQuery(this.botToken, callbackId, 'Cancelled')
         if (messageId && chatId) {
           try {
-            await editMessageText(this.botToken, chatId, messageId, 'Cancelled')
+            await editMessageText(this.botToken, chatId, messageId, '❌ Model selection cancelled')
           } catch {
             /* ignore edit failures */
           }
@@ -828,11 +877,64 @@ class TelegramChannelAdapter {
         return
       }
       if (data.startsWith('mp:')) {
-        await answerCallbackQuery(this.botToken, callbackId, 'Model picker coming soon')
+        const providerSlug = data.slice(3)
+        const providers = getModelProviders()
+        if (providerSlug === '__back__') {
+          // Re-show provider list
+          const providerKeyboard: Array<Array<{ text: string; callback_data: string }>> = providers.map((p) => [
+            { text: p.label, callback_data: `mp:${p.id}` },
+          ])
+          providerKeyboard.push([{ text: '✖️ Cancel', callback_data: 'mp:__cancel__' }])
+          if (messageId && chatId) {
+            try {
+              await apiEditMessageText(
+                this.botToken,
+                chatId,
+                messageId,
+                '<b>🧠 Select a provider</b>\n\nChoose a model provider, then pick a specific model.',
+                { parseMode: 'HTML', replyMarkup: { inline_keyboard: providerKeyboard } },
+              )
+            } catch {
+              /* ignore edit failures */
+            }
+          }
+          await answerCallbackQuery(this.botToken, callbackId)
+          return
+        }
+        const provider = providers.find((p) => p.id === providerSlug)
+        if (!provider) {
+          await answerCallbackQuery(this.botToken, callbackId, 'Unknown provider')
+          return
+        }
+        // Build keyboard of models for this provider (one model per row).
+        const modelKeyboard: Array<Array<{ text: string; callback_data: string }>> = provider.models.map((m) => [
+          { text: m, callback_data: `mm:${provider.id}:${m}` },
+        ])
+        modelKeyboard.push([
+          { text: '⬅️ Back', callback_data: 'mp:__back__' },
+          { text: '✖️ Cancel', callback_data: 'mp:__cancel__' },
+        ])
+        if (messageId && chatId) {
+          try {
+            await apiEditMessageText(
+              this.botToken,
+              chatId,
+              messageId,
+              `<b>🧠 ${provider.label}</b>\n\nSelect a model:`,
+              { parseMode: 'HTML', replyMarkup: { inline_keyboard: modelKeyboard } },
+            )
+          } catch {
+            /* ignore edit failures */
+          }
+        }
+        await answerCallbackQuery(this.botToken, callbackId)
         return
       }
       // data.startsWith('mm:') — persist preferred model to the account mapping.
-      const model = data.slice(3)
+      // Payload: mm:<providerSlug>:<modelSlug>  (legacy: mm:<modelSlug>)
+      const mmRest = data.slice(3)
+      const firstColon = mmRest.indexOf(':')
+      const model = firstColon >= 0 ? mmRest.slice(firstColon + 1) : mmRest
       if (fromId && model) {
         try {
           const [account] = await db
@@ -878,17 +980,20 @@ class TelegramChannelAdapter {
     // Call the approval API
     try {
       const { dispatchEngine } = await import('../../dispatch/index.js')
-      // TODO(wave3): dispatchEngine.respondToApproval will accept a bag
-      // { choice, selectedOption } as the third arg. For now we pass both
-      // shapes: legacy `selectedOption` positional + a cast call with bag.
       if (choice !== undefined) {
-        await (dispatchEngine.respondToApproval as unknown as (
-          id: string,
-          approved: boolean,
-          extra: { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string },
-        ) => Promise<void>)(approvalId, approved, { choice, selectedOption })
+        await dispatchEngine.respondToApproval(
+          approvalId,
+          approved,
+          { choice, selectedOption },
+          callerUserId ?? undefined,
+        )
       } else {
-        await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+        await dispatchEngine.respondToApproval(
+          approvalId,
+          approved,
+          selectedOption,
+          callerUserId ?? undefined,
+        )
       }
 
       // Update the message to show the response
@@ -926,6 +1031,13 @@ class TelegramChannelAdapter {
           const originalText = (message?.text as string) || 'Approval request'
           await editMessageText(this.botToken, chatId, messageId, `${originalText}\n\n⚠️ <b>Expired or already handled</b>`)
         }
+      } else if (errMsg.includes('not authorized')) {
+        await answerCallbackQuery(
+          this.botToken,
+          callbackId,
+          'Not authorized — only the task dispatcher can approve this',
+          true,
+        )
       } else {
         await answerCallbackQuery(this.botToken, callbackId, `Error: ${errMsg.slice(0, 100)}`)
       }

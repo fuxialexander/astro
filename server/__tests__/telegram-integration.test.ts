@@ -741,7 +741,7 @@ describe('Telegram Bidirectional Integration', () => {
         },
       })
 
-      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-001', true, undefined)
+      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-001', true, undefined, undefined)
 
       const editCalls = fetchCalls.filter(c => c.url.includes('/editMessageText'))
       expect(editCalls).toHaveLength(1)
@@ -772,7 +772,7 @@ describe('Telegram Bidirectional Integration', () => {
         },
       })
 
-      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-003', false, undefined)
+      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-003', false, undefined, undefined)
 
       const editCalls = fetchCalls.filter(c => c.url.includes('/editMessageText'))
       expect(editCalls).toHaveLength(1)
@@ -797,7 +797,7 @@ describe('Telegram Bidirectional Integration', () => {
         },
       })
 
-      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-004', true, 'Production')
+      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-004', true, 'Production', undefined)
 
       const editCalls = fetchCalls.filter(c => c.url.includes('/editMessageText'))
       expect(editCalls[0].body.text).toContain('Approved: Production')
@@ -821,7 +821,7 @@ describe('Telegram Bidirectional Integration', () => {
         },
       })
 
-      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-005', true, 'env:staging:us-east-1')
+      expect(mockRespondToApproval).toHaveBeenCalledWith('appr-005', true, 'env:staging:us-east-1', undefined)
     })
 
     it('should handle unknown callback data gracefully', async () => {

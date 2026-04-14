@@ -3356,11 +3356,17 @@ dispatchRoute.post('/approve', async (c) => {
     return c.json({ success: false, error: 'approved (boolean) required' }, 400)
   }
 
+  const approveUser = c.get('user') as AuthUser | undefined
   try {
-    await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+    await dispatchEngine.respondToApproval(approvalId, approved, selectedOption, approveUser?.id)
     return c.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+
+    // Authorization failure — surface as 403 so frontend can show it.
+    if (message.includes('not authorized')) {
+      return c.json({ success: false, error: message }, 403)
+    }
 
     // Durable approval recovery: Promise lost (server restart or execution completed)
     if (message.includes('No pending approval found')) {

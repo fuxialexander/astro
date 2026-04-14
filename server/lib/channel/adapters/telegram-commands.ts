@@ -611,12 +611,15 @@ async function handleApprove(ctx: CommandContext): Promise<string> {
   }
 
   try {
-    await dispatchEngine.respondToApproval(approvalId, true)
+    await dispatchEngine.respondToApproval(approvalId, true, undefined, ctx.userId)
     return `✅ Approved: <code>${escapeHtml(approvalId)}</code>`
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('No pending approval found')) {
       return `This approval has expired or was already handled.`
+    }
+    if (msg.includes('not authorized')) {
+      return `❌ Not authorized — only the task dispatcher can approve this.`
     }
     return `❌ Approval failed: ${msg}`
   }

@@ -414,51 +414,6 @@ export async function downloadFile(token: string, filePath: string): Promise<Buf
 // SSRF guard
 // ---------------------------------------------------------------------------
 
-/**
- * Return false for URLs that should not be blindly passed to Telegram
- * as a media URL (could be used to probe internal services).
- *
- * Rejects: non-https, localhost/127.0.0.1/::1, RFC1918 private ranges,
- * link-local, .internal/.local suffixes.
- */
-export function isSafeUrl(url: string): boolean {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return false
-  }
-  if (parsed.protocol !== 'https:') return false
-
-  const host = parsed.hostname.toLowerCase()
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false
-  if (host.endsWith('.internal') || host.endsWith('.local')) return false
-
-  // IPv4 literal check.
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (ipv4) {
-    const a = Number(ipv4[1])
-    const b = Number(ipv4[2])
-    // 10.0.0.0/8
-    if (a === 10) return false
-    // 127.0.0.0/8
-    if (a === 127) return false
-    // 169.254.0.0/16 (link-local)
-    if (a === 169 && b === 254) return false
-    // 172.16.0.0/12
-    if (a === 172 && b >= 16 && b <= 31) return false
-    // 192.168.0.0/16
-    if (a === 192 && b === 168) return false
-    // 0.0.0.0/8
-    if (a === 0) return false
-  }
-
-  // Crude IPv6 link-local / loopback check.
-  if (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return false
-
-  return true
-}
-
 // ---------------------------------------------------------------------------
 // safeSend — BadRequest recovery wrapper
 // ---------------------------------------------------------------------------

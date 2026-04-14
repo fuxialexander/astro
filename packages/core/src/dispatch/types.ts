@@ -276,6 +276,10 @@ export interface DispatchRequest {
   dispatchOrigin?: DispatchOrigin
   /** Telegram context when dispatched from Telegram */
   telegramContext?: TelegramDispatchContext
+  /** Astro user ID of the person who initiated this dispatch. Used for
+   * approval authorization — only the dispatcher can respond to this
+   * task's approval requests. */
+  dispatcherUserId?: string
 }
 
 /**

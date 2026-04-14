@@ -112,6 +112,8 @@ export class DispatchEngine extends EventEmitter {
     executionId: string
     abortController: AbortController
     projectId: string
+    /** Astro user ID of the dispatcher (for approval authorization) */
+    dispatcherUserId?: string
   }>()
 
   /** Pending approvals waiting for user response */
@@ -121,6 +123,8 @@ export class DispatchEngine extends EventEmitter {
     nodeId: string
     projectId: string
     executionId: string
+    /** Astro user ID of the dispatcher — only this user may respond. */
+    dispatcherUserId?: string
   }>()
 
   /**
@@ -259,7 +263,7 @@ export class DispatchEngine extends EventEmitter {
     })
 
     // Start execution immediately
-    this.executeTask(queueEntry, nodes, edges, project)
+    this.executeTask(queueEntry, nodes, edges, project, request.dispatcherUserId)
 
     return { success: true, queueEntry }
   }
@@ -424,7 +428,8 @@ export class DispatchEngine extends EventEmitter {
     queueEntry: DispatchQueueEntry,
     nodes: PlanNode[],
     edges: PlanEdge[],
-    project?: Project
+    project?: Project,
+    dispatcherUserId?: string,
   ): Promise<void> {
     if (!this.executionCallback || !this.nodeUpdateCallback) {
       console.error('[dispatch] Execution callback not configured')
@@ -450,6 +455,7 @@ export class DispatchEngine extends EventEmitter {
       executionId,
       abortController,
       projectId: queueEntry.projectId,
+      dispatcherUserId,
     })
 
     // Update queue and node status
@@ -603,7 +609,7 @@ export class DispatchEngine extends EventEmitter {
           const delay = this.queue.calculateRetryDelay(queueEntry)
           setTimeout(() => {
             if (this.running) {
-              this.executeTask(failResult.entry, nodes, edges, project)
+              this.executeTask(failResult.entry, nodes, edges, project, dispatcherUserId)
             }
           }, delay)
         } else {
@@ -735,10 +741,12 @@ export class DispatchEngine extends EventEmitter {
     node: PlanNode,
     subroutine: { name: string; approvalMessage?: string; approvalOptions?: string[] }
   ): Promise<boolean | string> {
-    const executionId = this.activeExecutions.get(node.id)?.executionId
+    const exec = this.activeExecutions.get(node.id)
+    const executionId = exec?.executionId
     if (!executionId) {
       throw new Error('No active execution found for approval request')
     }
+    const dispatcherUserId = exec?.dispatcherUserId
 
     const approvalId = `approval-${node.id}-${Date.now()}`
 
@@ -780,6 +788,7 @@ export class DispatchEngine extends EventEmitter {
         nodeId: node.id,
         projectId: node.projectId,
         executionId,
+        dispatcherUserId,
       })
     })
   }
@@ -801,7 +810,8 @@ export class DispatchEngine extends EventEmitter {
     approved: boolean,
     optsOrSelectedOption?:
       | string
-      | { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string }
+      | { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string },
+    callerUserId?: string,
   ): Promise<void> {
     // Normalize the overloaded third arg.
     let selectedOption: string | undefined
@@ -819,6 +829,18 @@ export class DispatchEngine extends EventEmitter {
     const pending = this.pendingApprovals.get(approvalId)
     if (!pending) {
       throw new Error(`No pending approval found for ID: ${approvalId}`)
+    }
+
+    // Authorization: only the dispatcher may respond to their own approval.
+    // Skip the check when the pending record has no dispatcher recorded
+    // (e.g. legacy tasks dispatched before this field existed) so existing
+    // flows keep working.
+    if (pending.dispatcherUserId && callerUserId !== pending.dispatcherUserId) {
+      console.warn(
+        `[dispatch] Unauthorized approval attempt: approvalId=${approvalId} ` +
+          `dispatcher=${pending.dispatcherUserId} caller=${callerUserId ?? '<none>'}`,
+      )
+      throw new Error('not authorized: only the dispatcher can respond to this approval')
     }
 
     // Record idempotency BEFORE awaiting side-effects.
@@ -929,6 +951,7 @@ export class DispatchEngine extends EventEmitter {
         nodeId,
         projectId: execInfo.projectId,
         executionId,
+        dispatcherUserId: execInfo.dispatcherUserId,
       })
     })
   }
