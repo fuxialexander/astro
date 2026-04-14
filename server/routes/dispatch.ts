@@ -465,8 +465,9 @@ dispatchRoute.post('/task', async (c) => {
     isFollowUp,
     followUpMessage,
     dispatchOrigin,
-    telegramContext,
   } = body
+  // telegramContext is re-assigned below to enforce server-controlled userId
+  let telegramContext = body.telegramContext
 
   // These variables may be resolved from DB when not provided by the client
   let {
@@ -536,6 +537,19 @@ dispatchRoute.post('/task', async (c) => {
   // (githubIssueUrl, githubIssueNumber) are resolved even when the
   // frontend sends all primary fields (title, description, etc.).
   const user = c.get('user') as AuthUser | undefined
+
+  // Prevent Telegram context forgery: if a client sends `telegramContext`
+  // in the HTTP body, force its `userId` to the authenticated user so an
+  // attacker cannot impersonate another Astro user. Also validate that
+  // `chatId` is a numeric string (Telegram format) to prevent prompt
+  // injection through that field.
+  if (telegramContext) {
+    if (!/^-?\d+$/.test(String(telegramContext.chatId ?? ''))) {
+      return c.json({ error: 'Invalid telegramContext.chatId' }, 400)
+    }
+    telegramContext = { ...telegramContext, userId: user?.id }
+  }
+
   // Loop/type fields extracted from dbNode inside the try block (same pattern as nodeNumber, title, etc.)
   let nodeType: string | null | undefined
   let loopConfig: import('../../packages/core/src/types.js').LoopConfig | undefined

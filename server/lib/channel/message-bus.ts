@@ -7,6 +7,13 @@
  *
  * Inspired by Ductor's Envelope/MessageBus pattern — all outbound
  * messages flow through a single bus, decoupling production from delivery.
+ *
+ * ⚠️ SECURITY / ISOLATION:
+ * This bus has NO built-in user/team isolation. All subscribers of a given
+ * envelope type receive ALL envelopes of that type, regardless of which team
+ * or user produced them. Handlers MUST filter by `envelope.teamId` /
+ * `envelope.userId` (or whatever identity field is on their envelope) before
+ * acting on a message. Do not assume the bus does this filtering for you.
  */
 
 import type {
