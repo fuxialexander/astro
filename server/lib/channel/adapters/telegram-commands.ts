@@ -49,8 +49,20 @@ export interface CommandContext {
   groupChatId?: string
 }
 
+/**
+ * Command handler result.
+ *
+ * Most commands just return a string (HTML-formatted text). Commands that
+ * need to attach an inline keyboard return `{ text, replyMarkup }`. `null`
+ * means "no reply" (command silently consumed the message).
+ */
+export type CommandResult =
+  | string
+  | { text: string; replyMarkup: unknown }
+  | null
+
 /** A command handler function */
-export type CommandHandler = (ctx: CommandContext) => Promise<string>
+export type CommandHandler = (ctx: CommandContext) => Promise<CommandResult>
 
 /** Telegram Bot API command description for setMyCommands */
 interface BotCommand {
@@ -93,7 +105,7 @@ export class CommandRegistry {
   }
 
   /** Execute a command */
-  async execute(name: string, ctx: CommandContext): Promise<string> {
+  async execute(name: string, ctx: CommandContext): Promise<CommandResult> {
     const entry = this.commands.get(name.toLowerCase())
     if (!entry) {
       return `Unknown command: /${name}\n\nType /help for available commands.`
@@ -856,13 +868,69 @@ async function handleTopics(ctx: CommandContext): Promise<string> {
   return `<b>📌 Topic Bindings</b>\n\n${lines.join('\n')}\n\nUse /bind or /unbind to manage bindings.`
 }
 
+// ---------------------------------------------------------------------------
+// /model — provider + model picker (drill-down via inline keyboard)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal provider/model registry for the Telegram picker.
+ *
+ * NOTE: Kept intentionally small. The downstream callback handler
+ * (`mp:<provider>` -> model list, `mm:<model>` -> write to
+ * connectedAccounts.mappings.preferredModel) lives in telegram-channel.ts;
+ * this file only produces the initial provider keyboard.
+ */
+const MODEL_PROVIDERS: Array<{ id: string; label: string; models: string[] }> = [
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    models: [
+      'claude-opus-4-5',
+      'claude-sonnet-4-5',
+      'claude-haiku-4-5',
+    ],
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    models: [
+      'gpt-5',
+      'gpt-5-mini',
+      'o4',
+    ],
+  },
+]
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function handleHelp(_ctx: CommandContext): Promise<string> {
+async function handleModel(_ctx: CommandContext): Promise<CommandResult> {
+  // Emit the initial provider keyboard. The callback handler in
+  // telegram-channel.ts responds to `mp:<provider>` (show model list) and
+  // `mm:<model>` (confirm selection + persist to connectedAccounts.mappings
+  // .preferredModel). We use a transient `modelPicker` field in mappings for
+  // intermediate state if needed.
+  const inlineKeyboard = MODEL_PROVIDERS.map((p) => [
+    { text: p.label, callback_data: `mp:${p.id}` },
+  ])
+  inlineKeyboard.push([{ text: '✖️ Cancel', callback_data: 'mp:cancel' }])
+  return {
+    text: '<b>🧠 Select a provider</b>\n\nChoose a model provider, then pick a specific model.',
+    replyMarkup: { inline_keyboard: inlineKeyboard },
+  }
+}
+
+/** Exported so telegram-channel.ts can reuse the same provider/model registry. */
+export function getModelProviders(): typeof MODEL_PROVIDERS {
+  return MODEL_PROVIDERS
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function handleHelp(_ctx: CommandContext): Promise<CommandResult> {
   return (
     '<b>🤖 Astro Bot Commands</b>\n\n'
     + '<b>Chat</b>\n'
     + '/bind &lt;project-id&gt; — Link a project for chat\n'
     + '/new — Start a fresh chat session\n'
+    + '/model — Select a model provider and model\n'
     + '\n<b>Projects &amp; Tasks</b>\n'
     + '/projects — List your active projects\n'
     + '/plan &lt;id&gt; — Show plan tree for a project\n'
@@ -877,7 +945,8 @@ async function handleHelp(_ctx: CommandContext): Promise<string> {
     + '/unbind — Remove the binding for this topic\n'
     + '/topics — List all topic bindings in this group\n'
     + '\nTip: Use short IDs or task numbers (e.g., /task 42)\n'
-    + '\n<i>Once bound to a project, just send any message to chat with the AI!</i>'
+    + '\n<i>The bot now accepts photos, voice notes, and documents as input — just send them directly.</i>\n'
+    + '<i>Once bound to a project, just send any message to chat with the AI!</i>'
   )
 }
 
@@ -960,6 +1029,7 @@ export const commandRegistry = new CommandRegistry()
 // Register all commands
 commandRegistry.register('bind', 'Link a project for AI chat', handleBind)
 commandRegistry.register('new', 'Start a fresh chat session', handleNew)
+commandRegistry.register('model', 'Select a model provider and model', handleModel)
 commandRegistry.register('projects', 'List your active projects', handleProjects)
 commandRegistry.register('plan', 'Show plan tree for a project', handlePlan)
 commandRegistry.register('task', 'Show task details', handleTask)
@@ -992,7 +1062,7 @@ export async function handleCommand(
   chatId: string,
   botToken: string,
   options?: { fromId?: string; threadId?: string; isGroupChat?: boolean },
-): Promise<string | null> {
+): Promise<CommandResult> {
   // Must start with /
   if (!text.startsWith('/')) return null
 

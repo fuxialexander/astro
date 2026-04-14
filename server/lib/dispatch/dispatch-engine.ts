@@ -785,13 +785,34 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
-   * Handle approval response from user
+   * Handle approval response from user.
+   *
+   * Back-compat:
+   *   respondToApproval(id, true)                         // boolean only
+   *   respondToApproval(id, true, 'option text')          // legacy string selectedOption
+   *   respondToApproval(id, true, { selectedOption, choice }) // new options bag
+   *
+   * `choice` is a forward-compat hint — valid values: 'once' | 'session' | 'always' | 'deny'.
+   * Semantics of 'session'/'always' are not fully wired yet; the value is recorded in the
+   * emitted event metadata and round-trips through storage without type errors.
    */
   async respondToApproval(
     approvalId: string,
     approved: boolean,
-    selectedOption?: string
+    optsOrSelectedOption?:
+      | string
+      | { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string }
   ): Promise<void> {
+    // Normalize the overloaded third arg.
+    let selectedOption: string | undefined
+    let choice: 'once' | 'session' | 'always' | 'deny' | undefined
+    if (typeof optsOrSelectedOption === 'string') {
+      selectedOption = optsOrSelectedOption
+    } else if (optsOrSelectedOption && typeof optsOrSelectedOption === 'object') {
+      selectedOption = optsOrSelectedOption.selectedOption
+      choice = optsOrSelectedOption.choice
+    }
+
     // Idempotency: already responded during this server session (duplicate request)
     if (this.respondedApprovals.has(approvalId)) return
 
@@ -823,6 +844,7 @@ export class DispatchEngine extends EventEmitter {
       executionId: pending.executionId,
       approved,
       selectedOption,
+      choice,
       timestamp: new Date(),
     })
 

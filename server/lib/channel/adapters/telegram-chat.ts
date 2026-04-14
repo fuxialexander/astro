@@ -28,6 +28,18 @@ import type {
   TaskTextMessage,
   TaskSessionInitMessage,
 } from '../../../types/relay.js'
+import {
+  sendMessage,
+  editMessageText,
+  sendChatAction,
+  safeSend,
+  type TelegramApiResponse,
+} from './telegram-api.js'
+import { toMarkdownV2, stripMdv2 } from './telegram-markdown-v2.js'
+import { chunkMessage } from './telegram-chunking.js'
+
+/** How the first chunk of a multi-chunk reply relates to the originating user message. */
+export type ReplyToMode = 'off' | 'first' | 'all'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,51 +80,40 @@ export interface ChatSessionMappings {
 }
 
 // ---------------------------------------------------------------------------
-// Telegram API helpers (self-contained to avoid circular imports)
+// Telegram API thin wrappers (delegate to ./telegram-api.js)
 // ---------------------------------------------------------------------------
 
-async function telegramApiCall(
-  token: string,
-  method: string,
-  body?: Record<string, unknown>,
-): Promise<{ ok: boolean; result?: unknown; description?: string }> {
-  const resp = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return resp.json() as Promise<{ ok: boolean; result?: unknown; description?: string }>
+function extractMessageId(resp: TelegramApiResponse): number | null {
+  if (!resp.ok) return null
+  const result = resp.result as { message_id?: number } | undefined
+  return result?.message_id ?? null
 }
 
-/** Send a message and return the message_id */
+/** Send a text message and return the new message_id (or null on failure). */
 export async function sendTgMessage(
   token: string,
   chatId: string,
   text: string,
   parseMode: 'HTML' | 'MarkdownV2' = 'HTML',
+  opts: { threadId?: string; replyToMessageId?: number } = {},
 ): Promise<number | null> {
-  const resp = await telegramApiCall(token, 'sendMessage', {
-    chat_id: chatId,
-    text: text.slice(0, TG_MESSAGE_LIMIT),
-    parse_mode: parseMode,
+  const resp = await sendMessage(token, chatId, text, {
+    parseMode,
+    threadId: opts.threadId,
+    replyToMessageId: opts.replyToMessageId,
   })
-  if (!resp.ok) return null
-  return (resp.result as { message_id: number } | undefined)?.message_id ?? null
+  return extractMessageId(resp)
 }
 
-/** Edit an existing message's text */
+/** Edit an existing message's text. Swallows failures (rate-limit / unchanged). */
 async function editTgMessage(
   token: string,
   chatId: string,
   messageId: number,
   text: string,
+  parseMode: 'HTML' | 'MarkdownV2' = 'HTML',
 ): Promise<void> {
-  await telegramApiCall(token, 'editMessageText', {
-    chat_id: chatId,
-    message_id: messageId,
-    text: text.slice(0, TG_MESSAGE_LIMIT),
-    parse_mode: 'HTML',
-  }).catch(() => { /* ignore edit failures — rate limit or unchanged text */ })
+  await editMessageText(token, chatId, messageId, text, { parseMode }).catch(() => { /* ignore */ })
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,86 @@ export interface DispatchChatResult {
 }
 
 /**
+ * Deliver the final MarkdownV2-formatted response as one or more Telegram
+ * messages. Earlier chunks are sent as new messages; the last chunk replaces
+ * the in-place "thinking" message via editMessageText. Parse errors
+ * gracefully degrade to plain text (stripMdv2) via safeSend.
+ */
+async function deliverFinalChunks(args: {
+  botToken: string
+  chatId: string
+  threadId?: string
+  replyToMessageId?: number
+  replyToMode: ReplyToMode
+  messageId: number | null
+  chunks: Array<{ text: string; isFirst: boolean; isLast: boolean }>
+}): Promise<void> {
+  const { botToken, chatId, threadId, replyToMessageId, replyToMode, messageId, chunks } = args
+  if (chunks.length === 0) return
+
+  const replyIdForChunk = (chunkIndex: number): number | undefined => {
+    if (replyToMessageId === undefined) return undefined
+    if (replyToMode === 'off') return undefined
+    if (replyToMode === 'all') return replyToMessageId
+    // 'first'
+    return chunkIndex === 0 ? replyToMessageId : undefined
+  }
+
+  // Earlier chunks: send as new messages (in order).
+  for (let i = 0; i < chunks.length - 1; i++) {
+    const chunk = chunks[i]
+    const rid = replyIdForChunk(i)
+    await safeSend(
+      () => sendMessage(botToken, chatId, chunk.text, {
+        parseMode: 'MarkdownV2',
+        threadId,
+        replyToMessageId: rid,
+      }),
+      {
+        retryWithoutParseMode: () => sendMessage(botToken, chatId, stripMdv2(chunk.text), {
+          threadId,
+          replyToMessageId: rid,
+        }),
+        retryWithoutReply: () => sendMessage(botToken, chatId, chunk.text, {
+          parseMode: 'MarkdownV2',
+          threadId,
+        }),
+      },
+    ).catch(() => {})
+  }
+
+  // Final chunk: edit the thinking-message in-place if we have one, else send.
+  const last = chunks[chunks.length - 1]
+  const lastReplyId = replyIdForChunk(chunks.length - 1)
+  if (messageId) {
+    await safeSend(
+      () => editMessageText(botToken, chatId, messageId, last.text, { parseMode: 'MarkdownV2' }),
+      {
+        retryWithoutParseMode: () => editMessageText(botToken, chatId, messageId, stripMdv2(last.text)),
+      },
+    ).catch(() => {})
+  } else {
+    await safeSend(
+      () => sendMessage(botToken, chatId, last.text, {
+        parseMode: 'MarkdownV2',
+        threadId,
+        replyToMessageId: lastReplyId,
+      }),
+      {
+        retryWithoutParseMode: () => sendMessage(botToken, chatId, stripMdv2(last.text), {
+          threadId,
+          replyToMessageId: lastReplyId,
+        }),
+        retryWithoutReply: () => sendMessage(botToken, chatId, last.text, {
+          parseMode: 'MarkdownV2',
+          threadId,
+        }),
+      },
+    ).catch(() => {})
+  }
+}
+
+/**
  * Dispatch a chat message to the relay and stream the response back to Telegram
  * by editing the initial "thinking" message as text arrives.
  */
@@ -288,9 +369,44 @@ export async function dispatchChatToTelegram(opts: {
   userId: string
   userMessage: string
   session: TelegramChatSession
+  /** Optional thread (forum topic) to send to. */
+  threadId?: string
+  /** Optional id of the incoming user message to reply to. */
+  replyToMessageId?: number
+  /** Reply-to policy for multi-chunk replies. Default: 'first'. */
+  replyToMode?: ReplyToMode
+  /** Optional image references (data: URLs) extracted from the inbound Telegram message. */
+  imageRefs?: string[]
 }): Promise<DispatchChatResult> {
-  const { botToken, chatId, userId, userMessage, session } = opts
+  const {
+    botToken,
+    chatId,
+    userId,
+    userMessage,
+    session,
+    threadId,
+    replyToMessageId,
+    imageRefs,
+  } = opts
+  const replyToMode: ReplyToMode = opts.replyToMode ?? 'first'
   const taskId = session.streamId
+
+  // Kick off (and periodically refresh) a "typing…" action for as long as the
+  // agent is thinking. Telegram clears this automatically after ~5s so we
+  // refresh every 4s. Any failure here is non-fatal.
+  let typingInterval: ReturnType<typeof setInterval> | null = null
+  try {
+    await sendChatAction(botToken, chatId, 'typing', threadId).catch(() => {})
+    typingInterval = setInterval(() => {
+      sendChatAction(botToken, chatId, 'typing', threadId).catch(() => {})
+    }, 4000)
+  } catch { /* ignore */ }
+  const stopTyping = () => {
+    if (typingInterval) {
+      clearInterval(typingInterval)
+      typingInterval = null
+    }
+  }
 
   // 1. Verify project still exists
   const [project] = await db
@@ -304,6 +420,7 @@ export async function dispatchChatToTelegram(opts: {
     .limit(1)
 
   if (!project) {
+    stopTyping()
     return {
       response: '',
       newSessionId: null,
@@ -316,8 +433,12 @@ export async function dispatchChatToTelegram(opts: {
   // 2. Build system prompt
   const systemPrompt = await buildTelegramSystemPrompt(session.projectId)
 
-  // 3. Send initial "thinking" message to Telegram
-  const messageId = await sendTgMessage(botToken, chatId, '🤔 <i>Thinking…</i>')
+  // 3. Send initial "thinking" message to Telegram (plain HTML — mid-stream
+  //    MdV2 escaping is fragile; we swap to MdV2 on the final edit only).
+  const messageId = await sendTgMessage(botToken, chatId, '🤔 <i>Thinking…</i>', 'HTML', {
+    threadId,
+    replyToMessageId,
+  })
 
   // 4. Build history with user's new message
   const historyWithUser = appendHistory(session.messages, 'user', userMessage)
@@ -350,6 +471,7 @@ export async function dispatchChatToTelegram(opts: {
     maxTurns: 20,
     workingDirectory: project.workingDirectory ?? undefined,
     useWorktree: false,
+    ...(imageRefs && imageRefs.length > 0 ? { imageRefs } : {}),
     ...(session.sessionId ? { resumeSessionId: session.sessionId } : {}),
   }
 
@@ -364,6 +486,7 @@ export async function dispatchChatToTelegram(opts: {
     const finish = (result: DispatchChatResult) => {
       if (isDone) return
       isDone = true
+      stopTyping()
       if (editInterval) {
         clearInterval(editInterval)
         editInterval = null
@@ -426,20 +549,34 @@ export async function dispatchChatToTelegram(opts: {
         error: msg.result.error,
       }).catch(() => {})
 
-      // Final edit of Telegram message
-      if (messageId) {
-        if (isSuccess && finalText) {
-          editTgMessage(botToken, chatId, messageId, sanitizeForTelegram(finalText)).catch(() => {})
-        } else if (!isSuccess) {
-          const errText = `❌ ${msg.result.error || 'Agent returned an error'}`
-          editTgMessage(botToken, chatId, messageId, errText).catch(() => {})
+      // Final output: convert to MarkdownV2 and chunk for >4096 UTF-16 units.
+      // Chunks are delivered as follows:
+      //   • last chunk -> edit the in-place "thinking" message
+      //   • earlier chunks -> sent as new messages (in order)
+      //   • reply_to_message_id applied per `replyToMode`
+      if (isSuccess && finalText) {
+        const mdv2 = toMarkdownV2(finalText)
+        const chunks = chunkMessage(mdv2, { maxUnits: 4096 })
+        // Fire-and-forget from this SSE callback; handle errors internally.
+        void deliverFinalChunks({
+          botToken,
+          chatId,
+          threadId,
+          replyToMessageId,
+          replyToMode,
+          messageId,
+          chunks,
+        })
+      } else if (!isSuccess) {
+        const errText = `❌ ${msg.result.error || 'Agent returned an error'}`
+        if (messageId) {
+          editTgMessage(botToken, chatId, messageId, errText, 'HTML').catch(() => {})
         } else {
-          // Success but no text — shouldn't happen, but handle gracefully
-          editTgMessage(botToken, chatId, messageId, '(No response)').catch(() => {})
+          sendTgMessage(botToken, chatId, errText, 'HTML', { threadId, replyToMessageId }).catch(() => {})
         }
-      } else if (isSuccess && finalText && !messageId) {
-        // If we couldn't send initial message, send final as new message
-        sendTgMessage(botToken, chatId, sanitizeForTelegram(finalText)).catch(() => {})
+      } else if (messageId) {
+        // Success but no text — handle gracefully
+        editTgMessage(botToken, chatId, messageId, '(No response)', 'HTML').catch(() => {})
       }
 
       const assistantContent = finalText || msg.result.error || ''

@@ -325,6 +325,13 @@ export interface TaskDispatch {
   useWorktree?: boolean;
 
   /**
+   * Optional image references (data: URLs or blob IDs) attached to this task.
+   * Used by multimodal channels (Telegram media, chat uploads) to pass images
+   * to the agent runner alongside the text prompt.
+   */
+  imageRefs?: string[];
+
+  /**
    * Skip the agent runner's safety check (non-git working directory prompt).
    *
    * Set to `true` for text-only tasks (refinement, summarization, title generation)

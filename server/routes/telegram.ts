@@ -13,6 +13,7 @@ import { connectedAccounts, teams, projects, teamMembers } from '../lib/db/schem
 import { eq, and } from 'drizzle-orm'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
+import { setWebhook } from '../lib/channel/adapters/telegram-api.js'
 
 const app = new Hono()
 
@@ -364,19 +365,11 @@ app.post('/setup-webhook', async (c) => {
     webhookUrl = `${baseUrl}/api/telegram/webhook`
   }
 
-  const params: Record<string, unknown> = { url: webhookUrl }
-  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
-  if (webhookSecret) {
-    params.secret_token = webhookSecret
-  }
-
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+  const data = await setWebhook(botToken, webhookUrl, {
+    secretToken: process.env.TELEGRAM_WEBHOOK_SECRET,
+    allowedUpdates: ['message', 'callback_query', 'message_reaction', 'edited_message'],
+    dropPendingUpdates: false,
   })
-
-  const data = await response.json()
   return c.json(data)
 })
 

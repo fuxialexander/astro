@@ -176,13 +176,31 @@ class ChannelConfigManager {
         try { if (mappingsJson) chatMappings = JSON.parse(mappingsJson) } catch { /* ignore */ }
         const credentials: Record<string, unknown> = { botToken }
         if (webhookSecret) credentials.webhookSecret = webhookSecret
+        // Parse advanced telegram config from env vars (optional, all forward-compat)
+        const settings: Record<string, unknown> = {}
+        const allowlistRaw = process.env.TELEGRAM_ALLOWED_USERS
+        if (allowlistRaw) {
+          settings.allowlistUsers = allowlistRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        }
+        const mentionRaw = process.env.TELEGRAM_MENTION_PATTERNS
+        if (mentionRaw) {
+          try {
+            const parsed = JSON.parse(mentionRaw)
+            if (Array.isArray(parsed)) settings.mentionPatterns = parsed.map(String)
+          } catch {
+            settings.mentionPatterns = mentionRaw.split(',').map((s) => s.trim()).filter(Boolean)
+          }
+        }
+        if (process.env.TELEGRAM_REQUIRE_MENTION !== undefined) {
+          settings.requireMention = process.env.TELEGRAM_REQUIRE_MENTION !== 'false'
+        }
         return {
           userId: 'env',
           accountId: 'env-telegram',
           channel: 'telegram',
           credentials,
           mappings: chatMappings,
-          settings: {},
+          settings,
         }
       }
       case 'github': {

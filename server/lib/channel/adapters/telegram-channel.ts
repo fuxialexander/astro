@@ -25,29 +25,23 @@ import {
   createFreshSession,
   saveChatSession,
 } from './telegram-chat.js'
+import {
+  getMe,
+  sendMessage as apiSendMessage,
+  editMessageText as apiEditMessageText,
+  answerCallbackQuery as apiAnswerCallbackQuery,
+  getFile,
+  downloadFile,
+  safeSend,
+  type TelegramApiResponse,
+} from './telegram-api.js'
+import { parseAllowlist, isUserAllowed } from './telegram-auth.js'
+import { bufferMedia, type BufferedMedia, type BatchResult } from './telegram-media-batch.js'
 
 // ---------------------------------------------------------------------------
-// Telegram Bot API helpers (inlined from deleted plugin)
+// Thin local wrappers — preserve the call-site signatures used throughout
+// this file (default parseMode='HTML', positional args, etc.)
 // ---------------------------------------------------------------------------
-
-interface TelegramApiResponse {
-  ok: boolean
-  description?: string
-  result?: unknown
-}
-
-async function telegramApi(
-  token: string,
-  method: string,
-  body?: Record<string, unknown>
-): Promise<TelegramApiResponse> {
-  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return (await response.json()) as TelegramApiResponse
-}
 
 async function sendMessage(
   token: string,
@@ -56,25 +50,14 @@ async function sendMessage(
   options?: {
     parseMode?: 'HTML' | 'MarkdownV2'
     replyMarkup?: unknown
-    /** message_thread_id — send the message inside a forum topic */
     threadId?: string | number
-  }
+  },
 ): Promise<TelegramApiResponse> {
-  const body: Record<string, unknown> = {
-    chat_id: chatId,
-    text,
-    parse_mode: options?.parseMode ?? 'HTML',
-  }
-  if (options?.replyMarkup) {
-    body.reply_markup = options.replyMarkup
-  }
-  if (options?.threadId !== undefined) {
-    body.message_thread_id =
-      typeof options.threadId === 'string'
-        ? parseInt(options.threadId, 10)
-        : options.threadId
-  }
-  return telegramApi(token, 'sendMessage', body)
+  return apiSendMessage(token, chatId, text, {
+    parseMode: options?.parseMode ?? 'HTML',
+    replyMarkup: options?.replyMarkup,
+    threadId: options?.threadId,
+  })
 }
 
 async function editMessageText(
@@ -83,23 +66,16 @@ async function editMessageText(
   messageId: number,
   text: string,
 ): Promise<TelegramApiResponse> {
-  return telegramApi(token, 'editMessageText', {
-    chat_id: chatId,
-    message_id: messageId,
-    text,
-    parse_mode: 'HTML',
-  })
+  return apiEditMessageText(token, chatId, messageId, text, { parseMode: 'HTML' })
 }
 
 async function answerCallbackQuery(
   token: string,
   callbackQueryId: string,
   text?: string,
+  showAlert?: boolean,
 ): Promise<TelegramApiResponse> {
-  return telegramApi(token, 'answerCallbackQuery', {
-    callback_query_id: callbackQueryId,
-    text,
-  })
+  return apiAnswerCallbackQuery(token, callbackQueryId, text, showAlert)
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +110,7 @@ class TelegramChannelAdapter {
     }
 
     // Validate token and get bot username
-    const me = await telegramApi(token, 'getMe')
+    const me = await getMe(token)
     if (!me.ok || !me.result) {
       console.error('[telegram] getMe failed — check TELEGRAM_BOT_TOKEN:', me.description)
       return
@@ -239,10 +215,10 @@ class TelegramChannelAdapter {
     }
 
     const msg = update.message as Record<string, unknown> | undefined
-    if (!msg?.text) return
+    if (!msg) return
 
-    const text = msg.text as string
-    const chatObj = msg.chat as Record<string, unknown>
+    const chatObj = msg.chat as Record<string, unknown> | undefined
+    if (!chatObj) return
     const chatId = String(chatObj.id)
     const chatType = chatObj.type as string // 'private', 'group', 'supergroup', 'channel'
     const from = msg.from as Record<string, unknown> | undefined
@@ -254,6 +230,118 @@ class TelegramChannelAdapter {
     // message_thread_id is set for messages inside forum topics
     const threadId = msg.message_thread_id ? String(msg.message_thread_id) : undefined
     const isGroupChat = chatType === 'group' || chatType === 'supergroup'
+
+    // ── Inbound media detection ─────────────────────────────────────────────
+    const mediaGroupId = msg.media_group_id as string | undefined
+    const caption = (msg.caption as string | undefined) ?? ''
+
+    const photo = msg.photo as Array<{ file_id: string; file_size?: number }> | undefined
+    const video = msg.video as { file_id: string; mime_type?: string; file_size?: number } | undefined
+    const voice = msg.voice as { file_id: string; mime_type?: string; duration?: number; file_size?: number } | undefined
+    const audio = msg.audio as { file_id: string; mime_type?: string; file_size?: number } | undefined
+    const document = msg.document as { file_id: string; mime_type?: string; file_name?: string; file_size?: number } | undefined
+    const animation = msg.animation as { file_id: string; mime_type?: string; file_size?: number } | undefined
+    const sticker = msg.sticker as { file_id: string; emoji?: string } | undefined
+    const location = msg.location as { latitude: number; longitude: number } | undefined
+    const venue = msg.venue as { title: string; address: string; location: { latitude: number; longitude: number } } | undefined
+
+    let mediaItem: BufferedMedia | null = null
+    if (photo && photo.length > 0) {
+      mediaItem = {
+        fileId: photo[photo.length - 1].file_id,
+        mimeType: 'image/jpeg',
+        size: photo[photo.length - 1].file_size,
+        caption,
+      }
+    } else if (video) {
+      mediaItem = { fileId: video.file_id, mimeType: video.mime_type ?? 'video/mp4', size: video.file_size, caption }
+    } else if (voice) {
+      mediaItem = { fileId: voice.file_id, mimeType: voice.mime_type ?? 'audio/ogg', size: voice.file_size, caption }
+    } else if (audio) {
+      mediaItem = { fileId: audio.file_id, mimeType: audio.mime_type ?? 'audio/mpeg', size: audio.file_size, caption }
+    } else if (animation) {
+      mediaItem = { fileId: animation.file_id, mimeType: animation.mime_type ?? 'image/gif', size: animation.file_size, caption }
+    } else if (document) {
+      mediaItem = {
+        fileId: document.file_id,
+        mimeType: document.mime_type ?? 'application/octet-stream',
+        size: document.file_size,
+        caption,
+      }
+    } else if (sticker) {
+      mediaItem = { fileId: sticker.file_id, mimeType: 'image/webp', caption: sticker.emoji ?? '' }
+    }
+
+    // Collect attachments (data URLs) if we have media
+    let attachments: Array<{ dataUrl: string; mimeType: string; size?: number }> | undefined
+    let batchCaption = caption
+
+    if (mediaItem) {
+      let batchItems: BufferedMedia[] = [mediaItem]
+      if (mediaGroupId) {
+        const batch: BatchResult | null = await bufferMedia(mediaGroupId, mediaItem, {
+          chatId,
+          threadId,
+          fromId,
+          caption,
+        })
+        if (!batch) {
+          // Another call will flush this group
+          return
+        }
+        batchItems = batch.items
+        if (batch.caption) batchCaption = batch.caption
+      }
+
+      attachments = []
+      for (const item of batchItems) {
+        try {
+          const fileResp = await getFile(this.botToken, item.fileId)
+          if (!fileResp.ok || !fileResp.result) {
+            console.warn(`[telegram] getFile failed for ${item.fileId}: ${fileResp.description}`)
+            continue
+          }
+          const fileInfo = fileResp.result as { file_path?: string }
+          if (!fileInfo.file_path) {
+            console.warn(`[telegram] getFile returned no file_path for ${item.fileId}`)
+            continue
+          }
+          const buffer = await downloadFile(this.botToken, fileInfo.file_path)
+          if (!buffer) {
+            await sendMessage(
+              this.botToken,
+              chatId,
+              '⚠️ Attachment is too large or could not be downloaded — skipping.',
+              { threadId },
+            )
+            continue
+          }
+          const dataUrl = `data:${item.mimeType};base64,${buffer.toString('base64')}`
+          attachments.push({ dataUrl, mimeType: item.mimeType, size: item.size })
+        } catch (err) {
+          console.warn(`[telegram] Failed to process media item ${item.fileId}:`, err)
+        }
+      }
+      if (attachments.length === 0) attachments = undefined
+    }
+
+    // ── Location/venue → synthesize text and fall through ──────────────────
+    let text: string
+    if (typeof msg.text === 'string' && msg.text.length > 0) {
+      text = msg.text
+    } else if (location || venue) {
+      const loc = venue?.location ?? location!
+      const lat = loc.latitude
+      const lon = loc.longitude
+      const title = venue ? `Venue: ${venue.title}\nAddress: ${venue.address}\n` : ''
+      text = `[shared location]\n${title}latitude: ${lat}\nlongitude: ${lon}\nMap: https://www.google.com/maps/search/?api=1&query=${lat},${lon}`
+    } else if (attachments && attachments.length > 0) {
+      // Media without text caption — synthesize a minimal prompt
+      text = batchCaption && batchCaption.length > 0 ? batchCaption : '[attached media]'
+    } else {
+      // Nothing actionable
+      return
+    }
 
     // ── Private chat built-in commands ──────────────────────────────────────
     if (!isGroupChat) {
@@ -312,7 +400,7 @@ class TelegramChannelAdapter {
     if (isGroupChat && threadId) {
       const projectId = await this.resolveTopicProject(chatId, threadId)
       if (projectId) {
-        await this.handleTopicChatMessage(chatId, threadId, text, projectId, from)
+        await this.handleTopicChatMessage(chatId, threadId, text, projectId, from, attachments)
         return
       }
       // Message in an unbound topic — silently ignore (don't spam the group)
@@ -321,7 +409,7 @@ class TelegramChannelAdapter {
 
     // ── Private chat non-command text → AI chat session ─────────────────────
     if (!isGroupChat) {
-      await this.handleChatMessage(text, chatId)
+      await this.handleChatMessage(text, chatId, attachments)
     }
   }
 
@@ -364,6 +452,7 @@ class TelegramChannelAdapter {
     text: string,
     projectId: string,
     from: Record<string, unknown> | undefined,
+    attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>,
   ): Promise<void> {
     if (!this.botToken) return
 
@@ -422,11 +511,21 @@ class TelegramChannelAdapter {
         conversationRef: {
           channelId: groupChatId,
           threadId,
+          // TODO(wave3): add `attachments` to InboundMessage type
+          metadata: attachments ? { attachments } : undefined,
         },
         projectId,
-      })
+      } as Parameters<typeof channelRouter.routeMessage>[0])
 
-      await sendMessage(this.botToken, groupChatId, response.text, { threadId })
+      const token = this.botToken!
+      await safeSend(
+        () => sendMessage(token, groupChatId, response.text, { threadId }),
+        {
+          retryWithoutThread: () => sendMessage(token, groupChatId, response.text),
+          retryTruncated: (maxLen) =>
+            sendMessage(token, groupChatId, response.text.slice(0, maxLen), { threadId }),
+        },
+      )
     } catch (err) {
       console.error('[telegram] Error routing topic message:', err)
       await sendMessage(
@@ -443,7 +542,11 @@ class TelegramChannelAdapter {
    * Looks up the user's connected account, resolves the active project,
    * and dispatches the message via the relay with streaming edits.
    */
-  private async handleChatMessage(text: string, chatId: string): Promise<void> {
+  private async handleChatMessage(
+    text: string,
+    chatId: string,
+    attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>,
+  ): Promise<void> {
     if (!this.botToken) return
 
     // Resolve user from chat ID
@@ -508,12 +611,17 @@ class TelegramChannelAdapter {
 
     // Dispatch chat
     try {
+      // TODO(wave3): telegram-chat.ts will accept `attachments` and forward
+      // them to the agent as imageRefs. For now, pass through via `as any`.
       const result = await dispatchChatToTelegram({
         botToken: this.botToken,
         chatId,
         userId,
         userMessage: text,
         session,
+        attachments,
+      } as Parameters<typeof dispatchChatToTelegram>[0] & {
+        attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>
       })
 
       // Persist updated session (new sessionId, updated history)
@@ -637,6 +745,14 @@ class TelegramChannelAdapter {
       return
     }
 
+    // Allowlist gate — denies button-taps from non-allowlisted users before
+    // hitting any DB or dispatch code.
+    const allowlist = parseAllowlist(process.env.TELEGRAM_ALLOWED_USERS, undefined)
+    if (fromId && !isUserAllowed(fromId, allowlist)) {
+      await answerCallbackQuery(this.botToken, callbackId, 'Not allowed', true)
+      return
+    }
+
     // Verify the button tapper has a connected Astro account — prevents replay attacks
     // and anonymous users from responding to approvals.
     if (fromId) {
@@ -666,8 +782,25 @@ class TelegramChannelAdapter {
     let approvalId: string
     let approved: boolean
     let selectedOption: string | undefined
+    let choice: 'once' | 'session' | 'always' | 'deny' | undefined
 
-    if (data.startsWith('approve:')) {
+    if (data.startsWith('ea:')) {
+      // ea:<choice>:<approvalId>
+      const rest = data.slice(3)
+      const colon = rest.indexOf(':')
+      if (colon < 0) {
+        await answerCallbackQuery(this.botToken, callbackId, 'Invalid ea payload')
+        return
+      }
+      const rawChoice = rest.slice(0, colon)
+      approvalId = rest.slice(colon + 1)
+      if (rawChoice !== 'once' && rawChoice !== 'session' && rawChoice !== 'always' && rawChoice !== 'deny') {
+        await answerCallbackQuery(this.botToken, callbackId, 'Unknown choice')
+        return
+      }
+      choice = rawChoice
+      approved = choice !== 'deny'
+    } else if (data.startsWith('approve:')) {
       approvalId = data.slice(8)
       approved = true
     } else if (data.startsWith('reject:')) {
@@ -686,12 +819,31 @@ class TelegramChannelAdapter {
     // Call the approval API
     try {
       const { dispatchEngine } = await import('../../dispatch/index.js')
-      await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+      // TODO(wave3): dispatchEngine.respondToApproval will accept a bag
+      // { choice, selectedOption } as the third arg. For now we pass both
+      // shapes: legacy `selectedOption` positional + a cast call with bag.
+      if (choice !== undefined) {
+        await (dispatchEngine.respondToApproval as unknown as (
+          id: string,
+          approved: boolean,
+          extra: { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string },
+        ) => Promise<void>)(approvalId, approved, { choice, selectedOption })
+      } else {
+        await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+      }
 
       // Update the message to show the response
-      const responseText = approved
-        ? (selectedOption ? `Approved: ${selectedOption}` : 'Approved')
-        : 'Rejected'
+      const choiceLabels: Record<'once' | 'session' | 'always' | 'deny', string> = {
+        once: 'Allowed (once)',
+        session: 'Allowed (session)',
+        always: 'Allowed (always)',
+        deny: 'Denied',
+      }
+      const responseText = choice
+        ? choiceLabels[choice]
+        : approved
+          ? (selectedOption ? `Approved: ${selectedOption}` : 'Approved')
+          : 'Rejected'
 
       if (messageId) {
         const originalText = (message?.text as string) || 'Approval request'
@@ -853,12 +1005,18 @@ class TelegramChannelAdapter {
               ])),
             }
           } else {
-            // Default approve/reject buttons
+            // Four-choice approval buttons (2x2 grid)
             replyMarkup = {
-              inline_keyboard: [[
-                { text: 'Approve', callback_data: `approve:${approvalId}` },
-                { text: 'Reject', callback_data: `reject:${approvalId}` },
-              ]],
+              inline_keyboard: [
+                [
+                  { text: 'Allow Once', callback_data: `ea:once:${approvalId}` },
+                  { text: 'Session', callback_data: `ea:session:${approvalId}` },
+                ],
+                [
+                  { text: 'Always', callback_data: `ea:always:${approvalId}` },
+                  { text: 'Deny', callback_data: `ea:deny:${approvalId}` },
+                ],
+              ],
             }
           }
         }
@@ -869,8 +1027,17 @@ class TelegramChannelAdapter {
         accounts.filter((a) => a.externalId).map((a) => a.externalId!),
       )]
 
+      const token = this.botToken!
       const personalSends = personalChatIds.map((chatId) =>
-        sendMessage(this.botToken!, chatId, text, { replyMarkup }).catch((err) => {
+        safeSend(
+          () => sendMessage(token, chatId, text, { replyMarkup }),
+          {
+            retryWithoutParseMode: () =>
+              apiSendMessage(token, chatId, text, { replyMarkup }),
+            retryTruncated: (maxLen) =>
+              sendMessage(token, chatId, text.slice(0, maxLen), { replyMarkup }),
+          },
+        ).catch((err) => {
           console.warn(`[telegram] Failed to send to personal chat ${chatId}:`, err)
         })
       )
@@ -894,7 +1061,16 @@ class TelegramChannelAdapter {
       }
 
       const topicSends = topicDestinations.map(({ chatId, threadId }) =>
-        sendMessage(this.botToken!, chatId, text, { threadId, replyMarkup }).catch((err) => {
+        safeSend(
+          () => sendMessage(token, chatId, text, { threadId, replyMarkup }),
+          {
+            retryWithoutThread: () => sendMessage(token, chatId, text, { replyMarkup }),
+            retryWithoutParseMode: () =>
+              apiSendMessage(token, chatId, text, { threadId, replyMarkup }),
+            retryTruncated: (maxLen) =>
+              sendMessage(token, chatId, text.slice(0, maxLen), { threadId, replyMarkup }),
+          },
+        ).catch((err) => {
           console.warn(`[telegram] Failed to send to group ${chatId} topic ${threadId}:`, err)
         })
       )
