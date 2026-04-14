@@ -470,6 +470,7 @@ class TelegramChannelAdapter {
       // messages into a single dispatch (Telegram clients sometimes split
       // long messages). Items with attachments bypass batching entirely so
       // media context is preserved.
+      const inboundMessageId = msg.message_id as number | undefined
       if (!attachments || attachments.length === 0) {
         const batchKey = { chatId, threadId, userId: fromId }
         // Fire-and-forget the batch promise; whichever caller's promise
@@ -478,13 +479,15 @@ class TelegramChannelAdapter {
         // earliest awaiter sees a longer (merged) text and dispatches it,
         // and later awaiters see the same merged text and skip.
         const ourText = text
-        const batch = await enqueueText(batchKey, { text: ourText })
+        const batch = await enqueueText(batchKey, { text: ourText, messageId: inboundMessageId })
         // The first item in the merged batch "owns" the dispatch.
         if (batch.items[0]?.text === ourText) {
-          await this.handleChatMessage(batch.text, chatId, attachments)
+          // For lifecycle reactions, react on the FIRST message in the merged
+          // batch (the one the user effectively sent first).
+          await this.handleChatMessage(batch.text, chatId, attachments, batch.items[0]?.messageId)
         }
       } else {
-        await this.handleChatMessage(text, chatId, attachments)
+        await this.handleChatMessage(text, chatId, attachments, inboundMessageId)
       }
     }
   }
@@ -622,6 +625,7 @@ class TelegramChannelAdapter {
     text: string,
     chatId: string,
     attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>,
+    inboundMessageId?: number,
   ): Promise<void> {
     if (!this.botToken) return
 
@@ -665,6 +669,7 @@ class TelegramChannelAdapter {
     const rawMode = settings.replyToMode
     const replyToMode: 'off' | 'first' | 'all' =
       rawMode === 'off' || rawMode === 'all' || rawMode === 'first' ? rawMode : 'first'
+    const reactionsEnabled = settings.reactionsEnabled === true
 
     // Resolve active project
     let projectId = parseDefaultProject(mappings)
@@ -703,6 +708,8 @@ class TelegramChannelAdapter {
         userMessage: text,
         session,
         replyToMode,
+        reactionsEnabled,
+        replyToMessageId: inboundMessageId,
         attachments,
       } as Parameters<typeof dispatchChatToTelegram>[0] & {
         attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>

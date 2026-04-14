@@ -165,6 +165,34 @@ export async function answerCallbackQuery(
   return callApi(token, 'answerCallbackQuery', body)
 }
 
+/**
+ * Set (or clear) the bot's emoji reaction on a message.
+ * Pass `emoji = null` to remove an existing reaction.
+ *
+ * Telegram only allows the regular "thumbs"/standard emoji set without
+ * Telegram Premium; non-allowed emoji or chat types (e.g. some channels)
+ * return a 400. Callers should treat 400/403 as "swallowed" — reactions
+ * are best-effort UX, never load-bearing.
+ */
+export async function setMessageReaction(
+  token: string,
+  chatId: string | number,
+  messageId: number,
+  emoji: string | null,
+  opts: { isBig?: boolean } = {},
+): Promise<TelegramApiResponse> {
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction:
+      emoji === null
+        ? []
+        : [{ type: 'emoji', emoji }],
+  }
+  if (opts.isBig !== undefined) body.is_big = opts.isBig
+  return callApi(token, 'setMessageReaction', body)
+}
+
 export type ChatAction =
   | 'typing'
   | 'upload_photo'

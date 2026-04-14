@@ -37,6 +37,12 @@ import {
 } from './telegram-api.js'
 import { toMarkdownV2, stripMdv2 } from './telegram-markdown-v2.js'
 import { chunkMessage } from './telegram-chunking.js'
+import {
+  reactProcessing,
+  reactSuccess,
+  reactError,
+  reactTruncated,
+} from './telegram-reactions.js'
 
 /** How the first chunk of a multi-chunk reply relates to the originating user message. */
 export type ReplyToMode = 'off' | 'first' | 'all'
@@ -392,6 +398,8 @@ export async function dispatchChatToTelegram(opts: {
   replyToMessageId?: number
   /** Reply-to policy for multi-chunk replies. Default: 'first'. */
   replyToMode?: ReplyToMode
+  /** When true, post lifecycle emoji reactions on the inbound user message. */
+  reactionsEnabled?: boolean
   /** Optional image references (data: URLs) extracted from the inbound Telegram message. */
   imageRefs?: string[]
 }): Promise<DispatchChatResult> {
@@ -406,7 +414,16 @@ export async function dispatchChatToTelegram(opts: {
     imageRefs,
   } = opts
   const replyToMode: ReplyToMode = opts.replyToMode ?? 'first'
+  const reactionsEnabled = opts.reactionsEnabled ?? false
+  const reactionTarget =
+    replyToMessageId !== undefined ? { chatId, messageId: replyToMessageId } : null
+  const reactionOpts = { enabled: reactionsEnabled }
   const taskId = session.streamId
+
+  // Lifecycle hook: processing started.
+  if (reactionsEnabled && reactionTarget) {
+    void reactProcessing(botToken, reactionTarget, reactionOpts)
+  }
 
   // Kick off (and periodically refresh) a "typing…" action for as long as the
   // agent is thinking. Telegram clears this automatically after ~5s so we
@@ -516,6 +533,9 @@ export async function dispatchChatToTelegram(opts: {
 
     // Timeout guard
     const timeoutHandle = setTimeout(() => {
+      if (reactionsEnabled && reactionTarget) {
+        void reactError(botToken, reactionTarget, reactionOpts)
+      }
       const truncated = accumulatedText || '(no response)'
       if (messageId) {
         editTgMessage(
@@ -584,7 +604,18 @@ export async function dispatchChatToTelegram(opts: {
           messageId,
           chunks,
         })
+        // Lifecycle hook: success (or truncated if the reply was chunked).
+        if (reactionsEnabled && reactionTarget) {
+          if (chunks.length > 1) {
+            void reactTruncated(botToken, reactionTarget, reactionOpts)
+          } else {
+            void reactSuccess(botToken, reactionTarget, reactionOpts)
+          }
+        }
       } else if (!isSuccess) {
+        if (reactionsEnabled && reactionTarget) {
+          void reactError(botToken, reactionTarget, reactionOpts)
+        }
         const errText = `❌ ${msg.result.error || 'Agent returned an error'}`
         if (messageId) {
           editTgMessage(botToken, chatId, messageId, errText, 'HTML').catch(() => {})
@@ -617,6 +648,9 @@ export async function dispatchChatToTelegram(opts: {
     const dispatched = relayServer.dispatchTask(task, project.defaultMachineId ?? undefined, userId)
     if (!dispatched) {
       clearTimeout(timeoutHandle)
+      if (reactionsEnabled && reactionTarget) {
+        void reactError(botToken, reactionTarget, reactionOpts)
+      }
       const errMsg = '❌ No agent runner connected. Start one with:\n<code>npx @astroanywhere/agent start</code>'
       if (messageId) {
         editTgMessage(botToken, chatId, messageId, errMsg).catch(() => {})
