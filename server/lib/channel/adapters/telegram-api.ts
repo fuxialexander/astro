@@ -388,7 +388,6 @@ export async function downloadFile(token: string, filePath: string): Promise<Buf
     if (contentLength) {
       const size = Number.parseInt(contentLength, 10)
       if (Number.isFinite(size) && size > maxBytes) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[telegram-api] downloadFile: file exceeds ${maxMb}MB limit (${size} bytes)`,
         )
@@ -397,7 +396,6 @@ export async function downloadFile(token: string, filePath: string): Promise<Buf
     }
     const arrayBuffer = await res.arrayBuffer()
     if (arrayBuffer.byteLength > maxBytes) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[telegram-api] downloadFile: file exceeds ${maxMb}MB limit (${arrayBuffer.byteLength} bytes)`,
       )
@@ -405,7 +403,6 @@ export async function downloadFile(token: string, filePath: string): Promise<Buf
     }
     return Buffer.from(arrayBuffer)
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.warn(`[telegram-api] downloadFile failed: ${(e as Error).message}`)
     return null
   } finally {

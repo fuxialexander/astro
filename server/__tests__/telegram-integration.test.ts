@@ -646,7 +646,7 @@ describe('Telegram Bidirectional Integration', () => {
       mockSelect.mockReturnValueOnce({ from: mockAccountsFrom })
     }
 
-    it('should send approval with approve/reject inline keyboard', async () => {
+    it('should send approval with 4-option ea: inline keyboard', async () => {
       setupProjectLookup(null, 'user-1')
       setupConnectedAccounts([{ externalId: '444' }])
 
@@ -665,10 +665,18 @@ describe('Telegram Bidirectional Integration', () => {
       const keyboard = sendCalls[0].body.reply_markup as {
         inline_keyboard: Array<Array<{ text: string; callback_data: string }>>
       }
-      expect(keyboard.inline_keyboard).toHaveLength(1)
+      // Wave 2 layout: two rows of two buttons — once/session, always/deny.
+      expect(keyboard.inline_keyboard).toHaveLength(2)
       expect(keyboard.inline_keyboard[0]).toHaveLength(2)
-      expect(keyboard.inline_keyboard[0][0]).toEqual({ text: 'Approve', callback_data: 'approve:appr-001' })
-      expect(keyboard.inline_keyboard[0][1]).toEqual({ text: 'Reject', callback_data: 'reject:appr-001' })
+      expect(keyboard.inline_keyboard[1]).toHaveLength(2)
+      const flat = keyboard.inline_keyboard.flat()
+      const cbs = flat.map((b) => b.callback_data).sort()
+      expect(cbs).toEqual([
+        'ea:always:appr-001',
+        'ea:deny:appr-001',
+        'ea:once:appr-001',
+        'ea:session:appr-001',
+      ])
     })
 
     it('should send multi-option approval with per-option buttons', async () => {

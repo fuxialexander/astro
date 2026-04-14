@@ -117,7 +117,6 @@ function isTransientError(err: unknown): boolean {
 function warnOnce(target: string, message: string): void {
   if (warnedTargets.has(target)) return
   warnedTargets.add(target)
-  // eslint-disable-next-line no-console
   console.warn(`[telegram-transport] ${message}`)
 }
 

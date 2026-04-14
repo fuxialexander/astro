@@ -27,7 +27,7 @@ import { eq, and, inArray, isNull, or } from 'drizzle-orm'
 import { dispatchEngine } from '../../dispatch/index.js'
 import { serverSideDispatch } from '../../server-side-dispatch.js'
 import { formatForChannel } from '../channel-formatter.js'
-import { setDefaultProject, clearChatSession } from './telegram-chat.js'
+import { clearChatSession } from './telegram-chat.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -950,56 +950,6 @@ async function handleHelp(_ctx: CommandContext): Promise<CommandResult> {
   )
 }
 
-async function handleBind(ctx: CommandContext): Promise<string> {
-  const projectIdOrPrefix = ctx.args.trim()
-  if (!projectIdOrPrefix) {
-    return (
-      'Usage: /bind &lt;project-id&gt;\n\n'
-      + 'Use /projects to list your projects and get their IDs.\n'
-      + 'Example: /bind abc12345'
-    )
-  }
-
-  const teamIds = await getUserTeamIds(ctx.userId)
-  if (teamIds.length === 0) {
-    return 'You are not a member of any team.'
-  }
-
-  // Find matching project
-  const allProjects = await db
-    .select({ id: projects.id, name: projects.name, icon: projects.icon })
-    .from(projects)
-    .where(
-      and(
-        inArray(projects.teamId, teamIds),
-        eq(projects.status, 'active'),
-      ),
-    )
-    .limit(100)
-
-  const match = allProjects.find(
-    (p) => p.id === projectIdOrPrefix || p.id.startsWith(projectIdOrPrefix),
-  )
-
-  if (!match) {
-    return (
-      `Project not found: <code>${escapeHtml(projectIdOrPrefix)}</code>\n\n`
-      + 'Use /projects to list available projects.'
-    )
-  }
-
-  const ok = await setDefaultProject(ctx.chatId, match.id)
-  if (!ok) {
-    return 'Failed to update project binding. Make sure your Telegram is connected (use /status).'
-  }
-
-  return (
-    `${match.icon ?? '📋'} Bound to <b>${escapeHtml(match.name)}</b>\n\n`
-    + 'Now just send any message to chat with your AI assistant about this project.\n'
-    + 'Use /new to start a fresh conversation.'
-  )
-}
-
 async function handleNew(ctx: CommandContext): Promise<string> {
   const cleared = await clearChatSession(ctx.chatId)
   if (!cleared) {
@@ -1027,7 +977,6 @@ function escapeHtml(text: string): string {
 export const commandRegistry = new CommandRegistry()
 
 // Register all commands
-commandRegistry.register('bind', 'Link a project for AI chat', handleBind)
 commandRegistry.register('new', 'Start a fresh chat session', handleNew)
 commandRegistry.register('model', 'Select a model provider and model', handleModel)
 commandRegistry.register('projects', 'List your active projects', handleProjects)

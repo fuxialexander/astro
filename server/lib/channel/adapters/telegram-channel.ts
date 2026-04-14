@@ -811,6 +811,65 @@ class TelegramChannelAdapter {
       approvalId = parts[0]
       selectedOption = parts.slice(1).join(':')
       approved = true
+    } else if (data.startsWith('mp:') || data.startsWith('mm:')) {
+      // /model drill-down callbacks. This is a parity shim for wave 3 —
+      // the full picker UI lives in telegram-commands.ts and will wire up
+      // properly in a follow-up. For now we acknowledge the tap so the
+      // user gets feedback and the spinner clears.
+      if (data === 'mp:cancel') {
+        await answerCallbackQuery(this.botToken, callbackId, 'Cancelled')
+        if (messageId && chatId) {
+          try {
+            await editMessageText(this.botToken, chatId, messageId, 'Cancelled')
+          } catch {
+            /* ignore edit failures */
+          }
+        }
+        return
+      }
+      if (data.startsWith('mp:')) {
+        await answerCallbackQuery(this.botToken, callbackId, 'Model picker coming soon')
+        return
+      }
+      // data.startsWith('mm:') — persist preferred model to the account mapping.
+      const model = data.slice(3)
+      if (fromId && model) {
+        try {
+          const [account] = await db
+            .select({
+              id: connectedAccounts.id,
+              mappings: connectedAccounts.mappings,
+            })
+            .from(connectedAccounts)
+            .where(
+              and(
+                eq(connectedAccounts.channel, 'telegram'),
+                eq(connectedAccounts.externalId, fromId),
+                eq(connectedAccounts.enabled, true),
+              ),
+            )
+            .limit(1)
+          if (account) {
+            const current = (account.mappings ?? {}) as Record<string, unknown>
+            const next = { ...current, preferredModel: model }
+            await db
+              .update(connectedAccounts)
+              .set({ mappings: next })
+              .where(eq(connectedAccounts.id, account.id))
+          }
+        } catch (err) {
+          console.warn('[telegram] failed to persist preferred model:', err)
+        }
+      }
+      await answerCallbackQuery(this.botToken, callbackId, `Model set to ${model}`)
+      if (messageId && chatId) {
+        try {
+          await editMessageText(this.botToken, chatId, messageId, `Model set to <b>${model}</b>`)
+        } catch {
+          /* ignore edit failures */
+        }
+      }
+      return
     } else {
       await answerCallbackQuery(this.botToken, callbackId, 'Unknown action')
       return

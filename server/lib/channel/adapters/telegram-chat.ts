@@ -48,9 +48,6 @@ export type ReplyToMode = 'off' | 'first' | 'all'
 /** Max conversation turns to keep in session history */
 const MAX_HISTORY_MESSAGES = 30
 
-/** Telegram HTML message character limit */
-const TG_MESSAGE_LIMIT = 4000  // leave 96-char margin below 4096
-
 /** How often to edit the in-progress Telegram message (ms) */
 const EDIT_INTERVAL_MS = 1500
 

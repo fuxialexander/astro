@@ -20,6 +20,7 @@
  *   **>expandable blockquote<**
  */
 
+// eslint-disable-next-line no-useless-escape
 const MDV2_SPECIALS = /[_*\[\]()~`>#+\-=|{}.!\\]/g;
 
 /** Escape all MarkdownV2 special chars in a string. Does NOT preserve formatting. */
@@ -81,20 +82,29 @@ export function toMarkdownV2(source: string): string {
 	);
 
 	// ---- Pass 3: line-based transforms for headers and blockquotes ----
+	// We use sentinel chars directly (not literal placeholder strings) so
+	// that the inline-formatting pass below cannot accidentally match them
+	// (e.g., `__HDR_OPEN__` would otherwise be eaten by the underline regex).
+	const S_EARLY = {
+		hdrOpen: "\x0e",
+		hdrClose: "\x0f",
+		bqOpen: "\x10",
+		bqClose: "\x11",
+	};
 	const lines = text.split("\n");
 	const out: string[] = [];
-	for (let rawLine of lines) {
+	for (const rawLine of lines) {
 		// Header: # foo / ## foo / ### foo → bold line
 		const headerMatch = /^(#{1,6})\s+(.*)$/.exec(rawLine);
 		if (headerMatch) {
 			const body = headerMatch[2];
-			out.push("__HDR_OPEN__" + body + "__HDR_CLOSE__");
+			out.push(S_EARLY.hdrOpen + body + S_EARLY.hdrClose);
 			continue;
 		}
 		// Blockquote: > foo → >foo (with literal > not escaped)
 		const bqMatch = /^>\s?(.*)$/.exec(rawLine);
 		if (bqMatch) {
-			out.push("__BQ_OPEN__" + bqMatch[1] + "__BQ_CLOSE__");
+			out.push(S_EARLY.bqOpen + bqMatch[1] + S_EARLY.bqClose);
 			continue;
 		}
 		out.push(rawLine);
@@ -124,10 +134,10 @@ export function toMarkdownV2(source: string): string {
 		sClose: "\x08",
 		spOpen: "\x0b",
 		spClose: "\x0c",
-		hdrOpen: "\x0e",
-		hdrClose: "\x0f",
-		bqOpen: "\x10",
-		bqClose: "\x11",
+		hdrOpen: S_EARLY.hdrOpen,
+		hdrClose: S_EARLY.hdrClose,
+		bqOpen: S_EARLY.bqOpen,
+		bqClose: S_EARLY.bqClose,
 	};
 
 	// Bold: **text**
@@ -139,16 +149,10 @@ export function toMarkdownV2(source: string): string {
 	// Spoiler: ||text||
 	text = text.replace(/\|\|([^\n|][^\n]*?)\|\|/g, (_m, sp: string) => S.spOpen + sp + S.spClose);
 	// Italic: *text* (single star, but not touching sentinel)
+	// eslint-disable-next-line no-control-regex
 	text = text.replace(/(^|[^\x01\x02*])\*([^\n*][^\n]*?)\*(?!\*)/g, (_m, lead: string, i: string) => lead + S.iOpen + i + S.iClose);
 	// Italic: _text_
 	text = text.replace(/(^|[^_])_([^\n_][^\n]*?)_(?!_)/g, (_m, lead: string, i: string) => lead + S.iOpen + i + S.iClose);
-
-	// Swap header/blockquote markers (were plain strings to survive regex passes above).
-	text = text
-		.replace(/__HDR_OPEN__/g, S.hdrOpen)
-		.replace(/__HDR_CLOSE__/g, S.hdrClose)
-		.replace(/__BQ_OPEN__/g, S.bqOpen)
-		.replace(/__BQ_CLOSE__/g, S.bqClose);
 
 	// ---- Pass 5: escape all MdV2 specials in the remaining literal text ----
 	// Sentinels are in \x01..\x11 so they won't match MDV2_SPECIALS.
@@ -174,6 +178,7 @@ export function toMarkdownV2(source: string): string {
 		.replace(new RegExp(S.bqClose, "g"), "");
 
 	// ---- Pass 7: re-insert code placeholders ----
+	// eslint-disable-next-line no-control-regex
 	text = text.replace(/\x00(\d+)\x00/g, (_m, n: string) => placeholders[Number(n)] ?? "");
 
 	return text;
@@ -183,6 +188,7 @@ export function toMarkdownV2(source: string): string {
 export function stripMdv2(text: string): string {
 	if (!text) return "";
 	// Remove backslash escapes: \x → x for MdV2 specials.
+	// eslint-disable-next-line no-useless-escape
 	let out = text.replace(/\\([_*\[\]()~`>#+\-=|{}.!\\])/g, "$1");
 	// Remove code fences (keep body).
 	out = out.replace(/```[a-zA-Z0-9_+-]*\n?([\s\S]*?)```/g, "$1");

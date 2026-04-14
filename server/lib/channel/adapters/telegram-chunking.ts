@@ -57,7 +57,7 @@ function safeCut(s: string, cut: number): number {
 export function truncateToUtf16(text: string, maxUnits: number): string {
 	if (maxUnits <= 0) return "";
 	if (text.length <= maxUnits) return text;
-	let cut = safeCut(text, maxUnits);
+	const cut = safeCut(text, maxUnits);
 	// Prefer last newline, then last space, within [0, cut).
 	const nl = text.lastIndexOf("\n", cut - 1);
 	if (nl > 0 && nl >= cut - 200) {
