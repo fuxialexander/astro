@@ -41,6 +41,28 @@ import { chunkMessage } from './telegram-chunking.js'
 /** How the first chunk of a multi-chunk reply relates to the originating user message. */
 export type ReplyToMode = 'off' | 'first' | 'all'
 
+/**
+ * Pure policy: should chunk `chunkIndex` of a multi-chunk reply be sent
+ * with reply_to_message_id set?
+ *
+ *   - If there is no original message to reply to, never thread.
+ *   - 'off'   → never thread any chunk.
+ *   - 'first' → only the first chunk threads (default; matches hermes).
+ *   - 'all'   → every chunk threads.
+ *   - Unknown values fall back to 'first' behaviour.
+ */
+export function shouldThreadReply(
+  replyToMessageId: number | undefined | null,
+  chunkIndex: number,
+  mode: ReplyToMode,
+): boolean {
+  if (replyToMessageId === undefined || replyToMessageId === null) return false
+  if (mode === 'off') return false
+  if (mode === 'all') return true
+  // 'first' (and any unknown / invalid value)
+  return chunkIndex === 0
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -295,11 +317,9 @@ async function deliverFinalChunks(args: {
   if (chunks.length === 0) return
 
   const replyIdForChunk = (chunkIndex: number): number | undefined => {
-    if (replyToMessageId === undefined) return undefined
-    if (replyToMode === 'off') return undefined
-    if (replyToMode === 'all') return replyToMessageId
-    // 'first'
-    return chunkIndex === 0 ? replyToMessageId : undefined
+    return shouldThreadReply(replyToMessageId, chunkIndex, replyToMode)
+      ? replyToMessageId
+      : undefined
   }
 
   // Earlier chunks: send as new messages (in order).

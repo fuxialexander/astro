@@ -636,10 +636,11 @@ class TelegramChannelAdapter {
       return
     }
 
-    // Load connected account for mappings
+    // Load connected account for mappings + settings
     const [account] = await db
       .select({
         mappings: connectedAccounts.mappings,
+        settings: connectedAccounts.settings,
         userId: connectedAccounts.userId,
       })
       .from(connectedAccounts)
@@ -658,6 +659,12 @@ class TelegramChannelAdapter {
     }
 
     const mappings = account.mappings as Record<string, unknown> | null
+    const settings = (account.settings as Record<string, unknown> | null) ?? {}
+    // Resolve replyToMode from per-account settings (default 'first' to preserve
+    // existing behaviour). Invalid values fall back to 'first'.
+    const rawMode = settings.replyToMode
+    const replyToMode: 'off' | 'first' | 'all' =
+      rawMode === 'off' || rawMode === 'all' || rawMode === 'first' ? rawMode : 'first'
 
     // Resolve active project
     let projectId = parseDefaultProject(mappings)
@@ -695,6 +702,7 @@ class TelegramChannelAdapter {
         userId,
         userMessage: text,
         session,
+        replyToMode,
         attachments,
       } as Parameters<typeof dispatchChatToTelegram>[0] & {
         attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>
