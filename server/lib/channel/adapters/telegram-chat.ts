@@ -250,8 +250,8 @@ async function buildTelegramSystemPrompt(
   // Load edges
   const edges = await db
     .select({
-      source: planEdges.source,
-      target: planEdges.target,
+      source: planEdges.sourceClientId,
+      target: planEdges.targetClientId,
     })
     .from(planEdges)
     .where(eq(planEdges.projectId, projectId))
