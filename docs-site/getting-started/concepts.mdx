@@ -1,0 +1,190 @@
+---
+title: "Core Concepts"
+description: "Understand the key ideas that power Astro's planning-first approach to AI-assisted development."
+icon: "lightbulb"
+---
+
+Astro is built on a simple thesis: **the bottleneck in AI-assisted work isn't execution — it's planning.** AI agents can write code, run analyses, and deploy services. But they need a structured plan, clear dependencies, and product-level context to do it well.
+
+This page explains the core concepts you'll work with every day in Astro.
+
+## Plan Graph
+
+The heart of Astro is the **plan graph** — a directed graph where nodes represent tasks and edges represent dependencies.
+
+Unlike flat task lists (GitHub Issues, Linear, Jira), the plan graph:
+
+- **Captures parallel workstreams** — Independent tasks can run simultaneously across multiple machines
+- **Enforces explicit dependencies** — Task B won't start until Task A completes successfully
+- **Supports branching exploration** — Try multiple approaches in parallel, then prune dead ends
+- **Enables cascade operations** — Cancelling a branch auto-cancels all downstream tasks
+
+```
+Goal: Build a task management API
+├── Milestone: Core API
+│   ├── Task: Set up project scaffolding (planned)
+│   ├── Task: Implement user model (depends on scaffolding)
+│   ├── Task: Implement task CRUD (depends on scaffolding)
+│   └── Task: Add authentication (depends on user model)
+├── Branch: PostgreSQL approach
+│   ├── Task: Design schema (in progress)
+│   └── Task: Write migrations (blocked)
+└── Branch: MongoDB approach (pruned)
+    └── Task: Design collections (auto-cancelled)
+```
+
+Every node in the graph has a **status** that tracks its lifecycle:
+
+| Status | Meaning |
+|--------|---------|
+| `planned` | Created but not yet ready to dispatch |
+| `dispatched` | Sent to a machine, waiting to start |
+| `in_progress` | Agent is actively working on it |
+| `auto_verified` | Completed and automatically verified (tests pass, build succeeds) |
+| `awaiting_judgment` | Completed but needs human review |
+| `completed` | Done — either auto-verified or human-approved |
+| `pruned` | Cancelled — this branch was abandoned |
+
+## Vision Document
+
+Each project has a **vision document** — a persistent description of what you're building and why. Think of it as the "north star" that keeps every agent session aligned with your intent.
+
+The vision document typically includes:
+- The product goal or research question
+- Key design principles or constraints
+- Important decisions made so far
+- Success criteria
+
+<Note>
+  The vision document is **injected into every agent session** as context, above whatever the agent picks up from the codebase. This is the key mechanism that keeps AI execution aligned with human intent — without it, agents drift toward local optima that may not serve the overall goal.
+</Note>
+
+You can edit the vision document at any time. Changes take effect in the next agent session.
+
+## Nodes and Edges
+
+Plan graphs are composed of two primitives:
+
+**Nodes** represent units of work. Each node has:
+- A title and description
+- A status (see table above)
+- Optional time estimates (`XS`, `S`, `M`, `L`, `XL`)
+- Optional start and end dates
+- Execution output (when dispatched to an agent)
+
+**Edges** represent dependencies between nodes. An edge from Node A to Node B means "B depends on A" — Node B won't be dispatched until Node A completes successfully.
+
+You can create nodes and edges manually, or let Astro's AI generate them from your goal description.
+
+## Tiered Verification
+
+Not every completed task needs human review. Astro uses a tiered verification system that routes your attention to where it matters most:
+
+<CardGroup cols={3}>
+  <Card title="Auto-Close" icon="circle-check">
+    **Tests pass, build succeeds, or analysis produces expected output.** You get a notification but no action is required. The task moves to `completed` automatically.
+  </Card>
+  <Card title="Judgment Call" icon="scale-balanced">
+    **The result needs strategic evaluation.** You review a summary, examine the output, and approve or reject. Rejection sends the task back for another attempt.
+  </Card>
+  <Card title="Strategic Decision" icon="code-branch">
+    **A fork in the plan requires direction.** You choose which branch to pursue and which to prune. This is where your domain expertise and product vision are irreplaceable.
+  </Card>
+</CardGroup>
+
+The goal is simple: as automated verification improves, more tasks auto-close, and your attention concentrates on the decisions that only a human can make.
+
+## Multi-Environment Dispatch
+
+Astro doesn't run agents itself — it **dispatches tasks** to machines where agents are already installed. This means you can use Astro across any compute environment:
+
+| Environment | How It Works |
+|------------|-------------|
+| **Local machine** | Install the agent runner on your laptop or desktop. Tasks execute in a git worktree for isolation. |
+| **HPC cluster** | The Slurm provider adapter submits tasks as batch jobs to your cluster's scheduler. |
+| **Cloud instances** | Any machine reachable over the network can register with Astro's relay server. |
+
+When you dispatch a task, Astro:
+1. Selects an available machine based on your preferences and machine capabilities
+2. Sends the task payload (description, dependencies, context) via WebSocket
+3. Streams execution output back in real-time
+4. Persists all events so you can review them later or recover after a page refresh
+
+<Note>
+  Astro is **agent-agnostic**. It wraps existing agents (like Claude Code) rather than building custom agents from scratch. This means you get the latest agent capabilities without waiting for Astro to update.
+</Note>
+
+## Context Injection
+
+Every time Astro dispatches a task to an agent, it assembles a rich context payload that includes:
+
+- **Vision document** — Your project's goals, constraints, and design principles
+- **Dependency outputs** — Results from upstream tasks that this task depends on
+- **Machine instructions** — Team-scoped guidance for how agents should behave on specific machines
+- **Task description** — The specific work to be done
+
+This context injection is what transforms a generic AI agent into one that understands your project's bigger picture. Without it, agents optimize locally without awareness of the overall plan.
+
+## Streaming and Real-Time Collaboration
+
+All agent activity in Astro is streamed in real-time and persisted to the database:
+
+- **Live streaming** — Watch agent output appear in the activity feed as it happens
+- **Page refresh recovery** — If you refresh the page or lose connection, all activity is restored from the database
+- **SSE reconnection** — If the event stream disconnects, it catches up automatically from the last sequence number
+- **Multi-user visibility** — In Dev or Production mode, team members see the same live activity
+
+The streaming system uses Server-Sent Events (SSE) for delivery and a sequence-based persistence layer for durability.
+
+### Event Types
+
+Agent execution produces a stream of typed events:
+
+| Event | Purpose |
+|-------|---------|
+| `text` | Agent's text output (reasoning, explanations) |
+| `tool_use` | Agent invoking a tool (file edit, shell command) |
+| `tool_result` | Result returned by the tool |
+| `file_change` | Files created or modified by the agent |
+| `progress` | Progress updates and subroutine status |
+| `result` | Final task result with usage metrics |
+| `error` | Something went wrong |
+| `done` | Execution complete |
+
+## Machine Registry
+
+Machines register with Astro's relay server to receive task dispatches. The registry tracks:
+
+- **Connection status** — Is the machine online and reachable?
+- **Current workload** — Is the machine idle or busy with a task?
+- **Capabilities** — What agents and tools are available?
+- **Heartbeat** — Machines send periodic heartbeats to confirm they're alive. If a heartbeat is missed, the machine is marked as offline.
+
+You register machines using the CLI:
+
+```bash
+astro-cli machine register --url http://your-astro-server:3001
+```
+
+## Data Flywheel
+
+Every interaction with Astro generates planning traces — decomposition decisions, dependency choices, branch pruning events, verification outcomes. Over time, these traces improve future plans through **context engineering** (better prompts, smarter defaults) rather than model retraining.
+
+The more you use Astro, the better it gets at planning for your specific domain and workflow.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="sitemap" href="/getting-started/architecture-overview">
+    See how frontend, backend, relay, and agents connect.
+  </Card>
+  <Card title="Plan Your First Project" icon="map" href="/tutorials/first-project">
+    Hands-on tutorial for creating and refining a plan.
+  </Card>
+  <Card title="Plan Graph Feature" icon="diagram-project" href="/features/plan-graph">
+    Deep dive into plan graph capabilities.
+  </Card>
+  <Card title="Dispatch Tasks" icon="paper-plane" href="/tutorials/dispatch-and-execute">
+    Learn to dispatch tasks to agents across environments.
+  </Card>
+</CardGroup>

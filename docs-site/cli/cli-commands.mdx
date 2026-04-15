@@ -1,0 +1,922 @@
+---
+title: "CLI Command Reference"
+description: "Complete reference for every astro-cli command, organized by category with syntax, options, and examples."
+icon: "book"
+---
+
+This page documents every command available in `astro-cli`. Commands are grouped by category. All commands support the global `--json`, `--quiet`, and `--server-url` flags described in the [CLI Overview](/cli/cli-overview).
+
+## Project Commands
+
+Manage Astro projects — create, list, update, delete, and chat with AI about them.
+
+### `project list`
+
+List all projects in your workspace.
+
+```bash
+astro-cli project list
+```
+
+**Output columns:** ID, Name, Status, Working Directory, Last Updated
+
+### `project show`
+
+Show full details for a specific project, including vision document, repository URL, and delivery mode.
+
+```bash
+astro-cli project show <project-id>
+```
+
+<ParamField path="project-id" type="string" required>
+  The UUID of the project to display.
+</ParamField>
+
+### `project create`
+
+Create a new project.
+
+```bash
+astro-cli project create --name "My Project" --description "A web app" --dir /path/to/repo
+```
+
+<ParamField path="--name" type="string" required>
+  Project name.
+</ParamField>
+
+<ParamField path="--description" type="string">
+  Short description of the project.
+</ParamField>
+
+<ParamField path="--dir" type="string">
+  Working directory (local path to the project repository).
+</ParamField>
+
+### `project update`
+
+Update an existing project's metadata.
+
+```bash
+astro-cli project update <project-id> --name "New Name" --vision-doc "Build a dashboard..."
+```
+
+<ParamField path="project-id" type="string" required>
+  The UUID of the project to update.
+</ParamField>
+
+<ParamField path="--name" type="string">
+  New project name.
+</ParamField>
+
+<ParamField path="--description" type="string">
+  New description.
+</ParamField>
+
+<ParamField path="--status" type="string">
+  New project status.
+</ParamField>
+
+<ParamField path="--dir" type="string">
+  New working directory.
+</ParamField>
+
+<ParamField path="--vision-doc" type="string">
+  Vision document content (injected into every agent session).
+</ParamField>
+
+### `project stats`
+
+Show statistics for a project: node counts, edge counts, status breakdowns, and execution metrics.
+
+```bash
+astro-cli project stats <project-id>
+```
+
+### `project chat`
+
+Chat with AI about a project. The AI receives the project's vision document, plan graph, and team context.
+
+```bash
+astro-cli project chat <project-id> --message "What should we build next?"
+```
+
+<ParamField path="project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--message" type="string" required>
+  Your message to the AI.
+</ParamField>
+
+<ParamField path="--session-id" type="string">
+  Resume an existing chat session.
+</ParamField>
+
+<ParamField path="--model" type="string">
+  AI model override (e.g., `claude-sonnet-4-20250514`).
+</ParamField>
+
+<ParamField path="--provider" type="string">
+  Provider to use (e.g., `claude-sdk`).
+</ParamField>
+
+<ParamField path="--history-file" type="string">
+  Path to a JSON file for persisting chat history across invocations.
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Skip confirmation prompts.
+</ParamField>
+
+### `project delete`
+
+Delete a project and all associated data (plan nodes, edges, executions). This is destructive and cannot be undone.
+
+```bash
+astro-cli project delete <project-id>
+```
+
+---
+
+## Plan Commands
+
+Manage plan graph nodes and edges — create nodes, render dependency trees, export graphs, and generate plans with AI.
+
+### `plan list`
+
+List all plan nodes for a project.
+
+```bash
+astro-cli plan list --project-id <project-id>
+```
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+**Output columns:** ID, Title, Type, Status, Start Date, End Date
+
+### `plan show`
+
+Show full details for a plan node, including execution output and errors.
+
+```bash
+astro-cli plan show <node-id>
+```
+
+<ParamField path="node-id" type="string" required>
+  The UUID of the plan node.
+</ParamField>
+
+### `plan tree`
+
+Render an ASCII dependency tree showing parent-child relationships between plan nodes.
+
+```bash
+astro-cli plan tree --project-id <project-id>
+```
+
+**Example output:**
+
+```
+Root Node
+├── Backend API
+│   ├── Database Schema
+│   └── Auth Middleware
+├── Frontend UI
+│   ├── Dashboard Page
+│   └── Settings Page
+└── Deployment
+```
+
+### `plan create-node`
+
+Create a new plan node.
+
+```bash
+astro-cli plan create-node --project-id <id> --title "Build auth" --type task --priority high
+```
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--title" type="string" required>
+  Node title.
+</ParamField>
+
+<ParamField path="--type" type="string">
+  Node type: `task`, `milestone`, or `decision`. Defaults to `task`.
+</ParamField>
+
+<ParamField path="--description" type="string">
+  Node description (supports markdown).
+</ParamField>
+
+<ParamField path="--status" type="string">
+  Initial status. One of: `planned`, `dispatched`, `in_progress`, `auto_verified`, `awaiting_approval`, `awaiting_judgment`, `completed`, `pruned`.
+</ParamField>
+
+<ParamField path="--parent-id" type="string">
+  UUID of the parent node to create a dependency edge.
+</ParamField>
+
+<ParamField path="--priority" type="string">
+  Priority level: `low`, `medium`, `high`, `critical`.
+</ParamField>
+
+### `plan update-node`
+
+Update an existing plan node.
+
+```bash
+astro-cli plan update-node <node-id> --status completed --title "Updated title"
+```
+
+<ParamField path="node-id" type="string" required>
+  The UUID of the plan node to update.
+</ParamField>
+
+<ParamField path="--title" type="string">
+  New title.
+</ParamField>
+
+<ParamField path="--status" type="string">
+  New status.
+</ParamField>
+
+<ParamField path="--description" type="string">
+  New description.
+</ParamField>
+
+<ParamField path="--priority" type="string">
+  New priority.
+</ParamField>
+
+<ParamField path="--type" type="string">
+  New type.
+</ParamField>
+
+### `plan delete-node`
+
+Delete a plan node.
+
+```bash
+astro-cli plan delete-node <node-id>
+```
+
+### `plan stats`
+
+Show plan statistics: total nodes, edges, status breakdown, execution coverage, and date range.
+
+```bash
+astro-cli plan stats --project-id <project-id>
+```
+
+### `plan export`
+
+Export the plan graph in different formats for use with external tools.
+
+```bash
+# Export as Mermaid diagram
+astro-cli plan export --project-id <id> --format mermaid
+
+# Export as DOT (Graphviz)
+astro-cli plan export --project-id <id> --format dot
+
+# Export as JSON
+astro-cli plan export --project-id <id> --format json
+```
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--format" type="string" required>
+  Export format: `json`, `dot`, or `mermaid`.
+</ParamField>
+
+### `plan generate`
+
+Generate a plan using AI from a natural language description.
+
+```bash
+astro-cli plan generate --project-id <id> --description "Build a REST API with auth, CRUD, and tests"
+```
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--description" type="string" required>
+  Natural language description of what to plan.
+</ParamField>
+
+<ParamField path="--model" type="string">
+  AI model override.
+</ParamField>
+
+<ParamField path="--provider" type="string">
+  Provider to use.
+</ParamField>
+
+<ParamField path="--machine" type="string">
+  Machine to dispatch the generation to.
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Skip confirmation prompts.
+</ParamField>
+
+---
+
+## Task Commands
+
+Dispatch tasks to machines, watch execution output, steer running agents, and manage task status.
+
+### `task list`
+
+List tasks across all projects (cross-project view).
+
+```bash
+astro-cli task list --status in_progress --since 2025-01-01
+```
+
+<ParamField path="--project" type="string">
+  Filter by project ID.
+</ParamField>
+
+<ParamField path="--status" type="string">
+  Filter by status (e.g., `planned`, `in_progress`, `completed`).
+</ParamField>
+
+<ParamField path="--since" type="string">
+  Show tasks updated after this date (ISO format).
+</ParamField>
+
+<ParamField path="--until" type="string">
+  Show tasks updated before this date (ISO format).
+</ParamField>
+
+### `task show`
+
+Show full task details including the latest execution output and file changes.
+
+```bash
+astro-cli task show <task-id>
+```
+
+### `task dispatch`
+
+Dispatch a task to a connected machine for execution. This is the primary way to run tasks from the CLI.
+
+```bash
+# Basic dispatch
+astro-cli task dispatch <node-id> --project-id <id>
+
+# Dispatch to a specific machine with a specific model
+astro-cli task dispatch <node-id> --project-id <id> --machine my-workstation --model claude-sonnet-4-20250514
+
+# Dispatch to SLURM cluster
+astro-cli task dispatch <node-id> --project-id <id> \
+  --slurm --slurm-partition gpu \
+  --slurm-gpus 2 --slurm-gpu-type A100 \
+  --slurm-mem 64G --slurm-time 4:00:00
+```
+
+<ParamField path="node-id" type="string" required>
+  The UUID of the plan node to execute.
+</ParamField>
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--force" type="boolean">
+  Force dispatch even if the task is already running.
+</ParamField>
+
+<ParamField path="--machine" type="string">
+  Target machine ID (uses default machine if not specified).
+</ParamField>
+
+<ParamField path="--model" type="string">
+  AI model override.
+</ParamField>
+
+<ParamField path="--provider" type="string">
+  Provider to use (e.g., `claude-sdk`, `claude-code`, `codex`).
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Skip all confirmation prompts and auto-approve tool calls.
+</ParamField>
+
+**SLURM options** (require `--slurm` flag):
+
+<ParamField path="--slurm" type="boolean">
+  Enable SLURM dispatch mode.
+</ParamField>
+
+<ParamField path="--slurm-partition" type="string">
+  SLURM partition name.
+</ParamField>
+
+<ParamField path="--slurm-gpus" type="number">
+  Number of GPUs to request.
+</ParamField>
+
+<ParamField path="--slurm-gpu-type" type="string">
+  GPU type (e.g., `A100`, `H100`, `V100`).
+</ParamField>
+
+<ParamField path="--slurm-mem" type="string">
+  Memory allocation (e.g., `64G`).
+</ParamField>
+
+<ParamField path="--slurm-time" type="string">
+  Time limit (e.g., `4:00:00`).
+</ParamField>
+
+<ParamField path="--slurm-nodes" type="number">
+  Number of nodes.
+</ParamField>
+
+<ParamField path="--slurm-cpus" type="number">
+  Number of CPUs per task.
+</ParamField>
+
+<ParamField path="--slurm-qos" type="string">
+  Quality of service level.
+</ParamField>
+
+<ParamField path="--slurm-account" type="string">
+  SLURM account name.
+</ParamField>
+
+<ParamField path="--slurm-modules" type="string">
+  Comma-separated module list to load (e.g., `cuda/12.0,python/3.11`).
+</ParamField>
+
+<ParamField path="--cluster" type="string">
+  Target SLURM cluster name.
+</ParamField>
+
+### `task chat`
+
+Chat with AI about a specific task. The AI receives the task description, branch context, and related PR information.
+
+```bash
+astro-cli task chat <node-id> --project-id <id> --message "How should I implement this?"
+```
+
+<ParamField path="node-id" type="string" required>
+  The UUID of the plan node.
+</ParamField>
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project.
+</ParamField>
+
+<ParamField path="--message" type="string" required>
+  Your message.
+</ParamField>
+
+<ParamField path="--session-id" type="string">
+  Resume an existing chat session.
+</ParamField>
+
+<ParamField path="--model" type="string">
+  AI model override.
+</ParamField>
+
+<ParamField path="--provider" type="string">
+  Provider to use.
+</ParamField>
+
+<ParamField path="--history-file" type="string">
+  Path to a JSON file for persisting chat history.
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Skip confirmation prompts.
+</ParamField>
+
+### `task cancel`
+
+Cancel a running task execution.
+
+```bash
+astro-cli task cancel <execution-id> --machine my-workstation
+```
+
+<ParamField path="execution-id" type="string" required>
+  The UUID of the execution to cancel.
+</ParamField>
+
+<ParamField path="--machine" type="string">
+  Machine running the execution.
+</ParamField>
+
+<ParamField path="--node-id" type="string">
+  Plan node ID (for verification).
+</ParamField>
+
+### `task steer`
+
+Send steering guidance to a running task execution. This lets you redirect the agent mid-execution without canceling.
+
+```bash
+# Send guidance
+astro-cli task steer <execution-id> --machine my-workstation \
+  --message "Focus on the error handling first"
+
+# Pause execution
+astro-cli task steer <execution-id> --machine my-workstation \
+  --action pause --message "Wait for review"
+```
+
+<ParamField path="execution-id" type="string" required>
+  The UUID of the execution.
+</ParamField>
+
+<ParamField path="--machine" type="string" required>
+  Machine running the execution.
+</ParamField>
+
+<ParamField path="--message" type="string" required>
+  Steering message for the agent.
+</ParamField>
+
+<ParamField path="--action" type="string">
+  Steering action: `guidance` (default), `redirect`, `pause`, or `resume`.
+</ParamField>
+
+### `task update-status`
+
+Manually update a task node's status.
+
+```bash
+astro-cli task update-status <node-id> --status completed
+```
+
+<ParamField path="node-id" type="string" required>
+  The UUID of the plan node.
+</ParamField>
+
+<ParamField path="--status" type="string" required>
+  New status. One of: `planned`, `dispatched`, `in_progress`, `auto_verified`, `awaiting_approval`, `awaiting_judgment`, `completed`, `pruned`.
+</ParamField>
+
+### `task watch`
+
+Watch real-time output from a running task execution via SSE. Streams text, tool calls, file changes, and progress events to your terminal.
+
+```bash
+astro-cli task watch <execution-id>
+```
+
+<ParamField path="execution-id" type="string" required>
+  The UUID of the execution to watch.
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Auto-approve any tool confirmations.
+</ParamField>
+
+---
+
+## Search
+
+Fuzzy search across projects, tasks, and executions.
+
+```bash
+# Search everything
+astro-cli search "authentication"
+
+# Search only tasks
+astro-cli search "database migration" --type tasks
+
+# Search within a date range
+astro-cli search "deploy" --since 2025-01-01 --until 2025-02-01
+```
+
+<ParamField path="query" type="string" required>
+  Search query (supports fuzzy matching).
+</ParamField>
+
+<ParamField path="--type" type="string">
+  Filter results by type: `projects`, `tasks`, or `executions`.
+</ParamField>
+
+<ParamField path="--since" type="string">
+  Show results updated after this date (ISO format).
+</ParamField>
+
+<ParamField path="--until" type="string">
+  Show results updated before this date (ISO format).
+</ParamField>
+
+Results are grouped by category (projects, tasks, executions) in the output.
+
+---
+
+## Activity Commands
+
+View and stream activity events across your workspace.
+
+### `activity list`
+
+List recent activity events.
+
+```bash
+astro-cli activity list --project <id> --limit 50 --type execution
+```
+
+<ParamField path="--project" type="string">
+  Filter by project ID.
+</ParamField>
+
+<ParamField path="--limit" type="number">
+  Number of events to show (default: 20).
+</ParamField>
+
+<ParamField path="--type" type="string">
+  Filter by event type.
+</ParamField>
+
+<ParamField path="--since" type="string">
+  Show events after this date.
+</ParamField>
+
+<ParamField path="--until" type="string">
+  Show events before this date.
+</ParamField>
+
+### `activity watch`
+
+Watch real-time activity events via SSE. Events stream to your terminal as they happen.
+
+```bash
+astro-cli activity watch --project <id>
+```
+
+<ParamField path="--project" type="string">
+  Filter by project ID.
+</ParamField>
+
+<ParamField path="--type" type="string">
+  Filter by event type.
+</ParamField>
+
+Press `Ctrl+C` to stop watching.
+
+---
+
+## Trace Commands
+
+View execution traces for observability — tool call timelines, token usage, cost breakdowns, and error diagnostics.
+
+### `trace list`
+
+List tool traces for an execution.
+
+```bash
+astro-cli trace list --execution-id <id>
+```
+
+<ParamField path="--execution-id" type="string" required>
+  The UUID of the execution.
+</ParamField>
+
+<ParamField path="--since" type="string">
+  Filter by start date.
+</ParamField>
+
+<ParamField path="--until" type="string">
+  Filter by end date.
+</ParamField>
+
+**Output columns:** Time, Tool, Duration, Status
+
+### `trace show`
+
+Show full trace details with all observation events.
+
+```bash
+astro-cli trace show --execution-id <id>
+```
+
+**Output fields per event:** Name, Type, Model, Tokens, Cost
+
+### `trace summary`
+
+Show a markdown summary of the execution.
+
+```bash
+astro-cli trace summary --execution-id <id>
+```
+
+### `trace stats`
+
+Show observation statistics for an execution.
+
+```bash
+astro-cli trace stats --execution-id <id>
+```
+
+**Output includes:**
+- Total events, spans, generations, tool calls
+- Error and warning counts
+- Token usage (input/output)
+- Total cost
+
+---
+
+## Environment Commands
+
+Manage connected machines, check relay status, and view available providers and clusters.
+
+### `env list`
+
+List all registered machines.
+
+```bash
+astro-cli env list
+```
+
+**Output columns:** ID, Name, Hostname, Platform, Providers, Connected, Last Seen
+
+### `env show`
+
+Show full details for a registered machine, including provider configs and metadata.
+
+```bash
+astro-cli env show <machine-id>
+```
+
+### `env remove`
+
+Revoke and remove a registered machine.
+
+```bash
+astro-cli env remove <machine-id>
+```
+
+### `env set-default`
+
+Set the default machine for task dispatch. This machine is used when `--machine` is not specified.
+
+```bash
+astro-cli env set-default <machine-id>
+```
+
+### `env status`
+
+Show relay server status: whether it is running, how many machines are connected, and Redis connection state.
+
+```bash
+astro-cli env status
+```
+
+### `env providers`
+
+List all available providers across all connected machines.
+
+```bash
+astro-cli env providers
+```
+
+### `env clusters`
+
+List HPC/SLURM clusters available for dispatch.
+
+```bash
+astro-cli env clusters
+```
+
+---
+
+## Auth Commands
+
+### `login`
+
+Authenticate via the OAuth2 Device Authorization flow.
+
+```bash
+astro-cli login
+```
+
+### `logout`
+
+Clear stored authentication tokens.
+
+```bash
+astro-cli logout
+```
+
+### `whoami`
+
+Show current authentication status and user information.
+
+```bash
+astro-cli whoami
+```
+
+---
+
+## Playground Commands
+
+Start ephemeral AI execution sessions that are not tied to a plan node. Useful for quick experiments and one-off tasks.
+
+### `playground start`
+
+Start a playground execution.
+
+```bash
+astro-cli playground start --project-id <id> --description "Refactor the auth module"
+```
+
+<ParamField path="--project-id" type="string" required>
+  The UUID of the project (provides context).
+</ParamField>
+
+<ParamField path="--description" type="string" required>
+  What you want the AI to do.
+</ParamField>
+
+<ParamField path="--dir" type="string">
+  Working directory for the execution.
+</ParamField>
+
+<ParamField path="--model" type="string">
+  AI model override.
+</ParamField>
+
+<ParamField path="--provider" type="string">
+  Provider to use.
+</ParamField>
+
+<ParamField path="--machine" type="string">
+  Target machine.
+</ParamField>
+
+<ParamField path="--yolo" type="boolean">
+  Skip confirmations and auto-approve tool calls.
+</ParamField>
+
+---
+
+## Config Commands
+
+### `config show`
+
+Show the current CLI configuration.
+
+```bash
+astro-cli config show
+```
+
+### `config set`
+
+Set a configuration value.
+
+```bash
+astro-cli config set <key> <value>
+```
+
+<ParamField path="key" type="string" required>
+  Configuration key: `server-url`, `default-machine`, `auth-token`, or `refresh-token`.
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  Value to set.
+</ParamField>
+
+### `config get`
+
+Get a specific configuration value.
+
+```bash
+astro-cli config get <key>
+```
+
+---
+
+## Other Commands
+
+### `tui`
+
+Launch the interactive terminal UI.
+
+```bash
+astro-cli tui
+```
+
+### `completion`
+
+Generate shell completion scripts for bash or zsh.
+
+```bash
+astro-cli completion
+```

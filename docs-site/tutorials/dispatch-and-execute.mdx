@@ -1,0 +1,278 @@
+---
+title: "Dispatch and Execute Tasks"
+description: "Deep-dive into how Astro dispatches tasks — queue processing, machine selection, context assembly, monitoring, approvals, and result review."
+---
+
+## What You'll Learn
+
+This tutorial covers the full dispatch lifecycle — from clicking "Dispatch" to reviewing results. You'll learn:
+
+- How the dispatch engine processes tasks
+- How to configure machine instructions for context injection
+- How to monitor execution via the activity feed
+- How to handle approval requests from agents
+- How to review and act on results
+
+**Time:** ~20 minutes
+
+## Prerequisites
+
+<Check>
+  **A project with a generated plan.** Complete [Your First Project](/tutorials/first-project) first.
+</Check>
+
+<Check>
+  **At least one connected machine.** See [Connect a Machine](/tutorials/connect-machine) or use local mode (your laptop is the default machine).
+</Check>
+
+## How Dispatch Works
+
+Before diving into the steps, here's the end-to-end flow:
+
+```
+Plan Graph → Dispatch Engine → Machine Selection → Context Assembly → Agent Execution → Event Streaming → Result Routing → Verification
+```
+
+Each stage:
+
+| Stage | What happens |
+|-------|-------------|
+| **Dispatch engine** | Validates dependencies are met, enqueues the task |
+| **Machine selection** | Picks an available machine matching labels/requirements |
+| **Context assembly** | Builds the agent prompt: vision doc (~4.5K tokens) + task description + dependency outputs (~2.5K each) |
+| **Agent execution** | Sends the assembled context to the agent runner on the selected machine |
+| **Event streaming** | Agent streams events (text, tool_use, tool_result, file_change) back via SSE |
+| **Result routing** | Output is captured, verification runs, status is updated |
+| **Verification** | Auto-verified (tests pass) or routed to human judgment |
+
+<Info>
+  The context window budget is ~200K tokens total. The vision document gets ~4.5K tokens, each dependency output gets ~2.5K tokens, and the task description gets 0.5–2K tokens. The rest is available for agent reasoning and tool use.
+</Info>
+
+## Tutorial
+
+<Steps>
+
+<Step title="Configure machine instructions (optional)">
+
+Machine instructions are team-scoped markdown documents injected into every agent execution. They provide shared context — coding standards, architecture rules, environment setup — so every task executes with your team's conventions.
+
+1. Navigate to **Settings → Machine Instructions**.
+2. Click **Add Instruction**.
+3. Write your instructions in markdown:
+
+```markdown
+# Execution Environment
+
+## Code Style
+- Use TypeScript strict mode
+- Follow ESLint config from the repo
+- Prefer functional components with hooks
+
+## Architecture Rules
+- Server must remain stateless
+- All API routes use requireAuth middleware
+- Never store secrets in code — use environment variables
+
+## Testing
+- Write unit tests for all new functions
+- Integration tests for API endpoints
+- Run `npm test` before marking task complete
+```
+
+4. Click **Save**.
+
+**Expected outcome:** The instruction document appears in the list. It will be included in the context for all future task executions on this team.
+
+<Tip>
+  You can have multiple instruction documents. They're concatenated in order and injected after the vision document but before the task description.
+</Tip>
+
+</Step>
+
+<Step title="Identify a ready task">
+
+A task is **ready for dispatch** when:
+- Its status is `planned`
+- All predecessor tasks (dependencies) are `completed` or `auto_verified`
+- At least one connected machine is available
+
+Open your project's plan graph. Ready tasks are visually distinguished — they show a dispatch button and appear in a brighter color than blocked tasks.
+
+**Multiple ready tasks?** If several tasks have no dependencies on each other, they can all be dispatched simultaneously for parallel execution.
+
+**Expected outcome:** You've identified one or more tasks that are eligible for dispatch.
+
+</Step>
+
+<Step title="Dispatch the task">
+
+**Single task dispatch:**
+1. Click on a ready task node in the graph.
+2. In the detail panel, click **Dispatch**.
+3. (Optional) Under **Execution Settings**, select a specific machine or leave it on "Auto" for automatic selection.
+
+**Batch dispatch:**
+- Click **Dispatch All Ready** in the plan toolbar to dispatch every eligible task at once.
+
+**Auto-dispatch:**
+- Enable in **Project Settings → Execution → Auto-dispatch: On** to automatically dispatch tasks as soon as their dependencies complete.
+
+The task status transitions: `planned` → `dispatched` → `in_progress`.
+
+**Expected outcome:** The task node shows a pulsing animation indicating active execution. The status reads `in_progress`.
+
+<Warning>
+  With auto-dispatch enabled, tasks run as soon as dependencies complete. Review your plan carefully before enabling this — once dispatched, tasks consume compute resources.
+</Warning>
+
+</Step>
+
+<Step title="Monitor execution via the activity feed">
+
+While a task executes, you get real-time visibility through the activity feed.
+
+Click on the executing task node to open its detail panel. The **Activity** tab shows a live stream of events:
+
+| Event type | What it shows |
+|-----------|--------------|
+| `text` | Agent's reasoning and explanations |
+| `tool_use` | Tools the agent is calling (file reads, writes, searches) |
+| `tool_result` | Results returned from tool calls |
+| `file_change` | Files created, modified, or deleted |
+| `progress` | Subroutine progress indicators |
+| `error` | Errors encountered during execution |
+
+Events are grouped into **display blocks** for readability — consecutive tool calls are collapsed into expandable groups, and file changes show diffs.
+
+**Expected outcome:** You can see exactly what the agent is doing in real time. The activity feed scrolls as new events arrive.
+
+<Info>
+  All streaming events are persisted to the database. If you refresh the page or lose connection, the activity feed is fully restored from the `streaming_events` table — you never lose execution history.
+</Info>
+
+</Step>
+
+<Step title="Handle approval requests">
+
+During execution, an agent may need your input. Astro uses a dynamic approval system — agents can call the `ask_user_question` MCP tool to pause and request a decision.
+
+When an approval is requested:
+1. The task status changes to `awaiting_approval`.
+2. A notification appears in the Astro UI.
+3. The task's activity feed shows an **Approval Card** with the question.
+
+**Binary approvals** present Yes/No buttons:
+
+> "The existing `users` table has a different schema than expected. Should I migrate the existing data to the new schema, or create a new table?"
+>
+> [Yes, migrate] [No, new table]
+
+**Multi-choice approvals** present options with radio buttons:
+
+> "Which authentication strategy should I implement?"
+>
+> ○ JWT with refresh tokens
+> ○ Session cookies
+> ○ OAuth2 with external provider
+>
+> [Confirm] [Cancel]
+
+Click your choice. The agent resumes execution with your decision as context.
+
+**Expected outcome:** The agent pauses, you make a decision, and execution continues. The approval and your response are recorded in the activity feed.
+
+<Warning>
+  Approval requests have a 5-minute timeout. If you don't respond, the agent may proceed with a default choice or abort the task.
+</Warning>
+
+</Step>
+
+<Step title="Review execution results">
+
+When the agent finishes, the task transitions to a final status based on verification:
+
+| Final status | Meaning | Your action |
+|-------------|---------|-------------|
+| `auto_verified` | Automated checks passed (tests, build) | None needed — task is complete |
+| `awaiting_judgment` | Needs human review | Review and approve/reject |
+| `completed` | You approved it | None |
+| `pruned` | Cancelled or branch killed | None |
+
+**To review a task:**
+1. Click the task node to open the detail panel.
+2. Read the **Execution Summary** — what the agent did, key decisions, files changed.
+3. Scroll through the **Activity Feed** to see the full execution log.
+4. Check **File Changes** for a diff view of all modifications.
+
+**If status is `awaiting_judgment`:**
+- Click **Approve** to mark the task as completed. Downstream tasks become ready for dispatch.
+- Click **Request Changes** to reject. You can add a note explaining what needs to change, and re-dispatch.
+
+**Expected outcome:** The task shows its final status. Downstream tasks that depended on it are now eligible for dispatch.
+
+<Tip>
+  The execution output from completed tasks is included as context when dispatching downstream tasks. This means each task in the chain has access to what previous tasks produced.
+</Tip>
+
+</Step>
+
+<Step title="Monitor parallel execution">
+
+If you dispatched multiple tasks, the plan graph shows all active executions simultaneously.
+
+- Each executing task has a pulsing indicator.
+- The **Activity Feed** in the project view shows events from all running tasks, tagged with the task name.
+- Machine utilization is visible in **Settings → Machines** — each machine shows its current task.
+
+Tasks with no shared dependencies run fully in parallel. If you have 3 ready tasks and 3 connected machines, all 3 execute at the same time.
+
+**Expected outcome:** Multiple task nodes pulse simultaneously. The activity feed interleaves events from concurrent executions.
+
+</Step>
+
+<Step title="Cancel an execution (if needed)">
+
+To stop a running task:
+
+1. Click on the executing task node.
+2. Click **Cancel Execution** in the detail panel.
+
+Astro sends a cancellation signal to the agent. The task status changes to `pruned`. Note that in-progress file changes may be partially complete.
+
+**Branch pruning:** If you cancel a task that has downstream dependencies, all downstream tasks are also marked as `pruned`. This prevents dispatching tasks that depend on incomplete work.
+
+**Expected outcome:** The task and its downstream dependents show `pruned` status. The pulsing indicator stops.
+
+</Step>
+
+</Steps>
+
+## Dispatch Strategies
+
+As you get more comfortable, consider these strategies:
+
+| Strategy | When to use | How |
+|----------|------------|-----|
+| **Sequential** | Tasks have strict dependencies | Dispatch one at a time, wait for completion |
+| **Parallel fan-out** | Multiple independent tasks | Dispatch All Ready to run everything in parallel |
+| **Auto-dispatch** | You trust the plan, want hands-off execution | Enable in Project Settings |
+| **Targeted dispatch** | Specific task needs a specific machine | Select machine in Execution Settings |
+| **Label-based routing** | GPU tasks go to GPU machines | Add labels to machines, require labels on tasks |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Approval System" icon="shield-check" href="/features/approval-system">
+    Full reference for the approval system and MCP tools.
+  </Card>
+  <Card title="Activity Feed" icon="list" href="/features/activity-feed">
+    Deep-dive into the activity feed and event types.
+  </Card>
+  <Card title="Team Collaboration" icon="users" href="/tutorials/team-collaboration">
+    Share projects and coordinate dispatch across a team.
+  </Card>
+  <Card title="Use the CLI" icon="terminal" href="/tutorials/using-the-cli">
+    Dispatch and monitor tasks from the command line.
+  </Card>
+</CardGroup>

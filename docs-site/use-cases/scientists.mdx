@@ -1,0 +1,207 @@
+---
+title: Scientists
+description: How Astro gives researchers a planning layer for branching analyses across laptops, HPC clusters, and cloud — with a map of the full exploration tree.
+---
+
+# Astro for Scientists
+
+You're a researcher — computational biologist, physicist, data scientist, or anyone who chases hypotheses for a living. Your work isn't linear. It's tree-shaped: start with a research question, generate hypotheses, and each hypothesis branches into analysis paths. Some pan out. Others hit walls. You prune the dead ends and double down on what looks promising.
+
+But no tool represents this tree. Your analyses are scattered across Jupyter notebooks on your laptop, Slurm job logs on the HPC cluster, scripts on a cloud VM, and what's in your head. You can't see the full picture, can't easily decide which branch to chase next, and have no way to know what downstream work becomes pointless when you kill an upstream analysis.
+
+Astro gives you a planning layer that matches how scientific exploration actually works.
+
+---
+
+## The Problem
+
+Scientific work runs into coordination problems that no existing tool addresses:
+
+- **No map of your exploration tree.** You track analyses across scattered notebooks, job logs, and local scripts. The branching structure — which hypotheses lead where, which depend on what — lives in your head.
+- **Multi-environment chaos.** Your laptop runs quick analyses. Your HPC cluster handles the heavy computation. A cloud GPU does the deep learning. You coordinate between them manually, through SSH sessions and file transfers.
+- **Pruning is invisible.** When an analysis fails or a hypothesis is falsified, you mentally mark it as a dead end. But you don't always realize which downstream work just became pointless. You might spend a week on an analysis whose input data was already invalidated.
+- **Time pressure without time tools.** Grant cycles, paper deadlines, thesis defenses. You need to decide where to spend limited time across competing branches, but no tool helps you make that strategic call.
+- **Context lost between sessions.** Each time you start a new analysis, you rebuild context from scratch. The agent running your genomics pipeline on the cluster doesn't know about the preprocessing decisions you made locally last week.
+
+---
+
+## How Astro Solves It
+
+### 1. The Exploration Tree as a First-Class Object
+
+Astro represents your research as a **directed graph** — not a list of tasks, but a tree of hypotheses, analyses, and decision points with explicit dependencies. You can see the entire exploration at a glance.
+
+```
+Research Question: "What drives differential gene expression in cortical organoids?"
+│
+├── Hypothesis A: Transcription factor binding changes
+│   ├── Analysis: ATAC-seq peak calling ✓ (completed)
+│   ├── Analysis: Motif enrichment ✓ (completed)
+│   ├── Analysis: TF footprinting (running on HPC)
+│   └── Decision: Results significant? → (awaiting judgment)
+│
+├── Hypothesis B: Chromatin accessibility shifts
+│   ├── Analysis: Differential accessibility ✓ (completed)
+│   ├── Analysis: Hi-C integration (planned, depends on data)
+│   └── Branch: Enhancer analysis
+│       ├── Analysis: H3K27ac ChIP-seq overlap (planned)
+│       └── Analysis: Super-enhancer identification (planned)
+│
+└── Hypothesis C: Post-transcriptional regulation  ✗ (pruned)
+    ├── Analysis: miRNA target prediction (cancelled)
+    └── Analysis: RNA stability assay (cancelled)
+```
+
+When you prune Hypothesis C — the miRNA angle didn't pan out — all downstream analyses are automatically cancelled. No wasted compute. No wasted time.
+
+### 2. Multi-Environment Dispatch
+
+Your laptop handles quick plots and data wrangling. Your HPC cluster runs the heavy lifting. A cloud GPU handles the deep learning models. Astro dispatches tasks to the right environment based on what each analysis needs.
+
+```
+Plan Graph                         Environments
+──────────                         ────────────
+                                    ┌──────────────┐
+Motif enrichment ─────────────────► │ Laptop       │
+(lightweight, fast)                 │ 16GB RAM     │
+                                    └──────────────┘
+                                    ┌──────────────┐
+TF footprinting ──────────────────► │ HPC Cluster  │
+(needs 4 GPUs, 128GB RAM)          │ Slurm, A100s │
+                                    └──────────────┘
+                                    ┌──────────────┐
+RNA velocity model ───────────────► │ Cloud GPU    │
+(needs CUDA, not on cluster)        │ AWS p3.8xl   │
+                                    └──────────────┘
+```
+
+The agent running on your HPC gateway machine knows how to submit Slurm jobs, monitor them, and retrieve results. It generates the `sbatch` script, submits the job, polls `squeue` for status, and reads the output when it's done — all without you SSHing in.
+
+<Steps>
+  <Step title="Register your machines">
+    Connect your laptop, HPC cluster gateway, and cloud instance to Astro using the agent runner. Each machine reports its capabilities — available GPUs, Slurm partitions, installed tools.
+  </Step>
+  <Step title="Tag tasks with environments">
+    When creating or refining your plan, specify where each analysis should run. Heavy computation goes to the cluster. Quick exploration stays local.
+  </Step>
+  <Step title="Astro dispatches automatically">
+    When an analysis's dependencies are met, Astro sends it to the specified machine. Independent analyses run in parallel across environments.
+  </Step>
+  <Step title="Results flow back to the plan">
+    Output from each environment streams back to Astro. You see live progress, output files, and results in one interface — regardless of where they ran.
+  </Step>
+</Steps>
+
+### 3. HPC and Slurm Integration
+
+Astro's agent runner detects Slurm when it starts up on your cluster's gateway node. It discovers available partitions, GPU types, and accounts, then reports these capabilities to Astro.
+
+When a task dispatches to the cluster, the AI agent:
+
+1. Writes an `sbatch` script with the right resource requests (partition, GPUs, memory, time limit)
+2. Loads the required modules (`cuda`, `python`, `R`, etc.)
+3. Submits the job and monitors its status via `squeue`
+4. Reads output files when the job completes
+5. Reports results — or errors, with the Slurm log — back to your plan
+
+You don't write Slurm scripts. You don't SSH into the cluster to check job status. You describe what analysis to run, and Astro handles the submission and monitoring.
+
+```bash
+# What the agent generates and submits:
+#!/bin/bash
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=6:00:00
+#SBATCH --gres=gpu:a100:2
+
+module load cuda/12.0
+module load python/3.11
+
+cd /scratch/mylab/organoid-analysis
+python run_footprinting.py \
+  --input data/atac_peaks.bed \
+  --genome hg38 \
+  --output results/footprints/
+```
+
+### 4. Branch Pruning and Effort Reallocation
+
+When a branch isn't working — the p-value is 0.4, the model doesn't converge, the data quality is too low — you prune it. Astro cancels all downstream analyses automatically and surfaces the question: "Where should this effort go instead?"
+
+This is a first-class operation, not an afterthought. Pruning is how science works. Dead ends aren't failures — they're information. Astro makes sure that information propagates through your plan graph instantly.
+
+### 5. Research Context Injection
+
+Every Astro project has a **vision document**. For scientists, this is your research context: the question you're exploring, your analytical framework, key decisions you've made, and results so far.
+
+This document gets injected into every agent session. The agent running your ChIP-seq analysis on the cluster knows about the ATAC-seq results from last week's local analysis. It has the full picture, not just the immediate task.
+
+---
+
+## Example: Genomics Pipeline Across Local and HPC
+
+You're investigating differential gene regulation in cortical organoids. You have ATAC-seq, RNA-seq, and ChIP-seq data. Some analyses are quick (run locally), some need heavy compute (HPC cluster), and the exploration branches as you discover new leads.
+
+<Steps>
+  <Step title="Create the project">
+    Open Astro and describe your research question: "Identify transcription factors driving differential gene expression between dorsal and ventral cortical organoids. We have ATAC-seq and RNA-seq from 3 replicates per condition. Timeline: 6 weeks before the paper submission deadline."
+  </Step>
+  <Step title="AI generates the exploration plan">
+    Astro produces a graph with two main branches:
+
+    - **Branch A (Chromatin accessibility)**: QC raw reads → Align to hg38 → Call peaks → Differential accessibility → Motif enrichment → TF footprinting
+    - **Branch B (Expression integration)**: RNA-seq processing → DEG analysis → Integrate with ATAC → Identify regulatory TFs
+
+    Dependencies: "Integrate with ATAC" depends on both "Differential accessibility" and "DEG analysis." The AI suggests running QC and alignment on the HPC cluster, with downstream analysis locally.
+  </Step>
+  <Step title="Refine and assign environments">
+    You adjust the plan: add a branch for Hi-C data you'll get next week, assign alignment and peak-calling to the HPC cluster (needs `gpu` partition, 64GB RAM), keep motif enrichment local (runs in minutes). You also add a checkpoint: "Review QC metrics before proceeding with alignment."
+  </Step>
+  <Step title="Dispatch and monitor">
+    QC tasks dispatch to the cluster. You watch Slurm job status in Astro — pending, running, complete. When QC finishes, Astro surfaces the results for your review (a judgment task, not auto-close, because you need to check the quality metrics).
+  </Step>
+  <Step title="Branch and prune based on results">
+    QC looks good. Alignment dispatches to the cluster automatically. Meanwhile, you start the RNA-seq branch locally. A week in, the motif enrichment results suggest a specific TF family is enriched. You add a new branch to investigate that TF family in depth — Astro handles the dependency graph updates.
+
+    The Hi-C data arrives but has quality issues. You prune that branch. All downstream analyses (TAD calling, loop detection) are cancelled instantly. You redirect that effort toward deeper footprinting analysis.
+  </Step>
+  <Step title="Converge on results">
+    After 4 weeks, the exploration tree has narrowed to two strong results: a set of TFs with differential binding and a regulatory network linking chromatin changes to expression. You export the final analysis paths as your paper's methods section and start writing.
+  </Step>
+</Steps>
+
+---
+
+## Key Features for Scientists
+
+| Feature | What it does |
+|---|---|
+| **Exploration tree** | Directed graph representing hypotheses, branches, and analyses with explicit dependencies |
+| **Multi-environment dispatch** | Route tasks to laptop, HPC cluster, or cloud based on compute needs |
+| **Slurm integration** | Auto-generate sbatch scripts, submit jobs, monitor status, retrieve results |
+| **Branch pruning** | Cancel a dead-end hypothesis and all downstream analyses in one action |
+| **Research context injection** | Your research question, framework, and prior results injected into every agent session |
+| **Tiered verification** | Auto-close computational tasks (pipeline ran, output exists); surface judgment calls (is this result meaningful?) |
+| **Batch execution** | "Execute all" dispatches every ready analysis and auto-chains successors |
+| **Strategic planning** | Allocate effort across branches given your timeline and priorities |
+
+---
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Astro running locally in under 5 minutes.
+  </Card>
+  <Card title="Plan Your First Project" icon="diagram-project" href="/tutorials/first-project">
+    Walk through creating a project, generating a plan, and dispatching tasks.
+  </Card>
+  <Card title="HPC / Slurm Setup" icon="server" href="/integrations/hpc-slurm">
+    Connect your HPC cluster to Astro via the agent runner.
+  </Card>
+  <Card title="Connect a Machine" icon="laptop" href="/tutorials/connect-machine">
+    Register your laptop or cloud instance as an execution environment.
+  </Card>
+</CardGroup>

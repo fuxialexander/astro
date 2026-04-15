@@ -1,0 +1,185 @@
+---
+title: API Overview
+description: Conventions, authentication, error format, and base URLs for the Astro REST API.
+icon: webhook
+---
+
+## Base URL
+
+Astro exposes a RESTful HTTP API via Hono.js. The base URL depends on your deployment mode:
+
+| Mode | Base URL | Auth |
+|------|----------|------|
+| **Local** | `http://localhost:5173/api` (via Vite proxy) | None — single user |
+| **Dev** | `https://<tunnel-domain>/api` | Supabase JWT or device token |
+| **Production** | `https://<fly-app>.fly.dev/api` | Supabase JWT or device token |
+
+All three modes share the same route definitions and Drizzle ORM schema.
+
+## Authentication
+
+Three auth methods, resolved in order by the `requireAuth` middleware:
+
+| Method | Header | When Used |
+|--------|--------|-----------|
+| **Local mode** | `X-User-Id` (optional) | No auth required, falls back to `LOCAL_USER_ID` |
+| **Supabase JWT** | `Authorization: Bearer <jwt>` | Web app (dev/prod) |
+| **Device token** | `Authorization: Bearer <device-jwt>` | CLI, registered machines |
+
+### Additional Headers
+
+| Header | Purpose |
+|--------|---------|
+| `X-Team-Id` | Active team scope (validated against membership) |
+| `X-User-Id` | Local mode only — override user identity |
+| `Last-Event-ID` | SSE reconnect — resume from last received event |
+| `?token=<jwt>` | SSE query param (EventSource can't send custom headers) |
+
+### Team Scoping
+
+Most authenticated endpoints are team-scoped:
+
+- Active team set via `X-Team-Id` header (validated against user's team memberships)
+- If omitted, defaults to user's first team
+- Personal team auto-created on first auth if no memberships exist
+
+## Error Format
+
+All error responses follow a consistent structure:
+
+<ResponseField name="error" type="string">
+  Machine-readable error code or human-readable error message.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable error description (when `error` is a code).
+</ResponseField>
+
+<ResponseField name="details" type="object">
+  Optional additional context about the error.
+</ResponseField>
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Invalid request data",
+  "details": { "field": "projectId", "reason": "required" }
+}
+```
+
+### HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `400` | Validation error — invalid request data |
+| `401` | Unauthorized — missing or invalid auth token |
+| `403` | Forbidden — insufficient permissions |
+| `404` | Not found — resource doesn't exist |
+| `409` | Conflict — resource already exists |
+| `429` | Rate limited — too many requests |
+| `500` | Internal server error |
+| `501` | Not implemented |
+| `503` | Service unavailable |
+
+## Rate Limiting
+
+| Scope | Window | Limit |
+|-------|--------|-------|
+| WebAuthn endpoints | 15 min | 30 req/IP |
+| Device token polling | 1 min | 10 req/IP |
+| Device auth failures | — | 5 attempts → 5-min lockout |
+
+Rate limit headers (`X-RateLimit-*`) are planned but not yet implemented on all endpoints.
+
+## Conventions
+
+### Timestamps
+
+All timestamps are ISO 8601 strings: `YYYY-MM-DDTHH:mm:ss.sssZ`
+
+Date-only fields (e.g., `startDate`, `dueDate`) use `YYYY-MM-DD`.
+
+### Soft Deletes
+
+Projects use soft delete (`deletedAt` timestamp). Other resources use hard delete.
+
+### Audit Logging
+
+Server mode only. Tracked actions include: `account.create/login/logout/delete`, `machine.register/revoke`, `project.create/delete/share`, `data.export/delete`. Skipped in local/PGlite mode.
+
+## Endpoint Inventory
+
+Astro has **201 endpoints** across 19 route files. Here's a summary by category:
+
+| Category | Endpoints | Route File | Auth Required |
+|----------|-----------|-----------|---------------|
+| [Health & Providers](/api-reference/overview#health) | 12 | `health.ts` | No (most) |
+| [Authentication](/api-reference/overview#authentication-1) | 9 | `auth.ts` | Varies |
+| [Device Authorization](/api-reference/overview#device-authorization) | 15 | `device-auth.ts` | Varies |
+| [Agent & AI](/api-reference/dispatch-api) | 13 | `agent.ts` | Yes |
+| [Task Dispatch](/api-reference/dispatch-api) | 14 | `dispatch.ts` | Yes |
+| [Data CRUD](/api-reference/data-api) | 63 | `data.ts` | Yes |
+| [Real-Time Events](/api-reference/events-api) | 2 | `events.ts` | Yes |
+| [Relay & Machines](/api-reference/dispatch-api#relay-machines) | 15 | `relay.ts` | Yes |
+| GitHub Integration | 14 | `github.ts` | Mostly |
+| Teams | 12 | `teams.ts` | Yes |
+| Connected Accounts | 5 | `connected-accounts.ts` | Yes |
+| Skills | 5 | `skills.ts` | Yes |
+| Observations | 4 | `observations.ts` | Yes |
+| Notifications | 4 | `notifications.ts` | Yes |
+| File System | 3 | `fs.ts` | Yes |
+| Repository | 4 | `repo.ts` | Yes |
+| Content Sharing | 2 | `share.ts` | No |
+| System Info | 2 | `system.ts` | No |
+
+### Health
+
+```bash
+# Health check (no auth)
+curl https://<your-api>/api/health
+```
+
+```json
+{
+  "status": "ok",
+  "claudeAuth": "valid",
+  "timestamp": "2026-03-17T12:00:00Z"
+}
+```
+
+### Device Authorization
+
+OAuth2 Device Authorization Grant (RFC 8628) for machine registration:
+
+1. `POST /api/device/authorize` — Request a device code
+2. `POST /api/device/token` — Poll for access token
+3. `POST /api/device/register` — Register machine with the obtained token
+4. `POST /api/device/refresh` — Refresh access token
+5. `POST /api/device/revoke` — Revoke refresh token (logout machine)
+
+See the [Tutorials: Connect a Machine](/tutorials/connect-machine) guide for a walkthrough.
+
+## Real-Time Protocols
+
+Astro uses three complementary real-time systems:
+
+### Server-Sent Events (SSE)
+
+Two SSE patterns:
+
+1. **Action SSE**: `POST /api/dispatch/task`, `POST /api/agent/chat`, etc. return an SSE stream for that operation
+2. **Global event stream**: `GET /api/events/stream` — persistent SSE for real-time events (machine state, task progress, approvals)
+
+See [Events API](/api-reference/events-api) for details.
+
+### WebSocket Relay
+
+Bidirectional communication between the API server and remote agent runners:
+
+- Machines connect via WebSocket to the relay (port 3002)
+- API server dispatches tasks through the relay
+- Results flow back through the relay → SSE → client
+
+### Supabase Realtime (Server Mode Only)
+
+Change Data Capture subscriptions for multi-device sync on tables: `projects`, `plan_nodes`, `plan_edges`, `sessions`, `task_chat_sessions`.

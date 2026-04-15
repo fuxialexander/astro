@@ -1,0 +1,315 @@
+---
+title: Data API
+description: CRUD endpoints for projects, plans, nodes, edges, executions, and all persistent data.
+icon: database
+---
+
+## Overview
+
+The Data API provides standard CRUD operations over 15+ resource types. All endpoints require authentication and are team-scoped via the `X-Team-Id` header.
+
+**Base path:** `/api/data`
+
+<Note>
+  The Data API supports **slim mode** for initial page loads. Append `?slim=1` to exclude large fields like `content`, `executionOutput`, and `streamText`. Full data is loaded per-project when the user navigates to a specific project.
+</Note>
+
+## Projects
+
+<ParamField path="GET /api/data/projects" type="endpoint">
+  List all projects for the current team. Returns slim project data by default.
+</ParamField>
+
+<ParamField path="POST /api/data/projects" type="endpoint">
+  Create a new project.
+</ParamField>
+
+<ParamField path="GET /api/data/projects/:id" type="endpoint">
+  Get a specific project by ID.
+</ParamField>
+
+<ParamField path="PATCH /api/data/projects/:id" type="endpoint">
+  Update a project.
+</ParamField>
+
+<ParamField path="DELETE /api/data/projects/:id" type="endpoint">
+  Soft-delete a project (sets `deletedAt` timestamp).
+</ParamField>
+
+### Example: Create Project
+
+```bash
+curl -X POST https://<api>/api/data/projects \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Team-Id: <team-id>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Project",
+    "description": "Build a dashboard app",
+    "visionDoc": "Product vision document..."
+  }'
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "My Project",
+  "description": "Build a dashboard app",
+  "createdAt": "2026-03-17T12:00:00Z"
+}
+```
+
+## Plan Graph (Nodes and Edges)
+
+The plan graph is the core data model — a directed graph of task nodes connected by dependency edges.
+
+<ParamField path="GET /api/data/plan/:projectId" type="endpoint">
+  Get plan (nodes + edges) for a project. Supports `?slim=1` to exclude large fields.
+</ParamField>
+
+<ParamField path="PUT /api/data/plan/:projectId" type="endpoint">
+  Bulk update plan (replace all nodes + edges for a project).
+</ParamField>
+
+<ParamField path="POST /api/data/plan/nodes" type="endpoint">
+  Create a plan node.
+</ParamField>
+
+<ParamField path="PATCH /api/data/plan/nodes/:id" type="endpoint">
+  Update a plan node.
+</ParamField>
+
+<ParamField path="DELETE /api/data/plan/nodes/:id" type="endpoint">
+  Delete a plan node.
+</ParamField>
+
+<ParamField path="POST /api/data/plan/edges" type="endpoint">
+  Create a plan edge (dependency between nodes).
+</ParamField>
+
+<ParamField path="DELETE /api/data/plan/edges/:id" type="endpoint">
+  Delete a plan edge.
+</ParamField>
+
+### Example: Get Plan
+
+```bash
+curl https://<api>/api/data/plan/<projectId>?slim=1 \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Team-Id: <team-id>"
+```
+
+<ResponseField name="nodes" type="PlanNode[]">
+  Array of plan nodes with metadata. In slim mode, `content` and `executionOutput` are `null`.
+</ResponseField>
+
+<ResponseField name="edges" type="PlanEdge[]">
+  Array of edges connecting nodes. Each edge has `source` and `target` node IDs.
+</ResponseField>
+
+### Plan Node Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Unique node identifier |
+| `projectId` | UUID | Parent project |
+| `title` | string | Task title |
+| `content` | string | Detailed task description (excluded in slim mode) |
+| `status` | enum | `planned`, `dispatched`, `in_progress`, `auto_verified`, `awaiting_approval`, `completed`, `pruned` |
+| `startDate` | string | ISO date (`YYYY-MM-DD`), AI-generated |
+| `endDate` | string | ISO date (`YYYY-MM-DD`), AI-generated |
+| `dueDate` | string | ISO date for list views |
+| `estimate` | enum | `XS`, `S`, `M`, `L`, `XL` |
+| `executionId` | string | Active execution ID |
+| `executionOutput` | string | Execution result (excluded in slim mode) |
+| `executionError` | string | Execution error message |
+| `executionStartedAt` | string | ISO timestamp |
+| `executionCompletedAt` | string | ISO timestamp |
+
+## Initiatives
+
+<ParamField path="GET /api/data/initiatives" type="endpoint">
+  List initiatives for the current team.
+</ParamField>
+
+<ParamField path="POST /api/data/initiatives" type="endpoint">
+  Create an initiative.
+</ParamField>
+
+<ParamField path="GET /api/data/initiatives/:id" type="endpoint">
+  Get a specific initiative.
+</ParamField>
+
+<ParamField path="PATCH /api/data/initiatives/:id" type="endpoint">
+  Update an initiative.
+</ParamField>
+
+<ParamField path="DELETE /api/data/initiatives/:id" type="endpoint">
+  Delete an initiative.
+</ParamField>
+
+## User Profile and Settings
+
+<ParamField path="GET /api/data/profile" type="endpoint">
+  Get current user profile.
+</ParamField>
+
+<ParamField path="PUT /api/data/profile" type="endpoint">
+  Update user profile.
+</ParamField>
+
+<ParamField path="GET /api/data/settings" type="endpoint">
+  Get all user settings.
+</ParamField>
+
+<ParamField path="PATCH /api/data/settings" type="endpoint">
+  Bulk update settings.
+</ParamField>
+
+<ParamField path="GET /api/data/display-settings" type="endpoint">
+  Get display settings for all views.
+</ParamField>
+
+<ParamField path="PATCH /api/data/display-settings/:view" type="endpoint">
+  Update display settings for a specific view.
+</ParamField>
+
+## Executions and Traces
+
+<ParamField path="GET /api/data/executions" type="endpoint">
+  List task executions. Supports filtering by project.
+</ParamField>
+
+<ParamField path="POST /api/data/executions" type="endpoint">
+  Record an execution result.
+</ParamField>
+
+<ParamField path="DELETE /api/data/executions/:nodeId" type="endpoint">
+  Delete execution data for a node.
+</ParamField>
+
+<ParamField path="GET /api/data/tool-traces" type="endpoint">
+  List tool traces (tool calls made during execution).
+</ParamField>
+
+<ParamField path="GET /api/data/file-changes" type="endpoint">
+  List file changes made during executions.
+</ParamField>
+
+## Chat and Sessions
+
+<ParamField path="GET /api/data/chat/:nodeId" type="endpoint">
+  Get chat messages for a task node.
+</ParamField>
+
+<ParamField path="POST /api/data/chat/:nodeId/session" type="endpoint">
+  Create a chat session for a node.
+</ParamField>
+
+<ParamField path="POST /api/data/chat/:nodeId/messages" type="endpoint">
+  Add a message to a node's chat.
+</ParamField>
+
+<ParamField path="GET /api/data/sessions" type="endpoint">
+  List all sessions.
+</ParamField>
+
+<ParamField path="POST /api/data/sessions" type="endpoint">
+  Create a new session.
+</ParamField>
+
+<ParamField path="PATCH /api/data/sessions/:sessionId" type="endpoint">
+  Update session metadata.
+</ParamField>
+
+<ParamField path="POST /api/data/sessions/:sessionId/messages" type="endpoint">
+  Add a message to a session.
+</ParamField>
+
+## Usage Metrics
+
+<ParamField path="GET /api/data/usage/today" type="endpoint">
+  Get today's usage metrics (cost, tokens, task counts).
+</ParamField>
+
+<ParamField path="POST /api/data/usage/increment" type="endpoint">
+  Increment a usage counter (internal).
+</ParamField>
+
+## Teams
+
+<ParamField path="GET /api/data/teams" type="endpoint">
+  List user's teams.
+</ParamField>
+
+<ParamField path="POST /api/data/teams" type="endpoint">
+  Create a team.
+</ParamField>
+
+<ParamField path="PATCH /api/data/teams/:id" type="endpoint">
+  Update team name or description.
+</ParamField>
+
+<ParamField path="POST /api/data/teams/:teamId/members" type="endpoint">
+  Add a member to a team.
+</ParamField>
+
+<ParamField path="PATCH /api/data/teams/:teamId/members/:userId" type="endpoint">
+  Update a member's role.
+</ParamField>
+
+<ParamField path="DELETE /api/data/teams/:teamId/members/:userId" type="endpoint">
+  Remove a member from a team.
+</ParamField>
+
+## Search and Export
+
+<ParamField path="GET /api/data/search" type="endpoint">
+  Global search across nodes and projects. Query parameter: `?q=search+term`.
+</ParamField>
+
+<ParamField path="GET /api/data/export" type="endpoint">
+  Export a project bundle (GDPR-compliant data export).
+</ParamField>
+
+## Activities
+
+<ParamField path="GET /api/data/activities" type="endpoint">
+  List activity events, optionally filtered by project.
+</ParamField>
+
+<ParamField path="POST /api/data/activities" type="endpoint">
+  Create an activity event.
+</ParamField>
+
+<ParamField path="DELETE /api/data/activities/:projectId" type="endpoint">
+  Delete all activities for a project.
+</ParamField>
+
+## Blobs
+
+<ParamField path="POST /api/data/blobs" type="endpoint">
+  Store a binary blob.
+</ParamField>
+
+<ParamField path="GET /api/data/blobs/:id" type="endpoint">
+  Retrieve a blob by ID.
+</ParamField>
+
+<ParamField path="DELETE /api/data/blobs/:id" type="endpoint">
+  Delete a blob.
+</ParamField>
+
+## Comments
+
+<ParamField path="GET /api/data/comments" type="endpoint">
+  List comments on a node.
+</ParamField>
+
+<ParamField path="POST /api/data/comments" type="endpoint">
+  Create a comment on a node.
+</ParamField>
+
+<ParamField path="DELETE /api/data/comments/:id" type="endpoint">
+  Delete a comment.
+</ParamField>

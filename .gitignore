@@ -177,6 +177,9 @@ dump.rdb
 
 # Astro agent directory (worktrees, cache, images, config)
 .astro/
+
+# Mintlify cache
+docs-site/.mintlify/
 .plan.md
 UI.pen
 docs/xi_fu_deployment.md

@@ -1,0 +1,173 @@
+---
+title: GitHub Integration
+description: Connect GitHub for repository browsing, OAuth authentication, PR creation, and issue sync.
+icon: github
+---
+
+## Overview
+
+The GitHub integration enables:
+
+- **OAuth authentication** — Secure GitHub login using OAuth 2.0
+- **Repository browsing** — Browse and search all accessible repositories
+- **Repository linking** — Select repos for use in Astro projects
+- **PR creation** — Automatic pull request creation on task completion
+- **Issue sync** — Sync GitHub issues to plan nodes
+
+## Setup
+
+<Steps>
+  <Step title="Create a GitHub OAuth App">
+    1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+    2. Click **"New OAuth App"**
+    3. Fill in the application details:
+
+    <Tabs>
+      <Tab title="Local Development">
+        | Field | Value |
+        |-------|-------|
+        | Application name | `Astro Local Dev` |
+        | Homepage URL | `http://localhost:5173` |
+        | Authorization callback URL | `http://localhost:3001/api/github/callback` |
+      </Tab>
+      <Tab title="Production">
+        | Field | Value |
+        |-------|-------|
+        | Application name | `Astro` |
+        | Homepage URL | `https://yourdomain.com` |
+        | Authorization callback URL | `https://your-api-domain.com/api/github/callback` |
+      </Tab>
+    </Tabs>
+
+    4. Click **"Register application"**
+    5. Copy the **Client ID**
+    6. Click **"Generate a new client secret"** and copy the **Client Secret**
+  </Step>
+
+  <Step title="Configure environment variables">
+    Add to your `.env` file:
+
+    ```bash
+    GITHUB_CLIENT_ID=your_github_oauth_client_id
+    GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+    GITHUB_REDIRECT_URI=http://localhost:3001/api/github/callback
+    ```
+
+    For production, update the redirect URI:
+
+    ```bash
+    GITHUB_REDIRECT_URI=https://your-api-domain.com/api/github/callback
+    ```
+
+    <Warning>
+      Never commit your Client Secret to git. You need separate OAuth Apps for development and production.
+    </Warning>
+  </Step>
+
+  <Step title="Restart the server">
+    ```bash
+    npm run dev:backend
+    ```
+  </Step>
+</Steps>
+
+## Usage
+
+### Connecting GitHub
+
+1. Open **Settings** in Astro
+2. Find the **GitHub Integration** section
+3. Click **"Connect GitHub"**
+4. Authorize the application in the OAuth popup
+5. You'll be redirected back to Settings
+
+### Using GitHub Repos in Projects
+
+1. Go to **Project Settings** then **Repository and Directory**
+2. Choose **"Browse Repos"** to see your GitHub repositories
+3. Use the search bar to filter by name, full name, or description
+4. Click a repository to select it — the URL auto-fills
+5. Or enter a repository URL manually
+
+### Issue Sync
+
+Sync GitHub issues to plan nodes for a project:
+
+```bash
+POST /api/github/projects/:projectId/sync-issues
+```
+
+This creates plan nodes from GitHub issues, mapping issue titles, descriptions, labels, and assignees.
+
+## OAuth Scopes
+
+The integration requests the `repo` scope:
+
+| Scope | Permissions |
+|-------|------------|
+| `repo` | Full access to public and private repositories. Required for reading metadata, branches, content, and creating PRs. |
+
+<Note>
+  For public-only access, consider using the `public_repo` scope instead.
+</Note>
+
+## Security
+
+- **CSRF Protection**: OAuth state tokens prevent CSRF attacks, expiring after 10 minutes
+- **Token Storage**: Access tokens are stored server-side (in-memory in dev, encrypted in production)
+- **Unique State**: Each authorization request generates a unique state token
+- **Scope Minimization**: Only the `repo` scope is requested
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/github/status` | Required | Check GitHub connection status |
+| POST | `/api/github/connect` | Required | Initiate OAuth flow |
+| GET | `/api/github/callback` | None | OAuth redirect handler |
+| POST | `/api/github/disconnect` | Required | Disconnect GitHub |
+| GET | `/api/github/repos` | Required | List all repositories |
+| POST | `/api/github/repos/sync` | Required | Manually sync repository list |
+| GET | `/api/github/repos/selected` | Required | Get selected repo IDs |
+| POST | `/api/github/repos/select` | Required | Update selected repos |
+| GET | `/api/github/repo/:owner/:name` | Required | Get specific repository |
+| GET | `/api/github/branches/:owner/:name` | Required | List branches |
+| POST | `/api/github/projects` | Required | Create GitHub-linked project |
+| GET | `/api/github/projects` | Required | List GitHub-linked projects |
+| POST | `/api/github/projects/:projectId/sync-issues` | Required | Sync issues to plan nodes |
+| DELETE | `/api/github/projects/:projectId` | Required | Delete GitHub-linked project |
+
+## Automatic PR Creation
+
+When a task completes and has `autoPr: true` in its node configuration:
+
+1. The post-execution hook checks for file changes
+2. Reads the user's GitHub token from connected accounts
+3. Creates a pull request via the GitHub API
+4. Updates the plan node with `prUrl` and `prNumber`
+5. The PR badge appears on the task node in the plan view
+
+## Troubleshooting
+
+<Accordion title="'GitHub not connected' error">
+  - Check that `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set in `.env`
+  - Verify the redirect URI matches your OAuth App settings exactly
+  - Ensure the backend server is running
+</Accordion>
+
+<Accordion title="OAuth callback fails">
+  - Verify the callback URL in GitHub OAuth App settings matches `GITHUB_REDIRECT_URI`
+  - Check browser console for CORS errors
+  - Ensure both protocol and port match exactly
+</Accordion>
+
+<Accordion title="Repositories not loading">
+  - Check the network tab for API errors
+  - Verify the GitHub token has the `repo` scope
+  - Try disconnecting and reconnecting GitHub
+</Accordion>
+
+<Accordion title="Popup blocked">
+  - Allow popups for your frontend domain in the browser
+  - Try clicking the "Connect GitHub" button again
+</Accordion>

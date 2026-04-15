@@ -1,0 +1,260 @@
+---
+title: "Connect a Machine"
+description: "Register execution environments — local machines, remote servers, and HPC clusters — so Astro can dispatch tasks to them."
+---
+
+## What You'll Learn
+
+Astro dispatches tasks to **registered machines** — any environment running the `astro-agent` binary. This tutorial covers:
+
+- Installing the agent runner
+- Registering a machine via the device authorization flow
+- Connecting to HPC clusters via SSH
+- Verifying machine connectivity
+
+**Time:** ~10 minutes per machine
+
+## Prerequisites
+
+<Check>
+  **Astro running.** Either locally (`npm run dev:local`) or connected to a remote server. See the [Quickstart](/quickstart).
+</Check>
+
+<Check>
+  **Node.js 20+ on the target machine.** The agent runner requires Node.js to run.
+</Check>
+
+## Tutorial
+
+<Steps>
+
+<Step title="Install the agent runner">
+
+On the machine you want to register as an execution environment, install the agent runner globally:
+
+```bash
+npm install -g @astroanywhere/agent
+```
+
+Verify the installation:
+
+```bash
+astro-agent --version
+```
+
+**Expected outcome:** The version number prints (e.g., `1.2.0`). If you see `command not found`, ensure your npm global bin directory is in your `PATH`.
+
+<Tip>
+  You can also use `npx @astroanywhere/agent` to run without installing globally.
+</Tip>
+
+</Step>
+
+<Step title="Start the device authorization flow">
+
+Astro uses the **OAuth2 Device Authorization Grant** (RFC 8628) to register machines. This is the same flow used by GitHub CLI, Docker, and other tools — you authorize on a device with a browser, and the headless machine receives credentials.
+
+On the target machine, run:
+
+```bash
+astro-agent auth
+```
+
+The agent prints a user code and a URL:
+
+```
+To authorize this machine, open:
+  https://astroanywhere.com/device
+
+And enter code: ABCD-EFGH
+
+Waiting for authorization...
+```
+
+**Expected outcome:** A user code in `XXXX-YYYY` format and a URL are displayed. The agent polls for authorization.
+
+<Info>
+  For local development, the URL will be `http://localhost:5173/device`. The device code expires after 15 minutes.
+</Info>
+
+</Step>
+
+<Step title="Authorize in the browser">
+
+1. Open the URL shown in the terminal (e.g., `https://astroanywhere.com/device`).
+2. Enter the user code (`ABCD-EFGH`) from the terminal.
+3. Click **Authorize**.
+4. Select a team to associate this machine with (if you belong to multiple teams).
+
+**Expected outcome:** The browser shows "Device authorized successfully." Back in the terminal, the agent prints a confirmation and saves credentials locally.
+
+```
+✓ Authorized successfully
+  Machine: my-laptop
+  Team: My Team
+  Scopes: dispatch, report
+
+Credentials saved to ~/.astro-agent/credentials.json
+```
+
+<Warning>
+  The credentials file contains a refresh token. Keep it secure — anyone with this file can execute tasks on your machine via Astro.
+</Warning>
+
+</Step>
+
+<Step title="Register and start the agent">
+
+After authorization, register the machine with a name and optional labels:
+
+```bash
+astro-agent register --name "my-laptop"
+```
+
+Then start the agent to connect to your Astro server:
+
+```bash
+# Connect to production
+astro-agent start --server https://api.astroanywhere.com
+
+# Or connect to local development
+astro-agent start --server http://localhost:3001
+```
+
+The agent establishes a WebSocket connection to the Astro relay server and begins listening for dispatched tasks.
+
+```
+✓ Connected to relay server
+  Machine: my-laptop (abc123)
+  Status: ready
+  Heartbeat: every 30s
+```
+
+**Expected outcome:** The agent is running and shows "Connected" status. It sends heartbeats every 30 seconds to maintain the connection.
+
+<Tip>
+  Use `tmux` or `screen` to keep the agent running after you close the terminal. Or set it up as a systemd service for persistent operation.
+</Tip>
+
+</Step>
+
+<Step title="Verify connectivity in the Astro UI">
+
+Switch to the Astro dashboard in your browser.
+
+1. Navigate to **Settings** (gear icon in the sidebar).
+2. Click **Machines**.
+3. Your newly registered machine should appear with a green **Connected** badge.
+
+You can also verify via the health API:
+
+```bash
+curl http://localhost:3001/api/health | jq '.machines'
+```
+
+**Expected outcome:** The machine appears in the UI with "Connected" status. The health endpoint lists it as an available execution target.
+
+<Info>
+  Machines that lose their WebSocket connection show as "Disconnected" after the heartbeat TTL expires (5 minutes). The agent automatically reconnects on network interruptions.
+</Info>
+
+</Step>
+
+<Step title="(Optional) Connect an HPC cluster via SSH">
+
+For HPC clusters where the login node doesn't have outbound WebSocket access, use an SSH reverse tunnel to connect.
+
+**On your local machine (which can reach the Astro server):**
+
+```bash
+ssh -R 3002:localhost:3002 user@hpc-login-node
+```
+
+This creates a reverse tunnel: the HPC login node can now reach the relay server at `localhost:3002` through the SSH connection.
+
+**On the HPC login node (inside the SSH session):**
+
+```bash
+# Install the agent
+npm install -g @astroanywhere/agent
+
+# Authorize (use the device flow as in Steps 2-3)
+astro-agent auth
+
+# Register with Slurm provider
+astro-agent register --name "hpc-cluster" --provider slurm
+
+# Start, pointing to the tunnel
+astro-agent start --server http://localhost:3002
+```
+
+**Configure Slurm settings** for job submission:
+
+```bash
+astro-agent config set slurm.partition "gpu"
+astro-agent config set slurm.account "my-lab"
+astro-agent config set slurm.defaultTime "4:00:00"
+astro-agent config set slurm.defaultMem "16G"
+astro-agent config set slurm.gpuType "a100"
+astro-agent config set slurm.gpuCount 1
+astro-agent config set slurm.modules "cuda/12.0,python/3.11"
+```
+
+When Astro dispatches tasks to this machine, the agent automatically generates SBATCH scripts and submits them as Slurm jobs.
+
+**Expected outcome:** The HPC machine appears in the Astro UI as connected. Tasks dispatched to it run as Slurm batch jobs.
+
+<Warning>
+  Never run compute-intensive tasks directly on the HPC login node. The agent's Slurm provider handles job submission — tasks execute on compute nodes, not the login node.
+</Warning>
+
+</Step>
+
+<Step title="Add machine labels">
+
+Labels let you target specific machines for specific tasks. For example, tag GPU machines so GPU-intensive tasks route to them.
+
+```bash
+astro-agent register --name "gpu-server" --labels gpu,cuda,a100
+```
+
+Or update labels on an already-registered machine:
+
+```bash
+astro-agent config set labels "gpu,cuda,a100"
+```
+
+In the Astro UI, when editing a task's execution settings, you can specify required machine labels. Only machines with matching labels will be selected for dispatch.
+
+**Expected outcome:** The machine's labels appear in the Astro UI under **Settings → Machines**. Tasks with matching label requirements route to this machine.
+
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `command not found: astro-agent` | npm global bin not in PATH | Run `npm config get prefix` and add `<prefix>/bin` to PATH |
+| Device code expired | Took longer than 15 minutes | Run `astro-agent auth` again for a fresh code |
+| Machine shows "Disconnected" | WebSocket dropped, no auto-reconnect | Restart `astro-agent start` |
+| SSH tunnel not working | Reverse tunnel port conflict | Check if port 3002 is already in use on the HPC node |
+| Slurm jobs fail immediately | Wrong partition or account | Verify with `sinfo` and `sacctmgr show account` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Your First Project" icon="rocket" href="/tutorials/first-project">
+    Create a project and dispatch tasks to your newly connected machine.
+  </Card>
+  <Card title="Dispatch Deep-Dive" icon="paper-plane" href="/tutorials/dispatch-and-execute">
+    Learn how dispatch routes tasks to the right machine.
+  </Card>
+  <Card title="HPC & Slurm Setup" icon="microchip" href="/integrations/hpc-slurm">
+    Full reference for Slurm configuration and HPC integration.
+  </Card>
+  <Card title="Agent Providers" icon="gear" href="/cli/agent-providers">
+    Configure different execution providers (local, Slurm, cloud).
+  </Card>
+</CardGroup>

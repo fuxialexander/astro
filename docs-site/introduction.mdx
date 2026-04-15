@@ -1,0 +1,168 @@
+---
+title: Welcome to Astro
+description: AI-assisted planning for builders and scientists — a planning layer that sits above your execution tools.
+---
+
+<img
+  className="block dark:hidden"
+  src="/logo/light.svg"
+  alt="Astro"
+  style={{ height: '48px', marginBottom: '1.5rem' }}
+/>
+<img
+  className="hidden dark:block"
+  src="/logo/dark.svg"
+  alt="Astro"
+  style={{ height: '48px', marginBottom: '1.5rem' }}
+/>
+
+# Welcome to Astro
+
+**Astro** is a planning-first platform for builders (software developers) and scientists (researchers). It provides an AI-assisted planning layer that sits above your execution tools — coding agents, analysis pipelines, and compute clusters — so you can focus your attention on the decisions that actually require a human brain.
+
+<Info>
+  Astro is currently in early access. [Join the waitlist](https://astroanywhere.com) to get started.
+</Info>
+
+## What Astro Does
+
+Describe your goal — a product to ship or a research question to explore — and Astro generates a **structured plan as a directed graph**. You refine it. Agents execute tasks with dependency awareness, across any environment you control. You make the strategic decisions that matter.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get Astro running locally in under 5 minutes. Create your first project and generate a plan.
+  </Card>
+  <Card
+    title="Core Concepts"
+    icon="book-open"
+    href="/concepts"
+  >
+    Understand plan graphs, dependency-aware dispatch, tiered verification, and the vision document.
+  </Card>
+  <Card
+    title="For Builders"
+    icon="code"
+    href="/use-cases/builders"
+  >
+    Ship features faster with AI-generated product plans, parallel agent execution, and vision-coherent reviews.
+  </Card>
+  <Card
+    title="For Scientists"
+    icon="flask"
+    href="/use-cases/scientists"
+  >
+    Manage branching analyses across laptops, HPC clusters, and cloud — with a map of your entire exploration tree.
+  </Card>
+</CardGroup>
+
+---
+
+## The Core Problem
+
+Today's AI-assisted work is stuck in a **one-thing-at-a-time chat loop**:
+
+- **Builders** describe features one at a time, manually injecting product context, with no coordination across agent sessions
+- **Scientists** juggle branching analyses across scattered notebooks, Slurm logs, and local scripts — with no way to see the full exploration tree
+
+Both groups need the same thing: a planning layer above their execution tools that handles goal decomposition, dependency management, parallel dispatch, and strategic decision-making.
+
+---
+
+## The Planning Loop
+
+<Steps>
+  <Step title="Describe your goal">
+    Provide a product to build or a research question to explore. Include your background, timeline, and constraints. Astro's AI generates a domain-expert plan tailored to your context.
+  </Step>
+  <Step title="Refine the plan">
+    Accept, modify, reorder, add branches, or prune entire lines of inquiry. The plan is a **directed graph** — not a flat list — supporting both linear pipelines and branching exploration trees.
+  </Step>
+  <Step title="Dispatch to agents">
+    Tasks run automatically based on dependency order, across any environment you specify: local machine, HPC cluster (Slurm), or cloud. Parallel tasks run simultaneously.
+  </Step>
+  <Step title="Make the decisions that matter">
+    Auto-verifiable tasks close on their own (tests pass, build succeeds, analysis completes). Your attention goes to **judgment calls** — does this feature match the vision? Is this result worth pursuing?
+  </Step>
+</Steps>
+
+---
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Plan Graph" icon="diagram-project" href="/features/plan-graph">
+    Directed graph with explicit dependencies, branch support, and auto-pruning of downstream tasks.
+  </Card>
+  <Card title="Multi-Machine Dispatch" icon="server" href="/tutorials/dispatch-and-execute">
+    Route tasks to local machines, HPC clusters, and cloud — coordinated by dependency order.
+  </Card>
+  <Card title="Tiered Verification" icon="check-circle" href="/features/approval-system">
+    Auto-close verifiable tasks. Surface only the judgment calls and strategic decisions that need you.
+  </Card>
+  <Card title="Vision Injection" icon="eye" href="/concepts">
+    A persistent vision document injected into every agent session — product-level context above the codebase.
+  </Card>
+  <Card title="Real-time Activity" icon="activity" href="/features/activity-feed">
+    Live streaming of agent execution with full persistence — survives page refreshes and reconnects.
+  </Card>
+  <Card title="MCP Integration" icon="plug" href="/features/mcp-tools">
+    Custom MCP server with 15+ tools including `ask_user_question` for dynamic agent approvals.
+  </Card>
+</CardGroup>
+
+---
+
+## Choose Your Path
+
+<Tabs>
+  <Tab title="I'm a Builder">
+    Software engineers using AI coding agents need product-level planning above code-level context.
+
+    **Start here:**
+    1. [What Astro does for builders](/use-cases/builders)
+    2. [Plan your first project](/tutorials/first-project)
+    3. [Connect your machine](/tutorials/connect-machine)
+    4. [Dispatch tasks to Claude Code](/tutorials/dispatch-and-execute)
+  </Tab>
+  <Tab title="I'm a Scientist">
+    Researchers managing branching analyses across laptops, HPC clusters, and cloud need a map of their exploration tree.
+
+    **Start here:**
+    1. [What Astro does for scientists](/use-cases/scientists)
+    2. [Plan your first research project](/tutorials/first-project)
+    3. [Connect an HPC cluster](/integrations/hpc-slurm)
+    4. [Manage branching analyses](/features/plan-graph)
+  </Tab>
+  <Tab title="I'm setting up infrastructure">
+    DevOps and platform engineers who want to deploy Astro for their team.
+
+    **Start here:**
+    1. [Installation guide](/installation)
+    2. [Local mode setup](/setup/local-mode)
+    3. [Production deployment](/setup/production)
+    4. [Environment variables](/setup/environment-variables)
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Astro locally with PGlite — no Docker, no external services required.
+  </Card>
+  <Card title="Tutorials" icon="graduation-cap" href="/tutorials/first-project">
+    Step-by-step walkthroughs for the most common Astro workflows.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Deep dive into Astro's frontend, backend, relay server, and agent runner design.
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/cli-overview">
+    Use the `astro-cli` to manage projects, plans, and tasks from the command line.
+  </Card>
+</CardGroup>

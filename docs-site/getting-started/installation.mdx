@@ -1,0 +1,284 @@
+---
+title: "Installation"
+description: "Install and configure Astro for local development, team collaboration, or production deployment."
+icon: "download"
+---
+
+Astro supports three operating modes, each designed for a different stage of your workflow. Start with **Local Mode** for individual use, upgrade to **Dev Mode** for team testing, and deploy to **Production** when you're ready to go live.
+
+## System Requirements
+
+| Requirement | Local Mode | Dev Mode | Production |
+|------------|-----------|----------|------------|
+| **Node.js** | 20+ | 20+ | 20+ |
+| **pnpm** | 9+ | 9+ | 9+ |
+| **Git** | 2.30+ | 2.30+ | 2.30+ |
+| **Docker** | Not needed | Required | Not needed |
+| **Cloudflare account** | Not needed | Required | Required |
+| **Fly.io account** | Not needed | Not needed | Required |
+
+## Clone & Install
+
+All three modes start from the same codebase:
+
+```bash
+git clone https://github.com/astro-anywhere/astro.git
+cd astro
+pnpm install
+```
+
+Then generate your environment configuration files:
+
+```bash
+npm run env:init
+```
+
+This creates two files:
+- `.env.local.dev` — Configuration for Dev Mode (local Supabase + tunnel)
+- `.env.prod` — Configuration for Production (remote Supabase + Fly.io)
+
+<Note>
+  The base `.env` file ships with the repo and contains shared defaults. You should never need to edit it directly — mode-specific overrides go in the profile files above.
+</Note>
+
+---
+
+## Operating Modes
+
+<Tabs>
+  <Tab title="Local Mode">
+    ### Local Mode — Single User, Zero Config
+
+    Local Mode is the fastest way to get started. It runs PGlite (Postgres compiled to WebAssembly) inside the backend process — no Docker, no external database, no authentication.
+
+    **Start it:**
+
+    ```bash
+    npm run dev:local
+    ```
+
+    This command:
+    1. Switches the environment to local mode (removes any `.env.local` symlink)
+    2. Kills stale processes on ports 5173, 3001, and 3002
+    3. Starts the full stack: Vite (frontend) + Hono (API) + WebSocket relay
+
+    **What you get:**
+
+    | Feature | Status |
+    |---------|--------|
+    | Plan generation & editing | Full |
+    | Task dispatch to agents | Full |
+    | Activity streaming | Full |
+    | Data persistence | Local disk (`~/.astro/pglite/`) |
+    | Authentication | None (single-user) |
+    | Real-time collaboration | Not available |
+    | Teams & RLS | Not available |
+    | Community marketplace | Not available |
+
+    <Warning>
+      Local Mode stores data in `~/.astro/pglite/` on your filesystem. This data is not backed up automatically and doesn't sync across devices.
+    </Warning>
+
+    **Switching modes manually:**
+
+    ```bash
+    npm run env:local     # Switch to local mode
+    npm run env:switch    # Show which mode you're in
+    ```
+  </Tab>
+
+  <Tab title="Dev Mode">
+    ### Dev Mode — Multi-User with Authentication
+
+    Dev Mode runs a local Supabase instance (via Docker) and uses a Cloudflare tunnel to enable HTTPS — required for WebAuthn/passkey authentication (Touch ID, security keys).
+
+    **Prerequisites:**
+    - Docker Desktop running
+    - A Cloudflare account with a domain configured
+    - `cloudflared` CLI installed ([install guide](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-local-tunnel/))
+
+    <Steps>
+      ### Configure your tunnel domain
+
+      Edit `.env.local.dev` and set your Cloudflare tunnel domain:
+
+      ```bash
+      CLOUDFLARED_DOMAIN=your-subdomain.your-domain.com
+      ```
+
+      ### Start Dev Mode
+
+      ```bash
+      npm run dev:dev
+      ```
+
+      This command:
+      1. Switches environment to dev mode (symlinks `.env.local` to `.env.local.dev`)
+      2. Starts local Supabase via Docker
+      3. Starts the Cloudflare tunnel
+      4. Starts the full stack (Vite + Hono + WebSocket relay)
+
+      ### Register your first user
+
+      Open the HTTPS URL provided by your Cloudflare tunnel. You'll be prompted to create a passkey using Touch ID, Windows Hello, or a security key.
+    </Steps>
+
+    **What you get over Local Mode:**
+
+    | Feature | Status |
+    |---------|--------|
+    | WebAuthn / passkey auth | Full |
+    | Multi-user support | Full |
+    | Row-level security (RLS) | Full |
+    | Real-time collaboration | Full |
+    | Teams | Full |
+    | Community marketplace | Full |
+
+    <Note>
+      Dev Mode uses Docker to run Supabase (Postgres, Auth, Realtime, Storage). Make sure Docker Desktop is running before you start.
+    </Note>
+  </Tab>
+
+  <Tab title="Production">
+    ### Production — Deploy for Your Team
+
+    Production mode deploys the backend to Fly.io and the frontend to Cloudflare Pages, backed by a remote Supabase instance.
+
+    <Steps>
+      ### Set up remote Supabase
+
+      Create a project on [supabase.com](https://supabase.com) and note your project URL and service role key. Update `.env.prod` with these values:
+
+      ```bash
+      VITE_SUPABASE_URL=https://your-project.supabase.co
+      VITE_SUPABASE_ANON_KEY=your-anon-key
+      SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+      DATABASE_URL=postgresql://postgres:your-password@db.your-project.supabase.co:5432/postgres
+      ```
+
+      ### Configure Fly.io
+
+      Install the Fly CLI and authenticate:
+
+      ```bash
+      curl -L https://fly.io/install.sh | sh
+      fly auth login
+      ```
+
+      Set your Fly.io secrets:
+
+      ```bash
+      fly secrets set SUPABASE_SERVICE_ROLE_KEY=your-key
+      fly secrets set RELAY_JWT_SECRET=your-jwt-secret
+      fly secrets set REDIS_URL=your-redis-url
+      ```
+
+      ### Push database migrations
+
+      ```bash
+      npm run env:prod          # Switch to production environment
+      npm run db:push:dry-run   # Preview what will change (safe)
+      npm run db:push           # Apply migrations to production
+      ```
+
+      ### Deploy
+
+      ```bash
+      npm run deploy
+      ```
+
+      This runs lint, build, and tests, then deploys the backend to Fly.io and the frontend to Cloudflare Pages.
+    </Steps>
+
+    <Warning>
+      Production requires `REDIS_URL` for cross-instance coordination. Fly.io runs 2 backend instances with round-robin HTTP — without Redis, features like machine registry and streaming events will not sync between instances.
+    </Warning>
+
+    **Verify your deployment:**
+
+    ```bash
+    curl -s https://api.astroanywhere.com/api/health | jq .
+    fly status --app astro-backend-deploy
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Install the CLI
+
+The Astro CLI lets you manage projects and register machines from your terminal:
+
+<CodeGroup>
+```bash npm
+npm install -g @astroanywhere/cli
+```
+
+```bash pnpm
+pnpm add -g @astroanywhere/cli
+```
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+astro-cli --version
+```
+
+## Install the Agent Runner
+
+The agent runner executes tasks on registered machines. Install it globally:
+
+<CodeGroup>
+```bash npm
+npm install -g @astroanywhere/agent
+```
+
+```bash pnpm
+pnpm add -g @astroanywhere/agent
+```
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+astro-agent --version
+```
+
+See [Agent Runner](/cli/agent-runner) for configuration and provider setup.
+
+---
+
+## Switching Between Modes
+
+You can switch modes at any time without losing data:
+
+```bash
+npm run env:local    # Switch to Local Mode
+npm run env:dev      # Switch to Dev Mode
+npm run env:prod     # Switch to Production
+npm run env:switch   # Show current mode
+```
+
+Each switch kills stale processes on ports 5173, 3001, and 3002, so you can safely switch without manual cleanup.
+
+<Note>
+  Local Mode and Dev Mode use separate databases (PGlite vs. local Supabase), so projects created in one mode won't appear in the other. Production uses the remote Supabase instance.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book-open" href="/getting-started/concepts">
+    Learn about plan graphs, tiered verification, and dispatch.
+  </Card>
+  <Card title="Environment Variables" icon="key" href="/setup/environment-variables">
+    Full reference for all configuration options.
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/getting-started/architecture-overview">
+    How the pieces fit together.
+  </Card>
+  <Card title="Security" icon="shield" href="/setup/security">
+    Authentication, RLS, and CORS configuration.
+  </Card>
+</CardGroup>

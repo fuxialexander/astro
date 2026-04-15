@@ -1,0 +1,422 @@
+---
+title: "Skills & Plugins"
+description: "Extend Astro with domain-specific agent instructions and app-level UI contributions."
+icon: "puzzle-piece"
+---
+
+## Overview
+
+Astro uses a **two-layer extension model**:
+
+<CardGroup cols={2}>
+  <Card title="OpenClaw Skills" icon="brain">
+    **Agent-level** — inject domain-specific instructions into AI agent prompts during task execution. Defined in `SKILL.md` files following the OpenClaw format.
+  </Card>
+  <Card title="Astro Plugins" icon="puzzle-piece">
+    **App-level** — add UI pages, themes, sidebar items, commands, and custom node metadata fields to the Astro interface.
+  </Card>
+</CardGroup>
+
+Plugins can contribute skills, and skills can exist standalone. Both are managed in **Settings > Skills** and **Settings > Plugins**.
+
+---
+
+## OpenClaw Skills
+
+Skills are domain-specific instruction sets injected into agent execution prompts. When a task is dispatched, the server assembles a prompt that includes:
+
+1. The project vision document
+2. Active skill instructions (in XML blocks)
+3. Task-specific context and dependencies
+
+### SKILL.md Format
+
+Skills are defined in `SKILL.md` files with YAML frontmatter and a markdown body:
+
+```markdown
+---
+name: git-helper
+description: Git workflow assistance for feature branches
+userInvocable: true
+metadata: {"openclaw":{"emoji":"🔀","requires":{"bins":["git"]}}}
+---
+
+## Git Workflow Instructions
+
+When working on features:
+1. Always create a feature branch: `git checkout -b feat/description`
+2. Commit frequently with conventional commit messages
+3. Before pushing, run `git pull --rebase origin main`
+4. Create PRs targeting the `main` branch
+
+Never force-push to shared branches. Use `--force-with-lease` if absolutely necessary.
+```
+
+### Skill Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `name` | string | required | Unique skill identifier |
+| `description` | string | required | Short description shown in settings |
+| `userInvocable` | boolean | `true` | Expose as a slash command in chat |
+| `disableModelInvocation` | boolean | `false` | Exclude from automatic prompt injection |
+| `commandDispatch` | `'tool'` | — | Use direct tool invocation mode |
+| `commandTool` | string | — | Tool name for direct dispatch |
+
+### OpenClaw Metadata
+
+The `metadata` field carries gating requirements in the `openclaw` format:
+
+```json
+{
+  "openclaw": {
+    "emoji": "🔧",
+    "os": ["darwin", "linux"],
+    "requires": {
+      "bins": ["git", "node"],
+      "anyBins": ["npm", "yarn", "pnpm"],
+      "env": ["GITHUB_TOKEN"],
+      "config": ["github.token"]
+    },
+    "primaryEnv": "GITHUB_TOKEN",
+    "install": [
+      {
+        "id": "node",
+        "kind": "brew",
+        "formula": "node",
+        "bins": ["node", "npm"],
+        "label": "Node.js"
+      }
+    ]
+  }
+}
+```
+
+Skills with unmet requirements (missing binaries, environment variables) are automatically marked as ineligible and excluded from injection.
+
+### Prompt Injection
+
+The `SkillManager` on the server formats active skills as XML blocks injected into the agent prompt:
+
+```xml
+<skills>
+  <skill name="git-helper" description="Git workflow assistance">
+    ## Git Workflow Instructions
+
+    When working on features:
+    1. Always create a feature branch...
+  </skill>
+  <skill name="typescript-best-practices" description="TypeScript patterns">
+    ...
+  </skill>
+</skills>
+```
+
+This injection occurs in `ContextAssembler.buildExecutionPrompt()`, placed after the vision document but before task-specific context.
+
+---
+
+## Skill Sources & Precedence
+
+Skills are loaded from multiple sources with the following precedence (highest first):
+
+| Priority | Source | Location | Description |
+|----------|--------|----------|-------------|
+| 1 | **workspace** | `skills/` in project directory | Project-specific overrides |
+| 2 | **plugin** | Contributed by installed plugins | Plugin-bundled skills |
+| 3 | **clawhub** | Installed from ClawHub | Community skills (coming soon) |
+| 4 | **builtin** | Shipped with Astro | Default skills |
+
+A workspace skill with the same name as a builtin skill overrides the builtin.
+
+---
+
+## Managing Skills
+
+### Settings UI
+
+Navigate to **Settings > Skills** to:
+
+- View all loaded skills with source badges (`workspace`, `plugin`, `builtin`)
+- Enable/disable individual skills
+- Expand to preview skill instructions
+- Configure per-skill API keys (when `primaryEnv` is set)
+- Paste raw `SKILL.md` content to add skills manually
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/skills` | List all skills with eligibility status |
+| `POST` | `/api/skills/install` | Install from ClawHub (stub) |
+| `DELETE` | `/api/skills/:name` | Uninstall a skill |
+| `PUT` | `/api/skills/:name/config` | Update skill configuration |
+
+**List skills response:**
+
+```json
+{
+  "skills": [
+    {
+      "name": "git-helper",
+      "description": "Git workflow assistance",
+      "source": "workspace",
+      "enabled": true,
+      "eligible": true,
+      "userInvocable": true,
+      "config": {}
+    }
+  ],
+  "total": 1
+}
+```
+
+### Programmatic Usage
+
+```typescript
+import { useSkillStore } from "@/stores/skill-store"
+
+const {
+  skills,
+  enableSkill,
+  disableSkill,
+  updateSkillConfig,
+  getSkillPromptInjection
+} = useSkillStore.getState()
+
+// Enable a skill
+enableSkill('git-helper')
+
+// Get formatted XML for prompt injection (used server-side)
+const xml = getSkillPromptInjection()
+```
+
+---
+
+## Astro Plugins
+
+Plugins extend the Astro UI. Every plugin implements the `AstroPlugin` interface:
+
+```typescript
+interface AstroPlugin {
+  manifest: PluginManifest
+  activate: (context: PluginContext) => Promise<PluginContributions>
+  deactivate: () => Promise<void>
+}
+```
+
+### Plugin Manifest
+
+```typescript
+interface PluginManifest {
+  id: string                        // Unique identifier (e.g., "my-plugin")
+  name: string                      // Display name
+  version: string                   // Semver version
+  description?: string
+  author?: string
+  capabilities: PluginCapability[]  // What the plugin contributes
+  configSchema?: Record<string, unknown>
+}
+```
+
+Available capabilities: `routes`, `sidebar`, `commands`, `theme`, `signals`, `connectors`, `providers`, `hooks`, `node-metadata`, `store`, `skills`.
+
+### Contribution Types
+
+#### Sidebar Items
+
+Add navigation items under the "PLUGINS" section:
+
+```typescript
+sidebarItems: [
+  {
+    id: "my-view",
+    to: "/plugins/my-view",
+    icon: "BookOpen",      // lucide-react icon name
+    label: "My View",
+    defaultVisible: true,
+  },
+]
+```
+
+#### Routes
+
+Add pages at `/plugins/{path}`:
+
+```typescript
+routes: [
+  {
+    path: "my-view",
+    component: () => <MyViewPage />,
+  },
+]
+```
+
+#### Commands
+
+Add items to the command palette (Cmd+K):
+
+```typescript
+commands: [
+  {
+    id: "my-command",
+    label: "Do something useful",
+    icon: "Zap",
+    action: () => { /* ... */ },
+  },
+]
+```
+
+#### Custom Themes
+
+Extend the theme selector with new color schemes:
+
+```typescript
+themes: [
+  {
+    id: "nord",
+    name: "Nord",
+    baseTheme: "dark",
+    cssVariables: {
+      "--background": "220 16% 16%",
+      "--foreground": "218 27% 92%",
+      "--primary": "213 32% 52%",
+      "--border": "220 16% 24%",
+    },
+  },
+]
+```
+
+#### Node Metadata Fields
+
+Extend plan nodes with custom data stored in `PlanNode.metadata`:
+
+```typescript
+nodeMetadataFields: [
+  {
+    key: "gtd-context",
+    label: "GTD Context",
+    type: "select",
+    options: ["@computer", "@phone", "@errands", "@home"],
+  },
+  {
+    key: "gtd-energy",
+    label: "Energy Level",
+    type: "select",
+    options: ["high", "medium", "low"],
+  },
+]
+```
+
+### Minimal Plugin Example
+
+```typescript
+import type { AstroPlugin, PluginContributions, PluginContext } from "@/types/plugin"
+
+const plugin: AstroPlugin = {
+  manifest: {
+    id: "hello-world",
+    name: "Hello World",
+    version: "1.0.0",
+    description: "A minimal example plugin",
+    capabilities: ["sidebar", "routes"],
+  },
+
+  activate: async (context: PluginContext): Promise<PluginContributions> => {
+    return {
+      sidebarItems: [
+        {
+          id: "hello",
+          to: "/plugins/hello",
+          icon: "Smile",
+          label: "Hello",
+          defaultVisible: true,
+        },
+      ],
+      routes: [
+        {
+          path: "hello",
+          component: () => <div>Hello from my plugin!</div>,
+        },
+      ],
+    }
+  },
+
+  deactivate: async () => {
+    // Cleanup resources
+  },
+}
+
+export default plugin
+```
+
+### Plugin Context
+
+The `PluginContext` passed to `activate()` provides read-only store access and isolated storage:
+
+```typescript
+interface PluginContext {
+  stores: {
+    getProjects: () => unknown[]
+    getPlanNodes: () => unknown[]
+    getSessions: () => unknown[]
+    getSettings: () => Record<string, unknown>
+  }
+  config: Record<string, unknown>
+  updateConfig: (config) => void
+  storage: PluginStorage    // Namespaced: plugin-{id}-{key}
+  onEvent: (handler) => () => void
+}
+```
+
+---
+
+## Built-In Example Plugins
+
+### Example Theme (`src/plugins/example-theme/`)
+
+Provides three additional dark themes: **Solarized Dark**, **Nord**, and **Catppuccin Mocha**. Demonstrates the `ThemeContribution` capability.
+
+### GTD Workflow (`src/plugins/gtd-workflow/`)
+
+Adds a Getting Things Done workflow view:
+- Sidebar item: "GTD" with BookOpen icon at `/plugins/gtd`
+- Columns: Inbox, Next Actions, Waiting For
+- Node metadata: `gtd-context` (select), `gtd-energy` (select), `gtd-next-action` (boolean)
+
+---
+
+## Plugin Lifecycle
+
+<Steps>
+  <Step title="Registration">
+    `plugin-store.registerPlugin(manifest, config)` persists the manifest via the data layer
+  </Step>
+  <Step title="Loading">
+    `PluginLoader` component (React) runs after `DataLoader`, triggering plugin activation
+  </Step>
+  <Step title="Activation">
+    `plugin.activate(context)` is called with stores, storage, and event bus access
+  </Step>
+  <Step title="Contribution Collection">
+    Returned `PluginContributions` are stored and applied to sidebar, router, and theme provider
+  </Step>
+  <Step title="Error Isolation">
+    Each plugin's contributed routes run inside a `PluginErrorBoundary`; activation errors are captured and shown in settings
+  </Step>
+  <Step title="Deactivation">
+    On disable or unmount, `plugin.deactivate()` is called for cleanup
+  </Step>
+</Steps>
+
+---
+
+## Installing Plugins
+
+From **Settings > Plugins**, click **Add Plugin** and enter the plugin's URL. Astro dynamically imports the module and runs the activation lifecycle. Plugins are persisted and reloaded on subsequent sessions.
+
+For local development, serve your plugin with a dev server and point the URL to the local build:
+
+```
+http://localhost:5174/plugin.js
+```

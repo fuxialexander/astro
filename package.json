@@ -49,7 +49,8 @@
     "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
     "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
     "postinstall": "[ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true",
-    "prepare": "husky"
+    "prepare": "husky",
+    "docs:dev": "cd docs-site && npx mintlify dev"
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
