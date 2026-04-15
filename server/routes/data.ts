@@ -2267,7 +2267,7 @@ app.get('/search', async (c) => {
     executionId: taskExecutions.executionId,
     projectId: taskExecutions.projectId,
     userId: taskExecutions.userId,
-    nodeId: taskExecutions.nodeId,
+    nodeId: taskExecutions.nodeClientId,
     status: taskExecutions.status,
     startedAt: taskExecutions.startedAt,
     completedAt: taskExecutions.completedAt,
