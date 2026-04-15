@@ -11,7 +11,8 @@
 
 import { randomBytes } from 'node:crypto'
 import { db } from '../../db/index.js'
-import { connectedAccounts, projects, teamMembers, webauthnChallenges } from '../../db/schema.js'
+import { connectedAccounts, projects, teamMembers, webauthnChallenges, planNodes } from '../../db/schema.js'
+import { serverSideDispatch } from '../../server-side-dispatch.js'
 import { eq, and, inArray, gt } from 'drizzle-orm'
 import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
@@ -1063,6 +1064,86 @@ class TelegramChannelAdapter {
         }
       }
       return
+    } else if (data.startsWith('redispatch:')) {
+      // Re-dispatch a cancelled task. Payload: redispatch:<nodeClientId>
+      const nodeClientId = data.slice('redispatch:'.length)
+      if (!nodeClientId) {
+        await answerCallbackQuery(this.botToken, callbackId, 'Invalid payload')
+        return
+      }
+      if (!callerUserId) {
+        await answerCallbackQuery(this.botToken, callbackId, 'Not connected to Astro', true)
+        return
+      }
+
+      // Look up the node + verify the caller is a member of the project's team
+      const [row] = await db
+        .select({
+          clientId: planNodes.clientId,
+          projectId: planNodes.projectId,
+          status: planNodes.status,
+          title: planNodes.title,
+          teamId: projects.teamId,
+        })
+        .from(planNodes)
+        .innerJoin(projects, eq(projects.id, planNodes.projectId))
+        .where(eq(planNodes.clientId, nodeClientId))
+        .limit(1)
+
+      if (!row) {
+        await answerCallbackQuery(this.botToken, callbackId, 'Task not found')
+        return
+      }
+
+      if (row.teamId) {
+        const [membership] = await db
+          .select({ userId: teamMembers.userId })
+          .from(teamMembers)
+          .where(
+            and(
+              eq(teamMembers.teamId, row.teamId),
+              eq(teamMembers.userId, callerUserId),
+            ),
+          )
+          .limit(1)
+        if (!membership) {
+          await answerCallbackQuery(this.botToken, callbackId, 'Not authorized', true)
+          return
+        }
+      }
+
+      if (row.status !== 'planned') {
+        await answerCallbackQuery(
+          this.botToken,
+          callbackId,
+          `Task is ${row.status}, cannot re-dispatch`,
+        )
+        return
+      }
+
+      try {
+        serverSideDispatch(row.clientId, row.projectId).catch((err) => {
+          console.error(`[telegram] redispatch failed for ${row.clientId}:`, err)
+        })
+        await answerCallbackQuery(this.botToken, callbackId, 'Dispatching…')
+        if (messageId) {
+          const originalText = (message?.text as string) || 'Task'
+          try {
+            await editMessageText(
+              this.botToken,
+              chatId,
+              messageId,
+              `${originalText}\n\n🚀 <b>Re-dispatched</b>`,
+            )
+          } catch {
+            /* ignore edit failures */
+          }
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Unknown error'
+        await answerCallbackQuery(this.botToken, callbackId, `Error: ${errMsg.slice(0, 100)}`)
+      }
+      return
     } else {
       await answerCallbackQuery(this.botToken, callbackId, 'Unknown action')
       return
@@ -1226,6 +1307,10 @@ class TelegramChannelAdapter {
           icon = '\u274C'
           title = 'Task Failed'
           break
+        case 'task.cancelled':
+          icon = '\uD83D\uDEAB'
+          title = 'Task Cancelled'
+          break
         case 'approval.requested':
           icon = '\u270B'
           title = 'Approval Needed'
@@ -1244,9 +1329,20 @@ class TelegramChannelAdapter {
       }
       const text = `${icon} <b>${title}</b>\n\n${formattedSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
 
-      // Build inline keyboard for approval requests
+      // Build inline keyboard for approval requests / cancelled tasks
       let replyMarkup: unknown = undefined
-      if (notification.type === 'approval.requested' && notification.metadata) {
+      if (notification.type === 'task.cancelled' && notification.metadata) {
+        const nodeId = notification.metadata.nodeId as string | undefined
+        // Cancelled task is already reset to 'planned' by the dispatch engine;
+        // offer a one-tap re-dispatch button. callback_data: "redispatch:<uuid>" = 47 bytes
+        if (nodeId) {
+          replyMarkup = {
+            inline_keyboard: [[
+              { text: '\u21BA Dispatch Again', callback_data: `redispatch:${nodeId}` },
+            ]],
+          }
+        }
+      } else if (notification.type === 'approval.requested' && notification.metadata) {
         const approvalId = notification.metadata.approvalId as string | undefined
         const options = notification.metadata.options as string[] | undefined
 

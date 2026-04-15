@@ -81,6 +81,8 @@ export interface TaskCancelledEvent {
   projectId: string
   executionId: string
   reason?: string
+  node?: PlanNode
+  project?: Project
   timestamp: Date
 }
 

@@ -72,6 +72,7 @@ export interface WebhookEvent {
 export type NotificationType =
   | 'task.completed'
   | 'task.failed'
+  | 'task.cancelled'
   | 'approval.requested'
   | 'branch.pruned'
   | 'project.completed'
