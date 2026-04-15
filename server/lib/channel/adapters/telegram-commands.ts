@@ -298,7 +298,6 @@ async function handleProjects(ctx: CommandContext): Promise<string> {
       id: projects.id,
       name: projects.name,
       status: projects.status,
-      progress: projects.progress,
       icon: projects.icon,
     })
     .from(projects)
@@ -314,9 +313,42 @@ async function handleProjects(ctx: CommandContext): Promise<string> {
     return 'No active projects found.'
   }
 
+  // Compute progress dynamically from plan_nodes: % of non-pruned nodes that
+  // are completed / auto_verified. The `projects.progress` column is a stale
+  // legacy counter that's rarely updated in practice.
+  const projectIds = rows.map((r) => r.id)
+  const nodeRows = await db
+    .select({
+      projectId: planNodes.projectId,
+      status: planNodes.status,
+    })
+    .from(planNodes)
+    .where(
+      and(
+        inArray(planNodes.projectId, projectIds),
+        isNull(planNodes.deletedAt),
+      ),
+    )
+
+  const progressByProject = new Map<string, number>()
+  {
+    const counts = new Map<string, { total: number; done: number }>()
+    for (const n of nodeRows) {
+      if (n.status === 'pruned') continue
+      const c = counts.get(n.projectId) ?? { total: 0, done: 0 }
+      c.total += 1
+      if (n.status === 'completed' || n.status === 'auto_verified') c.done += 1
+      counts.set(n.projectId, c)
+    }
+    for (const [pid, { total, done }] of counts.entries()) {
+      progressByProject.set(pid, total > 0 ? Math.round((done / total) * 100) : 0)
+    }
+  }
+
   const lines = rows.map((p) => {
-    const progress = p.progress ?? 0
-    const bar = '█'.repeat(Math.round(progress / 10)) + '░'.repeat(10 - Math.round(progress / 10))
+    const progress = progressByProject.get(p.id) ?? 0
+    const filled = Math.round(progress / 10)
+    const bar = '█'.repeat(filled) + '░'.repeat(10 - filled)
     return `${p.icon ?? '📋'} <b>${escapeHtml(p.name)}</b>\n   ${bar} ${progress}%\n   <code>${p.id.slice(0, 8)}</code>`
   })
 

@@ -131,7 +131,7 @@ export function TelegramConnectCard() {
         <div className="flex-1">
           <h3 className="text-sm font-medium">Telegram</h3>
           <p className="text-[13px] text-muted-foreground">
-            Receive Astro notifications on Telegram.
+            Chat with Astro, run slash commands, and get notifications — all from Telegram.
           </p>
         </div>
         {status?.connected && (
@@ -146,7 +146,7 @@ export function TelegramConnectCard() {
         {status?.connected ? (
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">
-              Notifications are active for all your projects.
+              Connected. Open Telegram and send /help for commands, or /bind to link a project chat.
             </span>
             <Button
               variant="outline"
