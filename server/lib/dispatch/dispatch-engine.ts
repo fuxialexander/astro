@@ -57,6 +57,9 @@ import { BranchManager, createBranchManager } from './branch-manager.js'
 import { astroEventTransport } from '../events/astro-event-transport.js'
 import { redisPubSub } from '../redis-pubsub.js'
 import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent } from '../events/types.js'
+import { db } from '../db/index.js'
+import { connectedAccounts } from '../db/schema.js'
+import { and, eq } from 'drizzle-orm'
 
 /**
  * Callback to update plan node status
@@ -112,6 +115,10 @@ export class DispatchEngine extends EventEmitter {
     executionId: string
     abortController: AbortController
     projectId: string
+    /** Astro user ID of the dispatcher (for approval authorization) */
+    dispatcherUserId?: string
+    /** Resumable session id captured from the agent runner's `init` event. */
+    resumeSessionId?: string
   }>()
 
   /** Pending approvals waiting for user response */
@@ -121,7 +128,25 @@ export class DispatchEngine extends EventEmitter {
     nodeId: string
     projectId: string
     executionId: string
+    /** Astro user ID of the dispatcher — only this user may respond. */
+    dispatcherUserId?: string
+    /** Subroutine name used for auto-approval grant matching. */
+    subroutineName?: string
+    /** Session key (resumeSessionId or executionId fallback) used for auto-approval. */
+    sessionKey?: string
   }>()
+
+  /**
+   * Session-scoped auto-approval grants (Fix C — "session" choice).
+   *
+   * Keyed by `${dispatcherUserId}:${sessionKey}` → set of subroutine names that
+   * should auto-approve for the remainder of that resumable session.
+   *
+   * NOTE: per-instance only. These expire on process restart and are NOT
+   * replicated across Fly instances. Cross-instance propagation is out of
+   * scope — "always" grants (persisted to DB) cover the durable case.
+   */
+  private sessionGrants = new Map<string, Set<string>>()
 
   /**
    * Recently-responded approvals for idempotency.
@@ -259,7 +284,7 @@ export class DispatchEngine extends EventEmitter {
     })
 
     // Start execution immediately
-    this.executeTask(queueEntry, nodes, edges, project)
+    this.executeTask(queueEntry, nodes, edges, project, request.dispatcherUserId)
 
     return { success: true, queueEntry }
   }
@@ -424,7 +449,8 @@ export class DispatchEngine extends EventEmitter {
     queueEntry: DispatchQueueEntry,
     nodes: PlanNode[],
     edges: PlanEdge[],
-    project?: Project
+    project?: Project,
+    dispatcherUserId?: string,
   ): Promise<void> {
     if (!this.executionCallback || !this.nodeUpdateCallback) {
       console.error('[dispatch] Execution callback not configured')
@@ -450,6 +476,7 @@ export class DispatchEngine extends EventEmitter {
       executionId,
       abortController,
       projectId: queueEntry.projectId,
+      dispatcherUserId,
     })
 
     // Update queue and node status
@@ -503,13 +530,20 @@ export class DispatchEngine extends EventEmitter {
         }
 
         switch (event.type) {
-          case 'init':
+          case 'init': {
+            // Capture the resumable session id so future auto-approval grants
+            // (Fix C) can key on it for "session" choice.
+            const activeEntry = this.activeExecutions.get(queueEntry.nodeId)
+            if (activeEntry && event.sessionId) {
+              activeEntry.resumeSessionId = event.sessionId
+            }
             executionEventBus.emit('task:session_init', {
               taskId: executionId,
               sessionId: event.sessionId,
               model: event.model,
             })
             break
+          }
           case 'text':
             fullOutput += event.text
             executionEventBus.emit('task:stdout', {
@@ -603,7 +637,7 @@ export class DispatchEngine extends EventEmitter {
           const delay = this.queue.calculateRetryDelay(queueEntry)
           setTimeout(() => {
             if (this.running) {
-              this.executeTask(failResult.entry, nodes, edges, project)
+              this.executeTask(failResult.entry, nodes, edges, project, dispatcherUserId)
             }
           }, delay)
         } else {
@@ -728,6 +762,113 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
+   * Build the composite session-grant key used by sessionGrants.
+   * When no resumable session id is available, we fall back to the
+   * executionId so single-execution session grants still work.
+   */
+  private sessionGrantKey(dispatcherUserId: string, sessionKey: string): string {
+    return `${dispatcherUserId}:${sessionKey}`
+  }
+
+  /**
+   * Check if a subroutine has been auto-approved (Fix C).
+   *
+   * Scope rules:
+   * - Grants are always checked under the dispatcher's user id. Another
+   *   user's "always" grant NEVER auto-approves my task.
+   * - Session grants live in Redis with a 4h sliding TTL (so they survive
+   *   cross-instance routing on Fly). A local in-memory fallback is kept
+   *   for single-instance dev without Redis.
+   * - "always" grants are persisted on the dispatcher's Telegram
+   *   connected-account `settings.autoApprovedSubroutines` array.
+   */
+  private async isAutoApproved(
+    subroutineName: string | undefined,
+    dispatcherUserId: string | undefined,
+    sessionKey: string | undefined,
+  ): Promise<boolean> {
+    if (!subroutineName || !dispatcherUserId) return false
+
+    // 1. Session grants — check local cache first, then Redis (for cross-instance).
+    if (sessionKey) {
+      const localKey = this.sessionGrantKey(dispatcherUserId, sessionKey)
+      const grant = this.sessionGrants.get(localKey)
+      if (grant && grant.has(subroutineName)) return true
+      try {
+        const hit = await redisPubSub.hasSessionApprovalGrant(
+          dispatcherUserId,
+          sessionKey,
+          subroutineName,
+        )
+        if (hit) {
+          // Warm the local cache so subsequent checks on this instance are free.
+          const set = this.sessionGrants.get(localKey) ?? new Set<string>()
+          set.add(subroutineName)
+          this.sessionGrants.set(localKey, set)
+          return true
+        }
+      } catch (err) {
+        console.warn('[dispatch] session-grant Redis lookup failed:', err)
+      }
+    }
+
+    // 2. Always grants (connected_accounts.settings JSONB)
+    try {
+      const rows = await db
+        .select()
+        .from(connectedAccounts)
+        .where(and(eq(connectedAccounts.userId, dispatcherUserId), eq(connectedAccounts.channel, 'telegram')))
+        .limit(1)
+      const row = rows[0] as { settings?: Record<string, unknown> } | undefined
+      const settings = row?.settings ?? {}
+      const granted = Array.isArray((settings as { autoApprovedSubroutines?: unknown }).autoApprovedSubroutines)
+        ? ((settings as { autoApprovedSubroutines: unknown[] }).autoApprovedSubroutines as unknown[])
+        : []
+      if (granted.includes(subroutineName)) return true
+    } catch (err) {
+      console.warn('[dispatch] auto-approval DB lookup failed:', (err as Error).message)
+    }
+
+    return false
+  }
+
+  /**
+   * Persist an "always" grant for a subroutine on the dispatcher's
+   * Telegram connected-account settings (Fix C).
+   *
+   * Read-modify-write — no locking. Races between concurrent approvals
+   * are acceptable because the final state is a deduped set.
+   */
+  private async persistAlwaysGrant(dispatcherUserId: string, subroutineName: string): Promise<void> {
+    try {
+      const rows = await db
+        .select()
+        .from(connectedAccounts)
+        .where(and(eq(connectedAccounts.userId, dispatcherUserId), eq(connectedAccounts.channel, 'telegram')))
+        .limit(1)
+      const row = rows[0] as { id?: string; settings?: Record<string, unknown> } | undefined
+      if (!row?.id) {
+        console.warn(`[dispatch] cannot persist always-grant: no telegram connected_account for user=${dispatcherUserId}`)
+        return
+      }
+      const current = row.settings ?? {}
+      const existing = Array.isArray((current as { autoApprovedSubroutines?: unknown }).autoApprovedSubroutines)
+        ? ((current as { autoApprovedSubroutines: unknown[] }).autoApprovedSubroutines as unknown[]).filter(
+            (v): v is string => typeof v === 'string',
+          )
+        : []
+      if (existing.includes(subroutineName)) return
+      const next = { ...current, autoApprovedSubroutines: [...existing, subroutineName] }
+      await db
+        .update(connectedAccounts)
+        .set({ settings: next, updatedAt: new Date() })
+        .where(eq(connectedAccounts.id, row.id))
+    } catch (err) {
+      console.warn('[dispatch] failed to persist always-grant:', (err as Error).message)
+    }
+  }
+
+  /**
    * Request user approval
    * Returns true/false for binary approval, or selected option string for multi-choice
    */
@@ -735,9 +876,20 @@ export class DispatchEngine extends EventEmitter {
     node: PlanNode,
     subroutine: { name: string; approvalMessage?: string; approvalOptions?: string[] }
   ): Promise<boolean | string> {
-    const executionId = this.activeExecutions.get(node.id)?.executionId
+    const exec = this.activeExecutions.get(node.id)
+    const executionId = exec?.executionId
     if (!executionId) {
       throw new Error('No active execution found for approval request')
+    }
+    const dispatcherUserId = exec?.dispatcherUserId
+    const sessionKey = exec?.resumeSessionId ?? executionId
+
+    // Fix C: short-circuit via session/always auto-approval grants.
+    if (await this.isAutoApproved(subroutine.name, dispatcherUserId, sessionKey)) {
+      console.log(
+        `[dispatch] auto-approved subroutine=${subroutine.name} for dispatcher=${dispatcherUserId} (session/always grant)`,
+      )
+      return true
     }
 
     const approvalId = `approval-${node.id}-${Date.now()}`
@@ -780,18 +932,43 @@ export class DispatchEngine extends EventEmitter {
         nodeId: node.id,
         projectId: node.projectId,
         executionId,
+        dispatcherUserId,
+        subroutineName: subroutine.name,
+        sessionKey,
       })
     })
   }
 
   /**
-   * Handle approval response from user
+   * Handle approval response from user.
+   *
+   * Back-compat:
+   *   respondToApproval(id, true)                         // boolean only
+   *   respondToApproval(id, true, 'option text')          // legacy string selectedOption
+   *   respondToApproval(id, true, { selectedOption, choice }) // new options bag
+   *
+   * `choice` is a forward-compat hint — valid values: 'once' | 'session' | 'always' | 'deny'.
+   * Semantics of 'session'/'always' are not fully wired yet; the value is recorded in the
+   * emitted event metadata and round-trips through storage without type errors.
    */
   async respondToApproval(
     approvalId: string,
     approved: boolean,
-    selectedOption?: string
+    optsOrSelectedOption?:
+      | string
+      | { choice?: 'once' | 'session' | 'always' | 'deny'; selectedOption?: string },
+    callerUserId?: string,
   ): Promise<void> {
+    // Normalize the overloaded third arg.
+    let selectedOption: string | undefined
+    let choice: 'once' | 'session' | 'always' | 'deny' | undefined
+    if (typeof optsOrSelectedOption === 'string') {
+      selectedOption = optsOrSelectedOption
+    } else if (optsOrSelectedOption && typeof optsOrSelectedOption === 'object') {
+      selectedOption = optsOrSelectedOption.selectedOption
+      choice = optsOrSelectedOption.choice
+    }
+
     // Idempotency: already responded during this server session (duplicate request)
     if (this.respondedApprovals.has(approvalId)) return
 
@@ -800,10 +977,54 @@ export class DispatchEngine extends EventEmitter {
       throw new Error(`No pending approval found for ID: ${approvalId}`)
     }
 
+    // Authorization: only the dispatcher may respond to their own approval.
+    // Skip the check when the pending record has no dispatcher recorded
+    // (e.g. legacy tasks dispatched before this field existed) so existing
+    // flows keep working.
+    if (pending.dispatcherUserId && callerUserId !== pending.dispatcherUserId) {
+      console.warn(
+        `[dispatch] Unauthorized approval attempt: approvalId=${approvalId} ` +
+          `dispatcher=${pending.dispatcherUserId} caller=${callerUserId ?? '<none>'}`,
+      )
+      throw new Error('not authorized: only the dispatcher can respond to this approval')
+    }
+
     // Record idempotency BEFORE awaiting side-effects.
     // If emitEvent or nodeUpdateCallback throws, a retry won't re-emit duplicates.
     this.pendingApprovals.delete(approvalId)
     this.respondedApprovals.set(approvalId, Date.now())
+
+    // Fix C: record session/always auto-approval grants for future approvals
+    // matching the same subroutine. Requires dispatcherUserId + subroutineName;
+    // silently no-ops for legacy approvals missing either field.
+    if (approved && pending.dispatcherUserId && pending.subroutineName) {
+      if (choice === 'session' && pending.sessionKey) {
+        const key = this.sessionGrantKey(pending.dispatcherUserId, pending.sessionKey)
+        const set = this.sessionGrants.get(key) ?? new Set<string>()
+        set.add(pending.subroutineName)
+        this.sessionGrants.set(key, set)
+        // Write-through to Redis so other Fly instances see the grant.
+        // In single-instance dev without Redis this is a no-op and the
+        // in-memory map above is the only store.
+        try {
+          await redisPubSub.addSessionApprovalGrant(
+            pending.dispatcherUserId,
+            pending.sessionKey,
+            pending.subroutineName,
+          )
+        } catch (err) {
+          console.warn('[dispatch] session-grant Redis write failed:', err)
+        }
+        console.log(
+          `[dispatch] session-grant recorded: user=${pending.dispatcherUserId} session=${pending.sessionKey} subroutine=${pending.subroutineName}`,
+        )
+      } else if (choice === 'always') {
+        await this.persistAlwaysGrant(pending.dispatcherUserId, pending.subroutineName)
+        console.log(
+          `[dispatch] always-grant persisted: user=${pending.dispatcherUserId} subroutine=${pending.subroutineName}`,
+        )
+      }
+    }
 
     // Clear Redis pending-approval marker if no more approvals remain for this execution
     if (!this.hasPendingApprovalForExecution(pending.executionId)) {
@@ -823,6 +1044,7 @@ export class DispatchEngine extends EventEmitter {
       executionId: pending.executionId,
       approved,
       selectedOption,
+      choice,
       timestamp: new Date(),
     })
 
@@ -907,6 +1129,12 @@ export class DispatchEngine extends EventEmitter {
         nodeId,
         projectId: execInfo.projectId,
         executionId,
+        dispatcherUserId: execInfo.dispatcherUserId,
+        // Dynamic approvals have no subroutine name, so they never hit the
+        // auto-approval grant path — session/always choices on them only
+        // affect future *named-subroutine* approvals within the session.
+        subroutineName: undefined,
+        sessionKey: execInfo.resumeSessionId ?? executionId,
       })
     })
   }

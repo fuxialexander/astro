@@ -2,7 +2,13 @@
  * Channel Router
  *
  * Central message coordinator that routes inbound chat messages
- * to the AI agent via relay and fans out notifications to registered channels.
+ * to the AI agent via relay, fans out notifications to registered channels,
+ * and provides an envelope-based message bus for decoupled message delivery.
+ *
+ * The envelope bus (inspired by Ductor's Envelope/MessageBus pattern) wraps
+ * all outbound messages — notifications, chat responses, streaming updates,
+ * approval requests — in a unified Envelope type. This decouples message
+ * production from delivery, enabling future transports (Discord, Matrix, etc.).
  */
 
 import { relayServer } from '../relay-server.js'
@@ -15,10 +21,17 @@ import type {
   ChannelRouter as IChannelRouter,
   ResponseSenderFn,
   NotificationSenderFn,
+  Envelope,
+  EnvelopeType,
+  EnvelopeHandler,
+  BusSubscription,
+  NotificationEnvelope,
+  ChatEnvelope,
 } from './channel-types.js'
 import { formatForChannel } from './channel-formatter.js'
 import type { ChannelFormat } from './channel-types.js'
 import type { TaskTextMessage, TaskResultMessage } from '../../types/relay.js'
+import { MessageBus } from './message-bus.js'
 
 const FORMAT_MAP: Record<ChannelType, ChannelFormat> = {
   slack: 'slack_mrkdwn',
@@ -26,6 +39,18 @@ const FORMAT_MAP: Record<ChannelType, ChannelFormat> = {
   github: 'github_gfm',
   linear: 'linear_markdown',
   openclaw: 'openclaw',
+}
+
+/**
+ * Create an envelope with sensible defaults.
+ */
+export function createEnvelope<T>(
+  fields: Omit<Envelope<T>, 'timestamp'> & { timestamp?: string }
+): Envelope<T> {
+  return {
+    ...fields,
+    timestamp: fields.timestamp || new Date().toISOString(),
+  }
 }
 
 class ChannelRouterImpl implements IChannelRouter {
@@ -37,6 +62,38 @@ class ChannelRouterImpl implements IChannelRouter {
 
   /** channel → global notification sender (fires for ALL projects) */
   private globalNotificationSenders = new Map<ChannelType, NotificationSenderFn>()
+
+  /** The underlying message bus */
+  readonly bus = new MessageBus()
+
+  constructor() {
+    // Wire up built-in bus handlers that bridge envelopes to existing sender infrastructure.
+    // This ensures backward compatibility: publishing a notification envelope triggers
+    // the same per-project and global notification senders that sendNotification() uses.
+    this.bus.subscribe('notification', async (envelope) => {
+      const notifEnvelope = envelope as NotificationEnvelope
+      await this.deliverNotification(notifEnvelope.payload, notifEnvelope.targetChannel)
+    })
+
+    this.bus.subscribe('chat', async (envelope) => {
+      const chatEnvelope = envelope as ChatEnvelope
+      if (chatEnvelope.targetChannel) {
+        const sender = this.responseSenders.get(chatEnvelope.targetChannel)
+        if (sender) {
+          await sender(chatEnvelope.payload)
+        } else {
+          // No local sender registered for this channel. On multi-instance
+          // deployments (e.g., Fly.io with 2 backends) this can happen if
+          // the target channel's adapter only registered on another instance.
+          // Log so missed deliveries are observable instead of silent.
+          console.warn(
+            `[channel-router] No response sender for channel '${chatEnvelope.targetChannel}' — chat envelope dropped on this instance. ` +
+            `If running multi-instance, register the adapter on every instance or bridge via Redis pub/sub.`,
+          )
+        }
+      }
+    })
+  }
 
   /**
    * Route an inbound chat message through the AI agent via relay.
@@ -114,35 +171,33 @@ class ChannelRouterImpl implements IChannelRouter {
   /**
    * Send a notification to all registered channels for a project.
    * Also fires global notification senders (e.g., OpenClaw) for any project.
+   *
+   * This is the legacy API. Prefer `publish()` with a notification envelope
+   * for new code — it goes through the same delivery path but allows bus
+   * subscribers to observe/transform the message.
    */
   async sendNotification(notification: ChannelNotification): Promise<void> {
-    const promises: Promise<void>[] = []
+    await this.deliverNotification(notification)
+  }
 
-    // Per-project senders
-    const senders = this.notificationSenders.get(notification.projectId)
-    if (senders) {
-      for (const [channel, sender] of senders.entries()) {
-        promises.push(
-          sender(notification).catch(err => {
-            console.error(`[channel-router] Failed to send notification to ${channel} for project ${notification.projectId}:`, err)
-          })
-        )
-      }
-    }
+  /**
+   * Publish an envelope to the message bus.
+   *
+   * The bus routes the envelope to all matching subscribers. Built-in
+   * subscribers bridge 'notification' and 'chat' envelopes to the existing
+   * sender infrastructure for backward compatibility.
+   */
+  async publish(envelope: Envelope): Promise<void> {
+    await this.bus.publish(envelope)
+  }
 
-    // Global senders (fire for all projects, skip if already covered by per-project)
-    for (const [channel, sender] of this.globalNotificationSenders.entries()) {
-      if (senders?.has(channel)) continue // per-project takes precedence
-      promises.push(
-        sender(notification).catch(err => {
-          console.error(`[channel-router] Failed to send global notification to ${channel}:`, err)
-        })
-      )
-    }
-
-    if (promises.length > 0) {
-      await Promise.allSettled(promises)
-    }
+  /**
+   * Subscribe to envelopes by type.
+   *
+   * @returns A subscription handle with an `unsubscribe()` method.
+   */
+  subscribe(type: EnvelopeType, handler: EnvelopeHandler): BusSubscription {
+    return this.bus.subscribe(type, handler)
   }
 
   registerResponseSender(channel: ChannelType, fn: ResponseSenderFn): void {
@@ -167,6 +222,71 @@ class ChannelRouterImpl implements IChannelRouter {
 
   getResponseSender(channel: ChannelType): ResponseSenderFn | undefined {
     return this.responseSenders.get(channel)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal delivery
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Deliver a notification through registered sender functions.
+   * If `targetChannel` is specified, only deliver to that channel (unicast).
+   * Otherwise, deliver to all registered channels (broadcast).
+   */
+  private async deliverNotification(
+    notification: ChannelNotification,
+    targetChannel?: ChannelType,
+  ): Promise<void> {
+    const promises: Promise<void>[] = []
+
+    if (targetChannel) {
+      // Unicast: deliver to a specific channel only
+      const senders = this.notificationSenders.get(notification.projectId)
+      const sender = senders?.get(targetChannel) || this.globalNotificationSenders.get(targetChannel)
+      if (sender) {
+        promises.push(
+          sender(notification).catch(err => {
+            console.error(`[channel-router] Failed to send notification to ${targetChannel} for project ${notification.projectId}:`, err)
+          })
+        )
+      } else {
+        // Per-project senders are lazy-registered when a channel config loads
+        // (e.g., Slack/GitHub/Linear plugins). On a multi-instance deployment,
+        // the instance that received this notification may not have loaded the
+        // project yet, so the sender is missing locally. Warn so dropped
+        // deliveries are visible.
+        console.warn(
+          `[channel-router] No notification sender for channel '${targetChannel}' on project ${notification.projectId}. ` +
+          `Delivery dropped on this instance.`,
+        )
+      }
+    } else {
+      // Broadcast: deliver to all registered channels
+      const senders = this.notificationSenders.get(notification.projectId)
+      if (senders) {
+        for (const [channel, sender] of senders.entries()) {
+          promises.push(
+            sender(notification).catch(err => {
+              console.error(`[channel-router] Failed to send notification to ${channel} for project ${notification.projectId}:`, err)
+            })
+          )
+        }
+      }
+
+      // Global senders (fire for all projects, skip if already covered by per-project)
+      for (const [channel, sender] of this.globalNotificationSenders.entries()) {
+        if (senders?.has(channel)) continue // per-project takes precedence
+        promises.push(
+          sender(notification).catch(err => {
+            console.error(`[channel-router] Failed to send global notification to ${channel}:`, err)
+          })
+        )
+      }
+    }
+
+    if (promises.length > 0) {
+      await Promise.allSettled(promises)
+    }
   }
 }
 

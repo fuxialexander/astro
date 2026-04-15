@@ -108,7 +108,10 @@ export class OpenClawChannelAdapter extends EventEmitter {
       try {
         const { dispatchEngine } = await import('../../dispatch/index.js')
         const approved = response.toLowerCase() === 'yes' || response.toLowerCase() === 'approve'
-        await dispatchEngine.respondToApproval(approvalId, approved, response)
+        // OpenClaw relays approval responses from the agent runner on behalf
+        // of the original dispatcher — the underlying task's `dispatcherUserId`
+        // (if any) is enforced inside dispatch-engine.respondToApproval.
+        await dispatchEngine.respondToApproval(approvalId, approved, response, undefined)
       } catch {
         // Approval may not exist in dispatch engine
       }

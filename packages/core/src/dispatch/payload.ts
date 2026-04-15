@@ -6,6 +6,7 @@
  */
 
 import type { DeliveryMode, RemoteType, WorktreeStrategy } from '../types.js'
+import type { DispatchOrigin, TelegramDispatchContext } from './types.js'
 
 // ── Input types (loose — compatible with both core and CLI Project types) ──
 
@@ -65,6 +66,10 @@ export interface DispatchPayloadOptions {
   computeBackend?: string
   useWorktree?: boolean
   preferredProvider?: string
+  /** Origin of the dispatch request */
+  dispatchOrigin?: DispatchOrigin
+  /** Telegram context when dispatched from Telegram */
+  telegramContext?: TelegramDispatchContext
 }
 
 /** The full payload shape accepted by POST /api/dispatch/task */
@@ -89,6 +94,10 @@ export interface DispatchTaskPayload {
   worktreeStrategy?: WorktreeStrategy
   useWorktree?: boolean
   force?: boolean
+  /** Origin of the dispatch request */
+  dispatchOrigin?: DispatchOrigin
+  /** Telegram context when dispatched from Telegram */
+  telegramContext?: TelegramDispatchContext
 }
 
 // ── resolveWorkingDirectory ──────────────────────────────────────────
@@ -170,6 +179,8 @@ export function buildDispatchPayload(
     ...(options?.computeBackend && { computeBackend: options.computeBackend }),
     ...(options?.useWorktree != null && { useWorktree: options.useWorktree }),
     ...(options?.preferredProvider && { preferredProvider: options.preferredProvider }),
+    ...(options?.dispatchOrigin && { dispatchOrigin: options.dispatchOrigin }),
+    ...(options?.telegramContext && { telegramContext: options.telegramContext }),
   }
 }
 

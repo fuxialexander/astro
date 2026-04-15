@@ -114,6 +114,8 @@ export interface ApprovalRespondedEvent {
   executionId: string
   approved: boolean
   selectedOption?: string // For multi-choice approvals
+  /** Persistence hint: 'once' (default), 'session', 'always', or 'deny'. Forward-compat. */
+  choice?: 'once' | 'session' | 'always' | 'deny'
   timestamp: Date
 }
 

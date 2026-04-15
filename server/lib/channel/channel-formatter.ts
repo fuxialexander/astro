@@ -9,6 +9,7 @@
  */
 
 import type { ChannelFormat } from './channel-types.js'
+import { toMarkdownV2 } from './adapters/telegram-markdown-v2.js'
 
 /**
  * Convert standard markdown to a channel-specific format.
@@ -19,6 +20,8 @@ export function formatForChannel(markdown: string, format: ChannelFormat): strin
       return toSlackMrkdwn(markdown)
     case 'telegram_html':
       return toTelegramHtml(markdown)
+    case 'telegram_markdown_v2':
+      return toMarkdownV2(markdown)
     case 'openclaw':
       return toOpenClaw(markdown)
     case 'github_gfm':

@@ -15,7 +15,8 @@ process.env.ASTRO_LOCAL_MODE = 'true'
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { runMigrations } from '../server/lib/db/migrate.js'
 import { db } from '../server/lib/db/index.js'
-import { dispatchQueueEntries } from '../server/lib/db/schema.js'
+import { dispatchQueueEntries, connectedAccounts } from '../server/lib/db/schema.js'
+import { eq } from 'drizzle-orm'
 import type { PlanNode, PlanEdge } from '../src/types/index.js'
 import {
   createDispatchEngine,
@@ -477,5 +478,187 @@ describe('DispatchEngine', () => {
 
     engine.stop()
     expect((await engine.getStats()).running).toBe(false)
+  })
+})
+
+// ============================================================================
+// Fix C: Session / Always auto-approval grants
+// ============================================================================
+
+describe('DispatchEngine — auto-approval grants (Fix C)', () => {
+  const USER_A = '11111111-1111-4000-8000-000000000001'
+  const USER_B = '22222222-2222-4000-8000-000000000002'
+  const EXEC_ID = 'exec-test-node-42'
+  const SESSION_ID = 'sess-abc-42'
+  const NODE: PlanNode = {
+    id: 'n-approval',
+    projectId: TEST_PROJECT_UUID,
+    type: 'task',
+    title: 'Subroutine task',
+    description: 'Needs approval',
+    status: 'in_progress',
+    parentId: null,
+    dependencies: [],
+    verification: 'human',
+    position: { x: 0, y: 0 },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+  const SUBROUTINE = { name: 'deploy-prod', approvalMessage: 'Deploy to production?' }
+
+  beforeEach(async () => {
+    // Reset connected_accounts rows we'll touch
+    await db.delete(connectedAccounts).where(eq(connectedAccounts.userId, USER_A))
+    await db.delete(connectedAccounts).where(eq(connectedAccounts.userId, USER_B))
+  })
+
+  /**
+   * Helper: create an engine, seed activeExecutions, and install a stub
+   * nodeUpdateCallback so requestApproval doesn't blow up.
+   */
+  function makeEngine() {
+    const engine = createDispatchEngine({ autoDispatch: false }) as unknown as {
+      activeExecutions: Map<string, { executionId: string; abortController: AbortController; projectId: string; dispatcherUserId?: string; resumeSessionId?: string }>
+      pendingApprovals: Map<string, unknown>
+      sessionGrants: Map<string, Set<string>>
+      nodeUpdateCallback?: (...args: unknown[]) => Promise<void>
+      requestApproval: (node: PlanNode, subroutine: { name: string; approvalMessage?: string }) => Promise<boolean | string>
+      respondToApproval: (id: string, approved: boolean, opts?: { choice?: 'once' | 'session' | 'always' | 'deny' }, callerUserId?: string) => Promise<void>
+      isAutoApproved: (name: string | undefined, userId: string | undefined, sessionKey: string | undefined) => Promise<boolean>
+    }
+    engine.nodeUpdateCallback = async () => undefined
+    return engine
+  }
+
+  function seedExecution(engine: ReturnType<typeof makeEngine>, dispatcherUserId: string, opts?: { sessionId?: string }) {
+    engine.activeExecutions.set(NODE.id, {
+      executionId: EXEC_ID,
+      abortController: new AbortController(),
+      projectId: NODE.projectId,
+      dispatcherUserId,
+      resumeSessionId: opts?.sessionId,
+    })
+  }
+
+  it('once: does not grant anything for future approvals', async () => {
+    const engine = makeEngine()
+    seedExecution(engine, USER_A, { sessionId: SESSION_ID })
+
+    // First approval — drive asynchronously and respond.
+    const p1 = engine.requestApproval(NODE, SUBROUTINE)
+    // requestApproval awaits event emission + node update before populating
+    // pendingApprovals — flush microtasks until the entry appears.
+    for (let i = 0; i < 20 && engine.pendingApprovals.size === 0; i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+    const firstId = Array.from(engine.pendingApprovals.keys())[0] as string
+    await engine.respondToApproval(firstId, true, { choice: 'once' }, USER_A)
+    expect(await p1).toBe(true)
+
+    // Second approval should NOT be auto-approved.
+    const auto = await engine.isAutoApproved(SUBROUTINE.name, USER_A, SESSION_ID)
+    expect(auto).toBe(false)
+    expect(engine.sessionGrants.size).toBe(0)
+  })
+
+  it('session: grants auto-approval for same subroutine within the session', async () => {
+    const engine = makeEngine()
+    seedExecution(engine, USER_A, { sessionId: SESSION_ID })
+
+    const p1 = engine.requestApproval(NODE, SUBROUTINE)
+    // requestApproval awaits event emission + node update before populating
+    // pendingApprovals — flush microtasks until the entry appears.
+    for (let i = 0; i < 20 && engine.pendingApprovals.size === 0; i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+    const firstId = Array.from(engine.pendingApprovals.keys())[0] as string
+    await engine.respondToApproval(firstId, true, { choice: 'session' }, USER_A)
+    expect(await p1).toBe(true)
+
+    // Grant should be recorded under `${USER_A}:${SESSION_ID}`.
+    expect(engine.sessionGrants.get(`${USER_A}:${SESSION_ID}`)?.has(SUBROUTINE.name)).toBe(true)
+
+    // A follow-up requestApproval should short-circuit — no new pendingApprovals entry.
+    const pendingSizeBefore = engine.pendingApprovals.size
+    const p2 = await engine.requestApproval(NODE, SUBROUTINE)
+    expect(p2).toBe(true)
+    expect(engine.pendingApprovals.size).toBe(pendingSizeBefore)
+  })
+
+  it('session: different subroutine name still requires a fresh approval', async () => {
+    const engine = makeEngine()
+    seedExecution(engine, USER_A, { sessionId: SESSION_ID })
+
+    const p1 = engine.requestApproval(NODE, SUBROUTINE)
+    // requestApproval awaits event emission + node update before populating
+    // pendingApprovals — flush microtasks until the entry appears.
+    for (let i = 0; i < 20 && engine.pendingApprovals.size === 0; i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+    const firstId = Array.from(engine.pendingApprovals.keys())[0] as string
+    await engine.respondToApproval(firstId, true, { choice: 'session' }, USER_A)
+    await p1
+
+    // Different subroutine name — should NOT auto-approve.
+    const auto = await engine.isAutoApproved('other-subroutine', USER_A, SESSION_ID)
+    expect(auto).toBe(false)
+  })
+
+  it('session: does not bleed across dispatcher user ids', async () => {
+    const engine = makeEngine()
+    seedExecution(engine, USER_A, { sessionId: SESSION_ID })
+
+    const p1 = engine.requestApproval(NODE, SUBROUTINE)
+    // requestApproval awaits event emission + node update before populating
+    // pendingApprovals — flush microtasks until the entry appears.
+    for (let i = 0; i < 20 && engine.pendingApprovals.size === 0; i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+    const firstId = Array.from(engine.pendingApprovals.keys())[0] as string
+    await engine.respondToApproval(firstId, true, { choice: 'session' }, USER_A)
+    await p1
+
+    // USER_B with the same session key must not inherit USER_A's grant.
+    const autoForB = await engine.isAutoApproved(SUBROUTINE.name, USER_B, SESSION_ID)
+    expect(autoForB).toBe(false)
+  })
+
+  it('always: persists to connected_accounts.settings and survives a fresh engine', async () => {
+    // Seed a Telegram connected_account for USER_A.
+    await db.insert(connectedAccounts).values({
+      userId: USER_A,
+      channel: 'telegram',
+      label: 'test',
+      credentials: { chatId: 1 },
+      mappings: {},
+      settings: {},
+    })
+
+    const engine = makeEngine()
+    seedExecution(engine, USER_A, { sessionId: SESSION_ID })
+
+    const p1 = engine.requestApproval(NODE, SUBROUTINE)
+    // requestApproval awaits event emission + node update before populating
+    // pendingApprovals — flush microtasks until the entry appears.
+    for (let i = 0; i < 20 && engine.pendingApprovals.size === 0; i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+    const firstId = Array.from(engine.pendingApprovals.keys())[0] as string
+    await engine.respondToApproval(firstId, true, { choice: 'always' }, USER_A)
+    await p1
+
+    // Settings row should now include the subroutine.
+    const rows = await db.select().from(connectedAccounts).where(eq(connectedAccounts.userId, USER_A))
+    const settings = (rows[0]?.settings ?? {}) as { autoApprovedSubroutines?: string[] }
+    expect(settings.autoApprovedSubroutines).toContain(SUBROUTINE.name)
+
+    // A FRESH engine (no in-memory sessionGrants) should still auto-approve.
+    const engine2 = makeEngine()
+    const auto = await engine2.isAutoApproved(SUBROUTINE.name, USER_A, 'any-new-session')
+    expect(auto).toBe(true)
+
+    // And USER_B still does not inherit it.
+    const autoForB = await engine2.isAutoApproved(SUBROUTINE.name, USER_B, 'any-new-session')
+    expect(autoForB).toBe(false)
   })
 })

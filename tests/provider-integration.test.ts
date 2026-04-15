@@ -34,9 +34,9 @@ import { tmpdir } from 'node:os'
 import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 // Dynamic imports — agent-runner submodule may not be checked out in CI
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let OpenCodeAdapter: any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let OpenClawAdapter: any
 let adapterAvailable = false
 
@@ -51,7 +51,7 @@ try {
 }
 
 // Type aliases — use `any` since type imports can't be dynamic
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Task = any
 
 const execAsync = promisify(exec)

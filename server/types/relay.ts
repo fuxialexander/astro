@@ -325,6 +325,13 @@ export interface TaskDispatch {
   useWorktree?: boolean;
 
   /**
+   * Optional image references (data: URLs or blob IDs) attached to this task.
+   * Used by multimodal channels (Telegram media, chat uploads) to pass images
+   * to the agent runner alongside the text prompt.
+   */
+  imageRefs?: string[];
+
+  /**
    * Skip the agent runner's safety check (non-git working directory prompt).
    *
    * Set to `true` for text-only tasks (refinement, summarization, title generation)
@@ -367,6 +374,19 @@ export interface TaskDispatch {
    * `query({ resume: sessionId, forkSession: true })`.
    */
   forkSession?: boolean;
+
+  /**
+   * Origin of the dispatch request.
+   * When 'telegram', the agent has access to the telegram_reply MCP tool.
+   */
+  dispatchOrigin?: 'web' | 'telegram' | 'cli' | 'api' | 'auto';
+
+  /**
+   * Telegram chat ID of the originating conversation.
+   * Set when dispatchOrigin is 'telegram'. Passed to the MCP tools server
+   * as ASTRO_TELEGRAM_CHAT_ID so the agent can send replies.
+   */
+  telegramChatId?: string;
 }
 
 /** Structured execution summary produced by the agent after task completion */

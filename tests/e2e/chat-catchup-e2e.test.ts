@@ -217,7 +217,7 @@ test.describe('Chat stream catch-up pipeline', () => {
         await page.exposeFunction('__pwSSECapture', () => { /* collected below */ })
         await page.addInitScript(() => {
           const OrigES = window.EventSource
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           ;(window as any).__sseEvents = [] as Array<{ event: string; data: string }>
           // @ts-expect-error — patching for test
           window.EventSource = class extends OrigES {
@@ -225,7 +225,7 @@ test.describe('Chat stream catch-up pipeline', () => {
               super(url, init)
               if (!url.includes('/api/events/stream')) return
               this.addEventListener('task:init', (e: MessageEvent) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                 
                 ;(window as any).__sseEvents.push({ event: 'task:init', data: e.data })
               })
             }
@@ -276,7 +276,7 @@ test.describe('Chat stream catch-up pipeline', () => {
 
       const getInitEvents = async (page: typeof page1) => {
         return page.evaluate((taskId) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           const events = (window as any).__sseEvents as Array<{ event: string; data: string }>
           return events.filter(e => {
             try {
