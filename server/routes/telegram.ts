@@ -189,7 +189,7 @@ app.post('/reply', async (c) => {
  * Returns an array of { key, groupChatId, threadId, projectId } objects.
  */
 app.use('/topic-bindings', requireAuth)
-app.use('/topic-bindings', requireTelegramFullClient)
+app.use('/topic-bindings/*', requireAuth)
 
 app.get('/topic-bindings', async (c) => {
   const user = c.get('user') as AuthUser
@@ -248,6 +248,20 @@ app.post('/topic-bindings', async (c) => {
     return c.json({ error: 'groupChatId, threadId, and projectId are required' }, 400)
   }
 
+  // Verify the caller is a member of the team that owns this project.
+  // Without this, any authenticated user could bind a forum topic to a
+  // project in a team they don't belong to, leaking project context
+  // (vision doc, plan nodes, machine instructions) into their own chat.
+  const [membership] = await db
+    .select({ id: teamMembers.id })
+    .from(teamMembers)
+    .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
+    .where(and(eq(teamMembers.userId, user.id), eq(projects.id, projectId)))
+    .limit(1)
+  if (!membership) {
+    return c.json({ error: 'Forbidden: project not accessible' }, 403)
+  }
+
   const rows = await db
     .select({ id: connectedAccounts.id, mappings: connectedAccounts.mappings })
     .from(connectedAccounts)
@@ -282,7 +296,7 @@ app.post('/topic-bindings', async (c) => {
 /**
  * DELETE /topic-bindings/:groupChatId/:threadId — Remove a topic binding.
  */
-app.delete('/topic-bindings/:groupChatId/:threadId', requireAuth, requireTelegramFullClient, async (c) => {
+app.delete('/topic-bindings/:groupChatId/:threadId', async (c) => {
   const user = c.get('user') as AuthUser
   const groupChatId = c.req.param('groupChatId')
   const threadId = c.req.param('threadId')

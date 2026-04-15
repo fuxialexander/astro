@@ -253,6 +253,13 @@ class TelegramChannelAdapter {
     if (from?.is_bot) return
 
     const fromId = from?.id ? String(from.id) : undefined
+
+    // Allowlist gate — when TELEGRAM_ALLOWED_USERS is set, silently ignore
+    // inbound messages from non-allowlisted users before touching the DB or
+    // dispatch path. Mirrors the gate already applied to callback_query.
+    const allowlist = parseAllowlist(process.env.TELEGRAM_ALLOWED_USERS, undefined)
+    if (!isUserAllowed(fromId, allowlist)) return
+
     // message_thread_id is set for messages inside forum topics
     const threadId = msg.message_thread_id ? String(msg.message_thread_id) : undefined
     const isGroupChat = chatType === 'group' || chatType === 'supergroup'
