@@ -122,6 +122,28 @@ export const channelNotificationHook: EventHook = async (event) => {
       break
     }
 
+    case 'task.cancelled': {
+      const taskTitle = event.node?.title || 'Unknown task'
+      const projectName = event.project?.name
+      const header = projectName ? `**${taskTitle}** (${projectName})` : `**${taskTitle}**`
+      const reasonLine = event.reason ? `\n\n${event.reason}` : ''
+      const cancelledUrl = (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
+        ? `${BASE_URL}/playground?projectId=${event.projectId}`
+        : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
+      notification = {
+        type: 'task.cancelled' as NotificationType,
+        projectId: event.projectId,
+        summary: `${header}${reasonLine}`,
+        astroUrl: cancelledUrl,
+        metadata: {
+          nodeId: event.nodeId,
+          executionId: event.executionId,
+          reason: event.reason,
+        },
+      }
+      break
+    }
+
     case 'task.failed': {
       const failedUrl = (event.nodeId?.startsWith('playground-') || event.nodeId?.startsWith('session-'))
         ? `${BASE_URL}/playground?projectId=${event.projectId}`

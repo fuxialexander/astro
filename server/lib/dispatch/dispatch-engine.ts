@@ -621,6 +621,8 @@ export class DispatchEngine extends EventEmitter {
           projectId: queueEntry.projectId,
           executionId,
           reason: 'User cancelled',
+          node,
+          project,
           timestamp: new Date(),
         })
       } else {
@@ -703,10 +705,11 @@ export class DispatchEngine extends EventEmitter {
       await this.queue.markFailed(queueEntry.id, result.errorMessage || 'Unknown error')
     }
 
-    // Update node
+    // Update node — cancelled tasks go back to 'planned' so users can re-dispatch
+    const nodeTargetStatus = result.status === 'cancelled' ? 'planned' : routing.targetStatus
     if (this.nodeUpdateCallback) {
       await this.nodeUpdateCallback(node.id, {
-        status: routing.targetStatus,
+        status: nodeTargetStatus,
         executionOutput: output,
         executionCompletedAt: new Date(),
         executionError: result.errorMessage,
@@ -728,18 +731,32 @@ export class DispatchEngine extends EventEmitter {
     this.emit('task:completed', completedEvent)
 
     // Emit to event transport for hooks
-    await astroEventTransport.emitEvent({
-      type: 'task.completed',
-      taskId: result.taskId,
-      nodeId: node.id,
-      projectId: queueEntry.projectId,
-      executionId: result.taskId,
-      finalNodeStatus: routing.targetStatus,
-      result,
-      node,
-      project,
-      timestamp: new Date(),
-    } satisfies AstroTaskCompletedEvent)
+    if (result.status === 'cancelled') {
+      await astroEventTransport.emitEvent({
+        type: 'task.cancelled',
+        taskId: result.taskId,
+        nodeId: node.id,
+        projectId: queueEntry.projectId,
+        executionId: result.taskId,
+        reason: result.errorMessage || 'Task cancelled',
+        node,
+        project,
+        timestamp: new Date(),
+      })
+    } else {
+      await astroEventTransport.emitEvent({
+        type: 'task.completed',
+        taskId: result.taskId,
+        nodeId: node.id,
+        projectId: queueEntry.projectId,
+        executionId: result.taskId,
+        finalNodeStatus: routing.targetStatus,
+        result,
+        node,
+        project,
+        timestamp: new Date(),
+      } satisfies AstroTaskCompletedEvent)
+    }
 
     // Trigger downstream dispatch if applicable
     if (routing.triggerDownstream && this.config.autoDispatch && routing.downstreamNodes) {
