@@ -20,7 +20,7 @@ import { executionContextStore } from '../../execution-context-store.js'
 import { buildChatSystemPrompt, formatMachineInstruction } from '../../prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED, MACHINE_INSTRUCTION_PRESETS } from '../../machine-instruction-presets.js'
 import { db } from '../../db/index.js'
-import { connectedAccounts, projects, planNodes, planEdges, registeredMachines, machineInstructions } from '../../db/schema.js'
+import { connectedAccounts, projects, planNodes, planEdges, registeredMachines, machineInstructions, teamMembers } from '../../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import type {
   TaskDispatch as RelayTaskDispatch,
@@ -209,16 +209,27 @@ function sanitizeForTelegram(text: string): string {
 
 async function buildTelegramSystemPrompt(
   projectId: string,
-): Promise<string> {
-  // Load vision doc and plan nodes for context
+  userId: string | null,
+): Promise<string | null> {
+  // Defense-in-depth: require the caller to be a member of the team that
+  // owns this project before loading its vision doc, plan nodes, and
+  // machine instructions into the AI context. Callers upstream (topic
+  // binding creation, private-chat session lookup) already scope projectId
+  // to the user, but this guard prevents a future regression in any of
+  // those paths from leaking cross-team project context. Returns null
+  // when unauthorized so the caller can abort the dispatch.
+  if (!userId) return null
   const [project] = await db
     .select({
       visionDoc: projects.visionDoc,
       defaultMachineId: projects.defaultMachineId,
     })
     .from(projects)
-    .where(eq(projects.id, projectId))
+    .innerJoin(teamMembers, eq(teamMembers.teamId, projects.teamId))
+    .where(and(eq(projects.id, projectId), eq(teamMembers.userId, userId)))
     .limit(1)
+
+  if (!project) return null
 
   const visionDoc = project?.visionDoc ?? undefined
 
@@ -464,8 +475,19 @@ export async function dispatchChatToTelegram(opts: {
     }
   }
 
-  // 2. Build system prompt
-  const systemPrompt = await buildTelegramSystemPrompt(session.projectId)
+  // 2. Build system prompt (enforces team membership as defense-in-depth;
+  //    returns null if the caller is not a member of the project's team)
+  const systemPrompt = await buildTelegramSystemPrompt(session.projectId, userId ?? null)
+  if (!systemPrompt) {
+    stopTyping()
+    return {
+      response: '',
+      newSessionId: null,
+      updatedMessages: session.messages,
+      success: false,
+      error: `Not authorized to access project: ${session.projectId}`,
+    }
+  }
 
   // 3. Send initial "thinking" message to Telegram (plain HTML — mid-stream
   //    MdV2 escaping is fragile; we swap to MdV2 on the final edit only).

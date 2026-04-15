@@ -81,6 +81,15 @@ class ChannelRouterImpl implements IChannelRouter {
         const sender = this.responseSenders.get(chatEnvelope.targetChannel)
         if (sender) {
           await sender(chatEnvelope.payload)
+        } else {
+          // No local sender registered for this channel. On multi-instance
+          // deployments (e.g., Fly.io with 2 backends) this can happen if
+          // the target channel's adapter only registered on another instance.
+          // Log so missed deliveries are observable instead of silent.
+          console.warn(
+            `[channel-router] No response sender for channel '${chatEnvelope.targetChannel}' — chat envelope dropped on this instance. ` +
+            `If running multi-instance, register the adapter on every instance or bridge via Redis pub/sub.`,
+          )
         }
       }
     })
@@ -239,6 +248,16 @@ class ChannelRouterImpl implements IChannelRouter {
           sender(notification).catch(err => {
             console.error(`[channel-router] Failed to send notification to ${targetChannel} for project ${notification.projectId}:`, err)
           })
+        )
+      } else {
+        // Per-project senders are lazy-registered when a channel config loads
+        // (e.g., Slack/GitHub/Linear plugins). On a multi-instance deployment,
+        // the instance that received this notification may not have loaded the
+        // project yet, so the sender is missing locally. Warn so dropped
+        // deliveries are visible.
+        console.warn(
+          `[channel-router] No notification sender for channel '${targetChannel}' on project ${notification.projectId}. ` +
+          `Delivery dropped on this instance.`,
         )
       }
     } else {
