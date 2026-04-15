@@ -424,7 +424,9 @@ class TelegramChannelAdapter {
         isGroupChat,
       })
       if (response !== null) {
-        await sendMessage(this.botToken, chatId, response, { threadId })
+        const replyText = typeof response === 'string' ? response : response.text
+        const replyMarkup = typeof response === 'string' ? undefined : response.replyMarkup
+        await sendMessage(this.botToken, chatId, replyText, { threadId, replyMarkup })
       } else if (!isGroupChat) {
         // Unknown command in private chat
         await sendMessage(
@@ -442,7 +444,8 @@ class TelegramChannelAdapter {
       if (projectId) {
         // Bound forum topics bypass mention gating — the binding is itself
         // the opt-in signal that the bot should respond to every message.
-        await this.handleTopicChatMessage(chatId, threadId, text, projectId, from, attachments)
+        const inboundMessageId = msg.message_id as number | undefined
+        await this.handleTopicChatMessage(chatId, threadId, text, projectId, from, attachments, inboundMessageId)
         return
       }
       // Message in an unbound topic — silently ignore (don't spam the group)
@@ -539,79 +542,114 @@ class TelegramChannelAdapter {
     projectId: string,
     from: Record<string, unknown> | undefined,
     attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>,
+    inboundMessageId?: number,
   ): Promise<void> {
     if (!this.botToken) return
+    if (!from?.id) return
 
-    const senderName =
-      [from?.first_name, from?.last_name].filter(Boolean).join(' ') || 'Unknown'
+    // Verify the sender has a connected Astro account and is a member of the
+    // project's team. Silently drop unauthorized group members.
+    const senderId = String(from.id)
+    const [account] = await db
+      .select({
+        id: connectedAccounts.id,
+        userId: connectedAccounts.userId,
+        mappings: connectedAccounts.mappings,
+        settings: connectedAccounts.settings,
+      })
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.externalId, senderId),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+      .limit(1)
 
-    // Verify the sender has a connected Astro account and is a member of the project's team.
-    // Silently drop messages from unauthorized group members rather than routing them to agents.
-    if (from?.id) {
-      const senderId = String(from.id)
-      const [connectedAccount] = await db
-        .select({ userId: connectedAccounts.userId })
-        .from(connectedAccounts)
-        .where(
-          and(
-            eq(connectedAccounts.channel, 'telegram'),
-            eq(connectedAccounts.externalId, senderId),
-            eq(connectedAccounts.enabled, true),
-          ),
-        )
-        .limit(1)
+    if (!account) return
 
-      if (!connectedAccount) {
-        // Sender is not a registered Astro user — silently drop
-        return
-      }
+    const [membership] = await db
+      .select({ userId: teamMembers.userId })
+      .from(teamMembers)
+      .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
+      .where(
+        and(
+          eq(teamMembers.userId, account.userId),
+          eq(projects.id, projectId),
+        ),
+      )
+      .limit(1)
+    if (!membership) return
 
-      // Check the sender is a team member for the project
-      const [membership] = await db
-        .select({ id: teamMembers.id })
-        .from(teamMembers)
-        .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
-        .where(
-          and(
-            eq(teamMembers.userId, connectedAccount.userId),
-            eq(projects.id, projectId),
-          ),
-        )
-        .limit(1)
+    // Per-topic session lives under mappings.topicSessions[groupChatId:topic:threadId],
+    // separate from the private-chat `chatSession` key. This keeps every forum
+    // topic a distinct conversation thread with its own Claude session + history.
+    const mappings = (account.mappings as Record<string, unknown> | null) ?? {}
+    const settings = (account.settings as Record<string, unknown> | null) ?? {}
+    const rawMode = settings.replyToMode
+    const replyToMode: 'off' | 'first' | 'all' =
+      rawMode === 'off' || rawMode === 'all' || rawMode === 'first' ? rawMode : 'first'
+    const reactionsEnabled = settings.reactionsEnabled === true
 
-      if (!membership) {
-        // Sender is not a member of this project's team — silently drop
-        return
-      }
-    }
+    const topicKey = `${groupChatId}:topic:${threadId}`
+    const topicSessions =
+      (mappings.topicSessions as Record<string, {
+        sessionId: string | null
+        streamId: string
+        projectId: string
+        messages: Array<{ role: 'user' | 'assistant'; content: string }>
+      }> | undefined) ?? {}
+    const existing = topicSessions[topicKey]
+    const session =
+      existing && existing.projectId === projectId
+        ? {
+            sessionId: existing.sessionId ?? null,
+            streamId: existing.streamId,
+            projectId: existing.projectId,
+            messages: existing.messages ?? [],
+          }
+        : {
+            sessionId: null,
+            streamId: `tg-topic-${groupChatId}-${threadId}-${Date.now()}`,
+            projectId,
+            messages: [],
+          }
 
     try {
-      const response = await channelRouter.routeMessage({
-        sourceMessageId: `tg-${groupChatId}-${threadId}-${Date.now()}`,
-        channel: 'telegram',
-        text,
-        sender: {
-          id: from?.id ? String(from.id) : 'unknown',
-          name: senderName,
-        },
-        conversationRef: {
-          channelId: groupChatId,
-          threadId,
-          // TODO(wave3): add `attachments` to InboundMessage type
-          metadata: attachments ? { attachments } : undefined,
-        },
-        projectId,
-      } as Parameters<typeof channelRouter.routeMessage>[0])
+      const result = await dispatchChatToTelegram({
+        botToken: this.botToken,
+        chatId: groupChatId,
+        userId: account.userId,
+        userMessage: text,
+        session,
+        threadId,
+        replyToMode,
+        reactionsEnabled,
+        replyToMessageId: inboundMessageId,
+        attachments,
+      } as Parameters<typeof dispatchChatToTelegram>[0] & {
+        attachments?: Array<{ dataUrl: string; mimeType: string; size?: number }>
+      })
 
-      const token = this.botToken!
-      await safeSend(
-        () => sendMessage(token, groupChatId, response.text, { threadId }),
-        {
-          retryWithoutThread: () => sendMessage(token, groupChatId, response.text),
-          retryTruncated: (maxLen) =>
-            sendMessage(token, groupChatId, response.text.slice(0, maxLen), { threadId }),
-        },
-      )
+      if (result.success || result.updatedMessages.length > session.messages.length) {
+        const newTopicSessions = {
+          ...topicSessions,
+          [topicKey]: {
+            sessionId: result.newSessionId,
+            streamId: session.streamId,
+            projectId: session.projectId,
+            messages: result.updatedMessages,
+          },
+        }
+        await db
+          .update(connectedAccounts)
+          .set({
+            mappings: { ...mappings, topicSessions: newTopicSessions },
+            updatedAt: new Date(),
+          })
+          .where(eq(connectedAccounts.id, account.id))
+      }
     } catch (err) {
       console.error('[telegram] Error routing topic message:', err)
       await sendMessage(

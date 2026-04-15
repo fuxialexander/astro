@@ -143,7 +143,7 @@ app.post('/reply', async (c) => {
   if (pId) {
     // Check project team membership
     const [membership] = await db
-      .select({ id: teamMembers.id })
+      .select({ userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
       .where(and(eq(teamMembers.userId, user.id), eq(projects.id, pId)))
@@ -253,7 +253,7 @@ app.post('/topic-bindings', async (c) => {
   // project in a team they don't belong to, leaking project context
   // (vision doc, plan nodes, machine instructions) into their own chat.
   const [membership] = await db
-    .select({ id: teamMembers.id })
+    .select({ userId: teamMembers.userId })
     .from(teamMembers)
     .innerJoin(projects, eq(projects.teamId, teamMembers.teamId))
     .where(and(eq(teamMembers.userId, user.id), eq(projects.id, projectId)))
