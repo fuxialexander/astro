@@ -47,6 +47,13 @@ export interface CommandContext {
   threadId?: string
   /** Set when command is in a group/supergroup chat (chatId is the group ID) */
   groupChatId?: string
+  /**
+   * Active project for scoping short-form task identifiers like `#4` or `5`.
+   * Resolved from the topic binding (forum topics) or defaultProject/session
+   * (private chats). When set, node lookups prefer this project so task
+   * numbers from other projects cannot collide.
+   */
+  activeProjectId?: string
 }
 
 /**
@@ -191,6 +198,7 @@ async function getUserTeamIds(userId: string): Promise<string[]> {
 async function resolveNode(
   partialId: string,
   teamIds: string[],
+  activeProjectId?: string,
 ): Promise<{
   clientId: string
   projectId: string
@@ -204,22 +212,27 @@ async function resolveNode(
   // exposing nodes from all teams. Return null instead.
   if (teamIds.length === 0) return null
 
-  // First try exact match on clientId
+  // Accept `#4`, `4`, or a UUID prefix — strip a single leading `#`.
+  const cleaned = partialId.startsWith('#') ? partialId.slice(1) : partialId
+
+  const selectFields = {
+    clientId: planNodes.clientId,
+    projectId: planNodes.projectId,
+    title: planNodes.title,
+    status: planNodes.status,
+    type: planNodes.type,
+    description: planNodes.description,
+    executionId: planNodes.executionId,
+  }
+
+  // First try exact match on clientId (scoped to team)
   const rows = await db
-    .select({
-      clientId: planNodes.clientId,
-      projectId: planNodes.projectId,
-      title: planNodes.title,
-      status: planNodes.status,
-      type: planNodes.type,
-      description: planNodes.description,
-      executionId: planNodes.executionId,
-    })
+    .select(selectFields)
     .from(planNodes)
     .innerJoin(projects, eq(planNodes.projectId, projects.id))
     .where(
       and(
-        eq(planNodes.clientId, partialId),
+        eq(planNodes.clientId, cleaned),
         isNull(planNodes.deletedAt),
         inArray(projects.teamId, teamIds),
       ),
@@ -228,19 +241,34 @@ async function resolveNode(
 
   if (rows.length > 0) return rows[0]
 
-  // Try number match (e.g., /task 42 → node with number=42)
-  const num = parseInt(partialId, 10)
+  // Try number match (e.g., /task 42 → node with number=42).
+  // Prefer nodes in the active project so numeric IDs from other projects
+  // can't collide (task #5 exists in almost every project).
+  const num = parseInt(cleaned, 10)
   if (!isNaN(num)) {
+    if (activeProjectId) {
+      const inProject = await db
+        .select(selectFields)
+        .from(planNodes)
+        .innerJoin(projects, eq(planNodes.projectId, projects.id))
+        .where(
+          and(
+            eq(planNodes.projectId, activeProjectId),
+            eq(planNodes.number, num),
+            isNull(planNodes.deletedAt),
+            inArray(projects.teamId, teamIds),
+          ),
+        )
+        .limit(1)
+      if (inProject.length > 0) return inProject[0]
+      // Fall through: if no active-project match, the number likely doesn't
+      // belong to this project — return null rather than silently picking
+      // an unrelated team-wide match.
+      return null
+    }
+
     const byNumber = await db
-      .select({
-        clientId: planNodes.clientId,
-        projectId: planNodes.projectId,
-        title: planNodes.title,
-        status: planNodes.status,
-        type: planNodes.type,
-        description: planNodes.description,
-        executionId: planNodes.executionId,
-      })
+      .select(selectFields)
       .from(planNodes)
       .innerJoin(projects, eq(planNodes.projectId, projects.id))
       .where(
@@ -448,7 +476,7 @@ async function handleTask(ctx: CommandContext): Promise<string> {
   }
 
   const teamIds = await getUserTeamIds(ctx.userId)
-  const node = await resolveNode(taskId, teamIds)
+  const node = await resolveNode(taskId, teamIds, ctx.activeProjectId)
 
   if (!node) {
     return `Task not found: <code>${escapeHtml(taskId)}</code>`
@@ -506,7 +534,7 @@ async function handleDispatch(ctx: CommandContext): Promise<string> {
   }
 
   const teamIds = await getUserTeamIds(ctx.userId)
-  const node = await resolveNode(taskId, teamIds)
+  const node = await resolveNode(taskId, teamIds, ctx.activeProjectId)
 
   if (!node) {
     return `Task not found: <code>${escapeHtml(taskId)}</code>`
@@ -598,7 +626,7 @@ async function handleStop(ctx: CommandContext): Promise<string> {
   }
 
   const teamIds = await getUserTeamIds(ctx.userId)
-  const node = await resolveNode(taskId, teamIds)
+  const node = await resolveNode(taskId, teamIds, ctx.activeProjectId)
 
   if (!node) {
     return `Task not found: <code>${escapeHtml(taskId)}</code>`
@@ -1077,6 +1105,17 @@ export async function handleCommand(
     return null // Let the caller handle unknown messages
   }
 
+  // Resolve the "active project" for scoping short task identifiers (#4, 5).
+  // For bound forum topics this is the topic binding; for private chats it's
+  // the defaultProject (or the current chat session's projectId). Without
+  // this, `/dispatch 5` picks a random team-wide task with number=5.
+  const activeProjectId = await resolveActiveProjectId({
+    userId,
+    chatId,
+    threadId: options?.threadId,
+    isGroupChat: options?.isGroupChat === true,
+  })
+
   return commandRegistry.execute(command, {
     chatId,
     userId,
@@ -1084,5 +1123,59 @@ export async function handleCommand(
     botToken,
     threadId: options?.threadId,
     groupChatId: options?.isGroupChat ? chatId : undefined,
+    activeProjectId,
   })
+}
+
+/**
+ * Resolve the active project for scoping task-number lookups.
+ *
+ * - Group + threadId: look up the topic binding `groupChatId:topic:threadId`
+ *   across enabled Telegram accounts.
+ * - Private chat: read `mappings.defaultProject` (or the session's projectId)
+ *   from the sender's connected account.
+ */
+async function resolveActiveProjectId(args: {
+  userId: string
+  chatId: string
+  threadId?: string
+  isGroupChat: boolean
+}): Promise<string | undefined> {
+  const { userId, chatId, threadId, isGroupChat } = args
+  if (isGroupChat && threadId) {
+    const mappingKey = `${chatId}:topic:${threadId}`
+    const accounts = await db
+      .select({ mappings: connectedAccounts.mappings })
+      .from(connectedAccounts)
+      .where(
+        and(
+          eq(connectedAccounts.channel, 'telegram'),
+          eq(connectedAccounts.enabled, true),
+        ),
+      )
+    for (const a of accounts) {
+      const m = (a.mappings ?? {}) as Record<string, unknown>
+      const pid = m[mappingKey]
+      if (typeof pid === 'string' && pid) return pid
+    }
+    return undefined
+  }
+  // Private chat: look up this user's telegram account and read defaults.
+  const [row] = await db
+    .select({ mappings: connectedAccounts.mappings })
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.channel, 'telegram'),
+        eq(connectedAccounts.enabled, true),
+      ),
+    )
+    .limit(1)
+  if (!row) return undefined
+  const m = (row.mappings ?? {}) as Record<string, unknown>
+  const def = m.defaultProject
+  if (typeof def === 'string' && def) return def
+  const session = m.chatSession as { projectId?: string } | undefined
+  return session?.projectId
 }
