@@ -357,6 +357,13 @@ const dispatchTaskSchema = z.object({
   worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().max(200).optional(),
+  // Absolute paths are intentionally allowed here: users need to mount paths
+  // the agent runner already has access to (e.g. /data/analysis on an HPC box).
+  // Path safety on the runner is enforced by agent-runner's reference-folder-guard
+  // and worktree isolation — see packages/agent-runner/src/lib/reference-folder-guard.ts.
+  // The ..-only check blocks the obvious traversal pattern; the runner is the
+  // final authority on whether a path is safe to mount.
+  // Max 10 folders prevents worktree explosion on the runner.
   additionalFolders: z.array(z.object({
     machineId: z.string().max(200),
     path: z.string().max(1000).refine(

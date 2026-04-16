@@ -169,6 +169,13 @@ export interface AssembledContext {
   /**
    * Extra folders mounted alongside the primary workingDirectory.
    * 'working' folders are isolated via a sibling worktree; 'reference' folders are read-only.
+   *
+   * NOTE: this is a future (post-transformation) shape and is NOT currently
+   * populated by ContextAssembler.assembleContext — the relay protocol uses
+   * `AdditionalFolder` ({ machineId, path, mode }) in `packages/core/src/dispatch/payload.ts`,
+   * which is the shape actually flowing through the dispatch → relay → runner
+   * pipeline today. When the context assembler starts resolving mount paths
+   * server-side, this shape will describe the post-resolution view.
    */
   additionalFolders?: Array<{
     /** Path on the original host (user-picked). */
