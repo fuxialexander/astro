@@ -57,6 +57,16 @@ export interface WorkingDirResult {
   message?: string
 }
 
+/** A secondary folder mounted into the agent session alongside the primary workingDirectory. */
+export interface AdditionalFolder {
+  /** Machine where the folder lives. Usually matches primary, but may differ. */
+  machineId: string
+  /** Path on that machine. */
+  path: string
+  /** 'working' = agent can edit (isolated via worktree); 'reference' = read-only context. */
+  mode: 'working' | 'reference'
+}
+
 /** Options that callers can override per-dispatch */
 export interface DispatchPayloadOptions {
   targetMachineId?: string
@@ -66,6 +76,10 @@ export interface DispatchPayloadOptions {
   computeBackend?: string
   useWorktree?: boolean
   preferredProvider?: string
+  /** Explicit target branch for the primary worktree. Wins over project/detection defaults. */
+  baseBranch?: string
+  /** Extra folders to mount alongside the primary workingDirectory. */
+  additionalFolders?: AdditionalFolder[]
   /** Origin of the dispatch request */
   dispatchOrigin?: DispatchOrigin
   /** Telegram context when dispatched from Telegram */
@@ -94,6 +108,10 @@ export interface DispatchTaskPayload {
   worktreeStrategy?: WorktreeStrategy
   useWorktree?: boolean
   force?: boolean
+  /** Explicit target branch for the primary worktree. Wins over project/detection defaults. */
+  baseBranch?: string
+  /** Extra folders to mount alongside the primary workingDirectory. */
+  additionalFolders?: AdditionalFolder[]
   /** Origin of the dispatch request */
   dispatchOrigin?: DispatchOrigin
   /** Telegram context when dispatched from Telegram */
@@ -179,6 +197,8 @@ export function buildDispatchPayload(
     ...(options?.computeBackend && { computeBackend: options.computeBackend }),
     ...(options?.useWorktree != null && { useWorktree: options.useWorktree }),
     ...(options?.preferredProvider && { preferredProvider: options.preferredProvider }),
+    ...(options?.baseBranch && { baseBranch: options.baseBranch }),
+    ...(options?.additionalFolders && options.additionalFolders.length > 0 && { additionalFolders: options.additionalFolders }),
     ...(options?.dispatchOrigin && { dispatchOrigin: options.dispatchOrigin }),
     ...(options?.telegramContext && { telegramContext: options.telegramContext }),
   }

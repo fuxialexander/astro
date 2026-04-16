@@ -170,6 +170,10 @@ export interface ExecutionOptions {
   maxTurns?: number
   /** Whether to use git worktree isolation (defaults to true in agent runner) */
   useWorktree?: boolean
+  /** Explicit target branch for the primary worktree. Wins over project/detection defaults. */
+  baseBranch?: string
+  /** Extra folders to mount alongside the primary workingDirectory. */
+  additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
   /** Follow-up execution: re-dispatch with delivery pipeline after task completion */
   isFollowUp?: boolean
   /** The follow-up instruction from the user */
@@ -293,6 +297,8 @@ interface ExecutionState {
       preferredProvider?: string
       visionDoc?: string
       baseBranch?: string
+      useWorktree?: boolean
+      additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
     }
   ) => Promise<{ projectId: string; nodeId: string }>
 
@@ -334,6 +340,7 @@ interface ExecutionState {
       forkSession?: boolean
       selectedBackends?: string[]
       teamId?: string
+      additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelSession: (projectId: string) => Promise<void>
@@ -601,6 +608,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           agentDir: project?.agentDir || undefined,
           worktreeStrategy: project?.worktreeStrategy || undefined,
           useWorktree: options?.useWorktree ?? project?.useWorktree,
+          ...(options?.baseBranch && { baseBranch: options.baseBranch }),
+          ...(options?.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria || undefined,
           ...(options?.isFollowUp && { isFollowUp: true, force: true }),
@@ -1296,6 +1305,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             deliveryMode: project.deliveryMode || "direct",
             skipSafetyCheck: true,
             force: true,
+            ...(options?.baseBranch && { baseBranch: options.baseBranch }),
+            ...(options?.useWorktree !== undefined && { useWorktree: options.useWorktree }),
+            ...(options?.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
             ...signing,
           }),
           signal: abortController.signal,
@@ -1572,6 +1584,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             skipSafetyCheck: true,
             force: true,
             isInteractivePlan: false,
+            ...(options.baseBranch && { baseBranch: options.baseBranch }),
+            ...(options.useWorktree !== undefined && { useWorktree: options.useWorktree }),
+            ...(options.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
             ...(options.resumeSessionId && { resumeSessionId: options.resumeSessionId }),
             ...(options.forkSession && { forkSession: options.forkSession }),
             ...signing,

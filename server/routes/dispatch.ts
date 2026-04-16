@@ -356,6 +356,15 @@ const dispatchTaskSchema = z.object({
   agentDir: z.string().max(100).optional(),
   worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
   useWorktree: z.boolean().optional(),
+  baseBranch: z.string().max(200).optional(),
+  additionalFolders: z.array(z.object({
+    machineId: z.string().max(200),
+    path: z.string().max(1000).refine(
+      (p) => !p.includes('..'),
+      { message: 'Path traversal not allowed' }
+    ),
+    mode: z.enum(['working', 'reference']),
+  })).max(10).optional(),
   imageRefs: z.array(z.string().uuid()).max(20).optional(),
   isInteractivePlan: z.boolean().optional(),
   skipSafetyCheck: z.boolean().optional(),
@@ -465,6 +474,7 @@ dispatchRoute.post('/task', async (c) => {
     isFollowUp,
     followUpMessage,
     dispatchOrigin,
+    additionalFolders,
   } = body
   // telegramContext is re-assigned below to enforce server-controlled userId
   let telegramContext = body.telegramContext
@@ -487,7 +497,8 @@ dispatchRoute.post('/task', async (c) => {
   // PR body enrichment fields (resolved from DB)
   let githubIssueUrl: string | undefined
   let githubIssueNumber: number | undefined
-  let baseBranch: string | undefined
+  // Seed from the client-provided value so an explicit target branch wins over the DB default.
+  let baseBranch: string | undefined = body.baseBranch
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
   let isBuiltinTemplate = false
@@ -761,7 +772,8 @@ dispatchRoute.post('/task', async (c) => {
             .catch(err => console.warn(`[dispatch] Failed to backfill deliveryMode for ${projectId}:`, err))
         }
       }
-      baseBranch = source?.baseBranch || undefined
+      // Only fall back to project default when the client didn't send an explicit target branch.
+      baseBranch = baseBranch || source?.baseBranch || undefined
 
       // Builtin templates skip safety checks — verified against the known registry
       // to prevent bypass via user-editable project source field.
@@ -970,6 +982,7 @@ dispatchRoute.post('/task', async (c) => {
     discoveryMode,
     dispatchOrigin,
     telegramContext,
+    additionalFolders,
   })
 })
 
@@ -1034,6 +1047,7 @@ async function dispatchViaRelay(
     deliveryBranchId?: string | null
     nodeMetadata?: Record<string, unknown> | null
     discoveryMode?: boolean
+    additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -1095,6 +1109,7 @@ async function dispatchViaRelay(
     discoveryMode: discoveryModeParam,
     dispatchOrigin,
     telegramContext,
+    additionalFolders,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1889,6 +1904,7 @@ ${verificationSection}${executiveSummarySection}`)
     ...(forkSession && { forkSession }),
     ...(dispatchOrigin && { dispatchOrigin }),
     ...(dispatchOrigin === 'telegram' && telegramContext?.chatId && { telegramChatId: telegramContext.chatId }),
+    ...(additionalFolders && additionalFolders.length > 0 && { additionalFolders }),
   }
 
   // Track directory for safety decision caching (local + Redis write-through)

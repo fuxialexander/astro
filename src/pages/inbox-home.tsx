@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { usePaneSize } from "@/components/panes/use-pane-size"
 import { Link, useNavigate } from "react-router"
-import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch } from "lucide-react"
+import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch, Plus, FolderEdit, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,11 +29,14 @@ import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { BranchSelector } from "@/components/branch-selector"
+import { WorktreeToggle } from "@/components/worktree-toggle"
+import { AddedFolderRow } from "@/components/added-folder-row"
 import { isServerMode } from "@/lib/app-mode"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { dataClient } from "@/lib/data-client"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
+import { useBranchList } from "@/hooks/use-branch-list"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import type { ProjectSource } from "@/types"
@@ -175,6 +178,21 @@ export function InboxHome() {
   // Target branch state — defaults to detection but user can override
   const [targetBranch, setTargetBranch] = useState("")
 
+  // Worktree + extra folder state
+  // undefined = auto (follow branch-mismatch heuristic); true/false = user override
+  const [forceWorktree, setForceWorktree] = useState<boolean | undefined>(undefined)
+  const [additionalFolders, setAdditionalFolders] = useState<
+    Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+  >([])
+  const [addFolderOpen, setAddFolderOpen] = useState(false)
+
+  const { checkoutBranch } = useBranchList()
+
+  // Branch-mismatch detection drives the worktree default
+  const branchMismatch = !!targetBranch && !!detection?.currentBranch && targetBranch !== detection.currentBranch
+  const autoUseWorktree = branchMismatch
+  const effectiveUseWorktree = forceWorktree ?? autoUseWorktree
+
   // Submit playground session
   const handleSubmit = useCallback(async () => {
     if (!planGoal.trim() || isSubmitting || !selectedMachine || pendingUploads > 0) return
@@ -182,6 +200,30 @@ export function InboxHome() {
     try {
       const effectiveModel = selectedModel || getModelForProvider(selectedProvider || undefined)
       const trimmedWorkDir = workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`
+
+      // Override path: user unticked worktree when branches differ → explicit checkout
+      if (!discoveryMode && forceWorktree === false && branchMismatch && targetBranch && detection?.isGit) {
+        if (detection.isDirty) {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Cannot switch branch',
+            description: 'Folder has uncommitted changes. Commit or stash them first, or enable worktree.',
+          })
+          setIsSubmitting(false)
+          return
+        }
+        const result = await checkoutBranch(trimmedWorkDir, selectedMachine.machineId, targetBranch)
+        if (!result.success) {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Checkout failed',
+            description: result.error || 'Could not switch branch',
+          })
+          setIsSubmitting(false)
+          return
+        }
+        refreshDetection()
+      }
 
       // Auto git-init for discovery mode on non-git directories
       let gitReady = detection?.isGit ?? false
@@ -238,6 +280,11 @@ export function InboxHome() {
       const finalGoal = planMode
         ? `Please give me a structured plan.\n\n${planGoal.trim()}`
         : planGoal.trim()
+      // Filter valid extra folders (must have path + machine)
+      const extraFolders = additionalFolders
+        .map((f) => ({ ...f, path: f.path.trim() }))
+        .filter((f) => f.path && f.machineId)
+
       const { projectId } = await startSession(
         finalGoal,
         planGoal.trim().split('\n')[0].slice(0, 60) || "New Session",
@@ -251,6 +298,9 @@ export function InboxHome() {
           ...(github?.repo && { githubRepo: github.repo }),
           ...(source && { source }),
           ...(detection?.suggestedDeliveryMode && !discoveryMode && { deliveryMode: detection.suggestedDeliveryMode }),
+          ...(targetBranch && { baseBranch: targetBranch }),
+          ...(extraFolders.length > 0 && { additionalFolders: extraFolders }),
+          ...(!discoveryMode && { useWorktree: effectiveUseWorktree }),
           ...(discoveryMode && {
             deliveryMode: 'direct' as const,
             useWorktree: false,
@@ -265,7 +315,7 @@ export function InboxHome() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode, targetBranch, refreshDetection])
+  }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode, targetBranch, refreshDetection, forceWorktree, branchMismatch, effectiveUseWorktree, additionalFolders, checkoutBranch])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -664,15 +714,97 @@ export function InboxHome() {
                 </div>
               )
             }}
+            renderBelow={additionalFolders.length > 0 ? (
+              <div className="flex flex-col gap-1.5 mt-1.5">
+                {additionalFolders.map((f, i) => (
+                  <AddedFolderRow
+                    key={i}
+                    mode={f.mode}
+                    machineId={f.machineId}
+                    path={f.path}
+                    machines={allMachines}
+                    onMachineChange={(machineId) =>
+                      setAdditionalFolders((prev) =>
+                        prev.map((item, idx) => (idx === i ? { ...item, machineId } : item)),
+                      )
+                    }
+                    onPathChange={(path) =>
+                      setAdditionalFolders((prev) =>
+                        prev.map((item, idx) => (idx === i ? { ...item, path } : item)),
+                      )
+                    }
+                    onRemove={() => setAdditionalFolders((prev) => prev.filter((_, idx) => idx !== i))}
+                  />
+                ))}
+              </div>
+            ) : undefined}
             renderAfterPath={
               detection?.isGit && selectedMachine ? (
-                <BranchSelector
-                  value={targetBranch || detection.baseBranch || detection.currentBranch || 'main'}
-                  onChange={setTargetBranch}
-                  path={workingDir.trim()}
-                  machineId={selectedMachine.machineId}
-                  compact
-                />
+                <>
+                  <BranchSelector
+                    value={targetBranch || detection.baseBranch || detection.currentBranch || 'main'}
+                    onChange={setTargetBranch}
+                    path={workingDir.trim()}
+                    machineId={selectedMachine.machineId}
+                    compact
+                  />
+                  {branchMismatch && detection.currentBranch && (
+                    <span className="inline-flex items-center text-[10px] text-muted-foreground/70 shrink-0 whitespace-nowrap">
+                      (on {detection.currentBranch})
+                    </span>
+                  )}
+                  {!discoveryMode && (
+                    <WorktreeToggle
+                      value={forceWorktree}
+                      autoOn={autoUseWorktree}
+                      autoReason={branchMismatch ? `Target branch (${targetBranch}) differs from folder's current branch (${detection.currentBranch}) — auto-isolating in a worktree.` : undefined}
+                      onChange={setForceWorktree}
+                      warning={branchMismatch && targetBranch ? `Will check out ${targetBranch} in this folder. Uncommitted changes will be blocked.` : undefined}
+                    />
+                  )}
+                  <Popover open={addFolderOpen} onOpenChange={setAddFolderOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="shrink-0 flex items-center gap-1 h-7 px-2 rounded-md border border-border hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] transition-colors cursor-pointer"
+                        title="Mount an additional folder into this session"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Add folder</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-64 p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdditionalFolders((prev) => [...prev, { machineId: selectedMachine.machineId, path: '', mode: 'working' }])
+                          setAddFolderOpen(false)
+                        }}
+                        className="w-full flex items-start gap-2 px-2 py-2 rounded-md text-left hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <FolderEdit className="h-4 w-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-[12px] font-medium">Working folder</span>
+                          <span className="text-[10px] text-muted-foreground">Agent can edit (isolated in a worktree)</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdditionalFolders((prev) => [...prev, { machineId: selectedMachine.machineId, path: '', mode: 'reference' }])
+                          setAddFolderOpen(false)
+                        }}
+                        className="w-full flex items-start gap-2 px-2 py-2 rounded-md text-left hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <BookOpen className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-[12px] font-medium">Reference folder</span>
+                          <span className="text-[10px] text-muted-foreground">Read-only context, no writes</span>
+                        </div>
+                      </button>
+                    </PopoverContent>
+                  </Popover>
+                </>
               ) : detection && !detection.isGit && workingDir.trim() && selectedMachine ? (
                 <button
                   type="button"

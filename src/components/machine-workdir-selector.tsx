@@ -49,6 +49,8 @@ export interface MachineWorkdirSelectorProps {
   renderMachineExtra?: (machine: MachineInfo) => React.ReactNode
   /** Optional content rendered at the end of the path row (e.g. BranchSelector) */
   renderAfterPath?: React.ReactNode
+  /** Optional content rendered below the main row (e.g. extra folder rows) */
+  renderBelow?: React.ReactNode
   /** Label for the machine section */
   machineLabel?: string
   /** Label for the directory section */
@@ -72,6 +74,7 @@ export function MachineWorkdirSelector({
   // machineLabel, dirLabel, dirRequired — accepted but unused after compact-only layout
   dirPlaceholder = "/path/to/project",
   renderAfterPath,
+  renderBelow,
 }: MachineWorkdirSelectorProps) {
   const [recentOpen, setRecentOpen] = useState(false)
   const [machineOpen, setMachineOpen] = useState(false)
@@ -293,6 +296,7 @@ export function MachineWorkdirSelector({
           {renderAfterPath}
         </div>
       </div>
+      {renderBelow}
     </div>
   )
 }
