@@ -167,16 +167,12 @@ export interface AssembledContext {
   /** Additional resource folders (data, configs, docs) */
   resourcePaths?: string[]
   /**
-   * Extra folders mounted alongside the primary workingDirectory.
-   * 'working' folders are isolated via a sibling worktree; 'reference' folders are read-only.
+   * NOTE: `additionalFolders` is NOT part of AssembledContext — it flows directly
+   * from the dispatch request to the relay protocol. See `AdditionalFolder` in
+   * `packages/core/src/dispatch/payload.ts` for the canonical shape
+   * ({ machineId, path, mode }). The server does not transform or resolve folder
+   * paths; the agent-runner handles that via reference-folder-guard + worktree isolation.
    */
-  additionalFolders?: Array<{
-    /** Path on the original host (user-picked). */
-    hostPath: string
-    /** Path the agent actually sees (worktree path for 'working', same as hostPath for 'reference'). */
-    mountPath: string
-    mode: 'working' | 'reference'
-  }>
   /** Additional environment variables */
   environmentVariables?: Record<string, string>
   /** Project knowledge entries to inject into prompt */

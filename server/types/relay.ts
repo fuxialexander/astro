@@ -387,6 +387,17 @@ export interface TaskDispatch {
    * as ASTRO_TELEGRAM_CHAT_ID so the agent can send replies.
    */
   telegramChatId?: string;
+
+  /**
+   * Extra folders to mount alongside the primary workingDirectory.
+   * 'working' folders are isolated via worktree; 'reference' folders are read-only.
+   * Consumed by agent-runner v0.6.0+.
+   */
+  additionalFolders?: Array<{
+    machineId: string;
+    path: string;
+    mode: 'working' | 'reference';
+  }>;
 }
 
 /** Structured execution summary produced by the agent after task completion */

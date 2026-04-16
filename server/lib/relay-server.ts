@@ -1723,6 +1723,8 @@ export class RelayServer extends EventEmitter {
         ...(task.dispatchTrustedKeys && task.dispatchTrustedKeys.length > 0 && { dispatchTrustedKeys: task.dispatchTrustedKeys }),
         // Session resumption
         ...(task.resumeSessionId && { resumeSessionId: task.resumeSessionId }),
+        // Extra folders mounted alongside the primary workingDirectory (agent-runner v0.6.0+)
+        ...(task.additionalFolders && task.additionalFolders.length > 0 && { additionalFolders: task.additionalFolders }),
       },
     };
 
