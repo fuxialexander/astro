@@ -24,11 +24,17 @@ interface RendererSubscription {
 
 /**
  * Maximum number of early messages to buffer per channel before any subscriber
- * exists. This covers the race where a PTY emits its shell prompt before the
- * renderer has subscribed to the broker stream.
+ * exists. Sized for typical PTY startup bursts (shell init + MOTD + first
+ * prompt is usually <30 chunks); 64 leaves headroom without unbounded growth
+ * if a subscriber never arrives.
  */
 const EARLY_BUFFER_MAX = 64
-/** How long (ms) to keep early buffers alive before discarding them. */
+/**
+ * How long (ms) to keep early buffers alive before discarding them. Covers
+ * the worst-case renderer init delay (Electron app.whenReady → window create
+ * → webContents load → preload subscribe). Anything older than this is stale
+ * for the user anyway.
+ */
 const EARLY_BUFFER_TTL_MS = 5_000
 
 interface EarlyBuffer {

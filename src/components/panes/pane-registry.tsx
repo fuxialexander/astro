@@ -7,9 +7,10 @@
  * when a tab of that kind is mounted for the first time.
  */
 /* eslint-disable react-refresh/only-export-components */
-import { lazy, Suspense, type ComponentType, type FunctionComponent } from 'react'
+import { lazy, Suspense, useState, type ComponentType, type FunctionComponent } from 'react'
 import type { IDockviewPanelProps } from 'dockview'
 
+import { PaneErrorBoundary } from './pane-error-boundary'
 import type { PaneKind, PaneState } from './types'
 
 const TerminalPane = lazy(() =>
@@ -48,13 +49,23 @@ function PanePlaceholder({ label }: { label: string }) {
 /** Wrap a lazy pane component so dockview gets a stable function component. */
 function panel(
   Inner: ComponentType<{ paneState: PaneState }>,
+  paneKind: string,
 ): FunctionComponent<IDockviewPanelProps> {
   return function PaneWrapper(props: IDockviewPanelProps) {
     const paneState = (props.params ?? {}) as PaneState
+    // Bumping the key remounts the subtree (and the error boundary),
+    // giving the user a clean retry without rebuilding the whole layout.
+    const [reloadKey, setReloadKey] = useState(0)
     return (
-      <Suspense fallback={<PanePlaceholder label="Loading…" />}>
-        <Inner paneState={paneState} />
-      </Suspense>
+      <PaneErrorBoundary
+        key={reloadKey}
+        paneKind={paneKind}
+        onReload={() => setReloadKey((k) => k + 1)}
+      >
+        <Suspense fallback={<PanePlaceholder label="Loading…" />}>
+          <Inner paneState={paneState} />
+        </Suspense>
+      </PaneErrorBoundary>
     )
   }
 }
@@ -65,14 +76,14 @@ function panel(
  * round-trips even if a kind is referenced before its component lands.
  */
 export const paneComponents: Record<string, FunctionComponent<IDockviewPanelProps>> = {
-  terminal: panel(TerminalPane),
-  'file-browser': panel(FileBrowserPane),
-  git: panel(GitPane),
-  reference: panel(ReferencePane),
-  chat: panel(ChatPane),
-  'plan-graph': panel(PlanGraphPane),
-  'task-execution': panel(TaskExecutionPane),
-  plugin: panel(PluginPane),
+  terminal: panel(TerminalPane, 'terminal'),
+  'file-browser': panel(FileBrowserPane, 'file-browser'),
+  git: panel(GitPane, 'git'),
+  reference: panel(ReferencePane, 'reference'),
+  chat: panel(ChatPane, 'chat'),
+  'plan-graph': panel(PlanGraphPane, 'plan-graph'),
+  'task-execution': panel(TaskExecutionPane, 'task-execution'),
+  plugin: panel(PluginPane, 'plugin'),
 }
 
 /**

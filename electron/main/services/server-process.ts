@@ -93,6 +93,7 @@ async function waitForHealthy(
     exitCode = code
   })
 
+  let delay = 250
   while (Date.now() < deadline) {
     if (exited) {
       throw new Error(`server utilityProcess exited (code=${exitCode}) before becoming healthy`)
@@ -106,9 +107,12 @@ async function waitForHealthy(
       clearTimeout(timer)
       if (res && res.ok) return
     } catch {
-      // swallow — retry until deadline
+      // swallow — retry with backoff until deadline
     }
-    await sleep(250)
+    await sleep(delay)
+    // Exponential backoff capped at 2s. Avoids ~40 connection-refused
+    // attempts/sec while the server is still binding its port.
+    delay = Math.min(Math.floor(delay * 1.5), 2000)
   }
 
   throw new Error(`server utilityProcess health check timed out after ${timeoutMs}ms`)
