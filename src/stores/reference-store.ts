@@ -214,7 +214,12 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
       let uniqueKey = key
       while (existingKeys.has(uniqueKey)) {
         suffix++
-        uniqueKey = `${key}${String.fromCharCode(96 + suffix)}` // a, b, c...
+        // a–z for the first 26 collisions, then numeric to avoid producing
+        // non-letter ASCII (`{`, `|`, `}`, ...) for prolific authors.
+        uniqueKey =
+          suffix <= 26
+            ? `${key}${String.fromCharCode(96 + suffix)}`
+            : `${key}_${suffix}`
       }
       existingKeys.add(uniqueKey)
       newRefs.push({ ...entry, id: uniqueKey })

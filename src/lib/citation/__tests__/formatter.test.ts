@@ -60,9 +60,9 @@ describe('formatInlineCitation', () => {
     expect(result).toContain('2024')
   })
 
-  it('Nature style: superscript number', () => {
+  it('Nature style: bracketed number (no raw HTML)', () => {
     const result = formatInlineCitation(sampleRef, 'nature', 0)
-    expect(result).toBe('<sup>1</sup>')
+    expect(result).toBe('[1]')
   })
 
   it('IEEE style: bracketed number', () => {

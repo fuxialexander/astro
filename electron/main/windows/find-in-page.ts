@@ -22,7 +22,15 @@
 import { app, BrowserWindow, ipcMain, type Event, type Result } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
 import { windowRegistry } from './registry.js'
+
+const findReqSchema = z.object({
+  text: z.string(),
+  forward: z.boolean().optional(),
+  matchCase: z.boolean().optional(),
+  findNext: z.boolean().optional(),
+})
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -79,24 +87,26 @@ function registerIpcOnce(): void {
   if (state.registered) return
   state.registered = true
 
-  ipcMain.handle(
-    'find-in-page:find',
-    (_event, req: { text: string; forward?: boolean; matchCase?: boolean; findNext?: boolean }) => {
-      if (state.targetId == null) throw new Error('find-in-page: no target window')
-      const target = BrowserWindow.fromId(state.targetId)
-      if (!target || target.isDestroyed()) throw new Error('find-in-page: target window gone')
-      if (!req.text) {
-        target.webContents.stopFindInPage('clearSelection')
-        return { ok: true as const }
-      }
-      target.webContents.findInPage(req.text, {
-        forward: req.forward ?? true,
-        matchCase: req.matchCase ?? false,
-        findNext: req.findNext ?? false,
-      })
+  ipcMain.handle('find-in-page:find', (_event, raw) => {
+    const parsed = findReqSchema.safeParse(raw)
+    if (!parsed.success) {
+      throw new Error(`find-in-page:find: invalid request — ${parsed.error.message}`)
+    }
+    const req = parsed.data
+    if (state.targetId == null) throw new Error('find-in-page: no target window')
+    const target = BrowserWindow.fromId(state.targetId)
+    if (!target || target.isDestroyed()) throw new Error('find-in-page: target window gone')
+    if (!req.text) {
+      target.webContents.stopFindInPage('clearSelection')
       return { ok: true as const }
     }
-  )
+    target.webContents.findInPage(req.text, {
+      forward: req.forward ?? true,
+      matchCase: req.matchCase ?? false,
+      findNext: req.findNext ?? false,
+    })
+    return { ok: true as const }
+  })
 
   ipcMain.handle('find-in-page:stop', () => {
     if (state.targetId == null) return { ok: true as const }

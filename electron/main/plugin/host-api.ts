@@ -47,7 +47,9 @@ type Op = (ctx: OpContext, args: any) => Promise<unknown> | unknown
 const OP_PERMISSIONS: Record<string, PluginPermission> = {
   'storage.get': 'storage',
   'storage.set': 'storage',
-  'projects.list': 'projects:read',
+  // 'projects.list' is intentionally omitted — the op is not yet wired to
+  // the server (Phase 4B). Re-add when it returns real data so plugins
+  // don't request a permission that grants access to nothing.
   'ui.registerCommand': 'ui:contribute',
 }
 
@@ -86,9 +88,11 @@ const ops: Record<string, Op> = {
     await writeStorage(manifest.id, data)
     return { ok: true }
   },
-  // Stub: returns an empty list. Phase 4B threads this through to the
-  // server utilityProcess so plugins see the real project list.
-  'projects.list': () => ({ projects: [] }),
+  // Not yet wired to the server; surface a clear error rather than an
+  // empty list so plugin authors know the API is not available yet.
+  'projects.list': () => {
+    throw new Error('projects.list is not yet implemented (Phase 4B)')
+  },
   // Registration is fire-and-forget — the renderer's plugin-store eventually
   // listens for these via a contributions channel. Phase 4B wires that path.
   'ui.registerCommand': () => ({ ok: true }),

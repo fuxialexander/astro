@@ -254,7 +254,15 @@ app.patch('/projects/:id', async (c) => {
   if (patch.discoveryMode === true) patch.deliveryMode = 'direct'
   if (body.projectType !== undefined) patch.projectType = body.projectType
   if (body.computeBackends !== undefined) patch.computeBackends = body.computeBackends
-  if (body.references !== undefined) patch.references = body.references
+  if (body.references !== undefined) {
+    // Cap JSONB payload size so a runaway client can't bloat the row.
+    // 1 MB easily covers thousands of typical CSL-JSON entries.
+    const refsJson = JSON.stringify(body.references)
+    if (refsJson.length > 1_000_000) {
+      return c.json({ error: 'references payload too large (max 1 MB)' }, 413)
+    }
+    patch.references = body.references
+  }
 
   // Auto-extract githubOwner/githubRepo from repository URL when repository is updated
   // but GitHub metadata is not explicitly provided

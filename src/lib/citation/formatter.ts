@@ -150,7 +150,11 @@ export function formatInlineCitation(
     case 'chicago':
       return `(${firstAuthor}${etAl}, ${ref.year})`
     case 'nature':
-      return index !== undefined ? `<sup>${index + 1}</sup>` : `<sup>[?]</sup>`
+      // Nature style is a superscript number, but react-markdown does not
+      // render raw HTML (no rehype-raw), so emit a text marker that the
+      // markdown pipeline / CSS can style. `[N]` reads cleanly as plain text
+      // and matches the IEEE form for unstyled fallbacks.
+      return index !== undefined ? `[${index + 1}]` : '[?]'
     case 'ieee':
       return index !== undefined ? `[${index + 1}]` : '[?]'
     default:
