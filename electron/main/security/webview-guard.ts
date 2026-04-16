@@ -1,5 +1,6 @@
 /**
- * Pin secure webPreferences on every <webview> tag attached to any window.
+ * Pin secure webPreferences on every <webview> tag attached to any window,
+ * and apply defense-in-depth navigation guards to every top-level webContents.
  *
  * The main window enables `webviewTag: true` so plugin panes can host
  * isolated content in <webview> elements. Without a `will-attach-webview`
@@ -9,6 +10,15 @@
  * every attach, strips any preload, and denies new-window navigation by
  * default. Block any non-https/astro-plugin: src so a compromised renderer
  * can't load file:// or arbitrary http://.
+ *
+ * The `will-navigate` and `setWindowOpenHandler` hooks are intentionally
+ * installed on every webContents (main window, about window, template window,
+ * detached pane windows, plugin <webview> contents). The behavior is the same
+ * everywhere: in-process navigation stays within the app shell (file://,
+ * dev server, astro-plugin://); external http(s) links open in the user's
+ * default browser via shell.openExternal; everything else is denied. If a
+ * future child window needs different behavior, carve out an exception here
+ * rather than removing the global guard — "fail closed" is the policy.
  */
 
 import { app, shell } from 'electron'

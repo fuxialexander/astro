@@ -27,9 +27,9 @@ import { windowRegistry } from './registry.js'
 
 const findReqSchema = z.object({
   text: z.string(),
-  forward: z.boolean().optional(),
-  matchCase: z.boolean().optional(),
-  findNext: z.boolean().optional(),
+  forward: z.boolean().default(true),
+  matchCase: z.boolean().default(false),
+  findNext: z.boolean().default(false),
 })
 
 const __filename = fileURLToPath(import.meta.url)
@@ -101,9 +101,9 @@ function registerIpcOnce(): void {
       return { ok: true as const }
     }
     target.webContents.findInPage(req.text, {
-      forward: req.forward ?? true,
-      matchCase: req.matchCase ?? false,
-      findNext: req.findNext ?? false,
+      forward: req.forward,
+      matchCase: req.matchCase,
+      findNext: req.findNext,
     })
     return { ok: true as const }
   })

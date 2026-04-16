@@ -259,6 +259,11 @@ app.patch('/projects/:id', async (c) => {
     // 1 MB easily covers thousands of typical CSL-JSON entries.
     const refsJson = JSON.stringify(body.references)
     if (refsJson.length > 1_000_000) {
+      // Log actual size so we can revisit the cap if real users start hitting
+      // it legitimately (e.g., a systematic-review project with huge libraries).
+      console.warn(
+        `[data/projects] references payload exceeded 1 MB: ${refsJson.length} bytes, project ${id}`
+      )
       return c.json(
         { error: 'references payload too large (max 1 MB — roughly 1000 CSL-JSON entries)' },
         413

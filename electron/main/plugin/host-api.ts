@@ -88,11 +88,11 @@ const ops: Record<string, Op> = {
     await writeStorage(manifest.id, data)
     return { ok: true }
   },
-  // Not yet wired to the server; surface a clear error rather than an
-  // empty list so plugin authors know the API is not available yet.
-  'projects.list': () => {
-    throw new Error('projects.list is not yet implemented (Phase 4B)')
-  },
+  // TODO(Phase 4B): wire 'projects.list' through to the server utilityProcess.
+  //   'projects.list': async (_ctx, _args) => ({ projects: await fetchProjects() }),
+  // Left unregistered so dispatchHostApi returns an "unknown op" error —
+  // consistent with the matching TODO in OP_PERMISSIONS above.
+
   // Registration is fire-and-forget — the renderer's plugin-store eventually
   // listens for these via a contributions channel. Phase 4B wires that path.
   'ui.registerCommand': () => ({ ok: true }),
