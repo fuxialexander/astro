@@ -33,9 +33,8 @@ ask_user_question({
 ```
 
 **Implementation:**
-- Custom MCP server: `server/lib/mcp/astro-tools-server.ts`
-- Auto-loaded by Claude Code provider
-- Communicates with dispatch engine via HTTP
+- Built-in Claude SDK tool `AskUserQuestion`, intercepted in `packages/agent-runner/src/providers/claude-sdk-adapter.ts` via the `canUseTool` callback
+- The adapter forwards the question to the relay, which surfaces it as an approval card in the Astro UI
 - Same approval UI as procedure-level approvals
 
 #### 2. **Procedure-Level Approvals** (Implemented) ✅
@@ -248,33 +247,32 @@ When viewing a task with pending approval:
 
 ## Architecture Details
 
-### MCP Server Implementation
+### Dynamic Approval Implementation
 
-The `ask_user_question` tool is provided via a custom MCP server that runs alongside the agent:
+The Claude SDK's built-in `AskUserQuestion` tool is intercepted by the agent-runner adapter; it does not rely on MCP.
 
 ```
-Agent → Claude SDK → MCP Server (astro-tools) → HTTP POST /api/dispatch/request-dynamic-approval
-                                                      ↓
-                                               Dispatch Engine
-                                                      ↓
-                                               Emit approval.requested event
-                                                      ↓
-                                               Browser via SSE
-                                                      ↓
-                                               User selects option
-                                                      ↓
-                                               POST /api/dispatch/approve
-                                                      ↓
-                                               Promise resolves
-                                                      ↓
-                                               HTTP response with selected option
-                                                      ↓
-                                               Tool returns result to agent
+Agent → Claude SDK (AskUserQuestion) → canUseTool hook → Relay (approvalRequest event)
+                                                                ↓
+                                                         Dispatch Engine
+                                                                ↓
+                                                         Emit approval.requested event
+                                                                ↓
+                                                         Browser via SSE
+                                                                ↓
+                                                         User selects option
+                                                                ↓
+                                                         POST /api/dispatch/approve
+                                                                ↓
+                                                         Relay delivers answer
+                                                                ↓
+                                                         canUseTool returns updatedInput
+                                                                ↓
+                                                         Tool result reaches agent
 ```
 
 **Key Files:**
-- `server/lib/mcp/astro-tools-server.ts` - MCP server providing the tool
-- `server/lib/providers/adapters/claude-code.ts` - Auto-loads MCP server
+- `packages/agent-runner/src/providers/claude-sdk-adapter.ts` - Intercepts `AskUserQuestion` via `canUseTool`
 - `server/routes/dispatch.ts` - `/api/dispatch/request-dynamic-approval` endpoint
 - `server/lib/dispatch/dispatch-engine.ts` - `requestDynamicApproval()` method
 

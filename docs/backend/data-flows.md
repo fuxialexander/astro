@@ -118,11 +118,11 @@ Frontend: realtime-store.ts
 ## Approval Flow
 
 ```
-Task Execution: Agent calls ask_user_question tool
+Task Execution: Agent calls Claude SDK's AskUserQuestion tool
   ↓
-MCP Server: server/lib/mcp/astro-tools-server.ts
-  ├─ Validates tool call
-  └─ Creates approval request
+Agent runner: packages/agent-runner/src/providers/claude-sdk-adapter.ts (canUseTool)
+  ├─ Validates question payload
+  └─ Forwards approval request via relay
   ↓
 Backend: server/lib/dispatch/procedure-executor.ts
   ├─ Pauses execution

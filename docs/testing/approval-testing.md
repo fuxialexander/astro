@@ -136,8 +136,7 @@ Legend:
 | Issue | Fix |
 |-------|-----|
 | "Server not running" | `pkill -f "tsx.*server/index.ts"` then retry |
-| "MCP server failed" | Check Node.js 18+, run `npm run build` |
-| "MCP server failed to start" | Check directly: `node --import=tsx/esm server/lib/mcp/astro-tools-server.ts` |
+| "AskUserQuestion not intercepted" | Check `canUseTool` callback in `packages/agent-runner/src/providers/claude-sdk-adapter.ts` |
 
 ### E2E Tests
 
