@@ -113,8 +113,26 @@ export function createApp() {
     process.env.FRONTEND_URL,
   ].filter(Boolean) as string[]
 
+  // When hosted inside the Electron desktop shell the renderer loads from
+  // a custom scheme (file:// or app://) and the browser either omits the
+  // Origin header or sends one we can't enumerate ahead of time. The shell
+  // is trusted (same process tree), so allow missing/unlisted origins only
+  // when ASTRO_DESKTOP=1. This replaces the previous blanket NODE_ENV
+  // shortcut so production web deploys stay strict.
+  const isDesktop = process.env.ASTRO_DESKTOP === '1'
+
   app.use('/*', cors({
     origin: (origin) => {
+      if (isDesktop) {
+        // Desktop shell: the server binds to 127.0.0.1 only, so the attack
+        // surface is same-machine processes. Echo back whatever origin the
+        // renderer presents (file://, app://, null) — '*' is incompatible
+        // with credentials:true. Browsers skip enforcement for same-origin
+        // or null-origin requests anyway; the ACAO header just avoids
+        // spurious failures when the renderer does send an Origin.
+        if (!origin) return null
+        return origin
+      }
       if (isProduction()) {
         // In production, require explicit origin match
         if (!origin) return null
