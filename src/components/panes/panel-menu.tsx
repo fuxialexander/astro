@@ -31,7 +31,6 @@ export function PanelMenu({ disabled, hasCwd = false }: PanelMenuProps) {
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const availablePanels = getAvailablePanels(isDesktop(), hasCwd)
-  if (availablePanels.length === 0) return null
 
   const handleMouseEnter = useCallback(() => {
     if (closeTimer.current) clearTimeout(closeTimer.current)
@@ -41,6 +40,8 @@ export function PanelMenu({ disabled, hasCwd = false }: PanelMenuProps) {
   const handleMouseLeave = useCallback(() => {
     closeTimer.current = setTimeout(() => setOpen(false), 150)
   }, [])
+
+  if (availablePanels.length === 0) return null
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
