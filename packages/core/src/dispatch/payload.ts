@@ -198,6 +198,10 @@ export function buildDispatchPayload(
     ...(options?.useWorktree != null && { useWorktree: options.useWorktree }),
     ...(options?.preferredProvider && { preferredProvider: options.preferredProvider }),
     ...(options?.baseBranch && { baseBranch: options.baseBranch }),
+    // Omit the field entirely when empty — undefined and [] are semantically
+    // equivalent for consumers (server + agent-runner), so the smaller
+    // payload wins. Any code iterating `payload.additionalFolders` must
+    // therefore nullish-check it first.
     ...(options?.additionalFolders && options.additionalFolders.length > 0 && { additionalFolders: options.additionalFolders }),
     ...(options?.dispatchOrigin && { dispatchOrigin: options.dispatchOrigin }),
     ...(options?.telegramContext && { telegramContext: options.telegramContext }),

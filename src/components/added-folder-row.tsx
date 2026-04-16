@@ -8,7 +8,7 @@
  *         [worktree ✓ forced | -] [✕ remove]
  */
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   BookOpen,
   Check,
@@ -62,6 +62,12 @@ export function AddedFolderRow({
     if (hoverRef.current) clearTimeout(hoverRef.current)
     hoverRef.current = setTimeout(() => setMachineOpen(false), 200)
   }
+
+  useEffect(() => {
+    return () => {
+      if (hoverRef.current) clearTimeout(hoverRef.current)
+    }
+  }, [])
 
   const isWorking = mode === 'working'
 
@@ -148,11 +154,12 @@ export function AddedFolderRow({
           className="flex-1 min-w-0 h-7 px-2 rounded-md border border-border bg-background font-mono text-[11px] placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
         />
 
-        {/* (on {currentBranch}) */}
-        {detection?.isGit && detection.currentBranch && (
+        {/* (on {currentBranch}) — fall back to "detached HEAD" so the user still
+            sees the repo was detected. */}
+        {detection?.isGit && (
           <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 shrink-0">
             <GitBranch className="h-3 w-3" />
-            on {detection.currentBranch}
+            {detection.currentBranch ? `on ${detection.currentBranch}` : 'detached HEAD'}
           </span>
         )}
 

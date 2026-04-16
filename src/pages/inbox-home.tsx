@@ -201,7 +201,13 @@ export function InboxHome() {
       const effectiveModel = selectedModel || getModelForProvider(selectedProvider || undefined)
       const trimmedWorkDir = workingDir.trim() || `~/.astro/workspace/${crypto.randomUUID()}`
 
-      // Override path: user unticked worktree when branches differ → explicit checkout
+      // Override path: user unticked worktree when branches differ → explicit checkout.
+      // The `detection.isDirty` pre-check is a UX shortcut so the user gets a
+      // clear blocking message instead of a cryptic git error. It is NOT a race-
+      // free safety guarantee — the folder could become dirty between the check
+      // and the actual checkout. The server-side `git checkout` is the
+      // authoritative gate: if the folder dirties up mid-flight, git refuses
+      // the checkout and the result.error branch below surfaces the failure.
       if (!discoveryMode && forceWorktree === false && branchMismatch && targetBranch && detection?.isGit) {
         if (detection.isDirty) {
           useToastStore.getState().add({
