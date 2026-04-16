@@ -359,16 +359,21 @@ const dispatchTaskSchema = z.object({
   baseBranch: z.string().max(200).optional(),
   // Absolute paths are intentionally allowed here: users need to mount paths
   // the agent runner already has access to (e.g. /data/analysis on an HPC box).
-  // Path safety on the runner is enforced by agent-runner's reference-folder-guard
+  // The runner is the final authority on path safety via reference-folder-guard
   // and worktree isolation — see packages/agent-runner/src/lib/reference-folder-guard.ts.
-  // The ..-only check blocks the obvious traversal pattern; the runner is the
-  // final authority on whether a path is safe to mount.
-  // Max 10 folders prevents worktree explosion on the runner.
+  // The server adds defense-in-depth by blocking obvious traversal patterns and
+  // sensitive system directories. Max 10 folders prevents worktree explosion.
   additionalFolders: z.array(z.object({
     machineId: z.string().max(200),
     path: z.string().max(1000).refine(
-      (p) => !p.includes('..'),
-      { message: 'Path traversal not allowed' }
+      (p) => {
+        if (p.includes('..')) return false
+        if (/%2e/i.test(p)) return false
+        const dangerousPrefixes = ['/etc/', '/root/', '/sys/', '/proc/', '/dev/', '/boot/']
+        if (dangerousPrefixes.some((prefix) => p === prefix.slice(0, -1) || p.startsWith(prefix))) return false
+        return true
+      },
+      { message: 'Invalid path: traversal, encoded traversal, or system directory access not allowed' }
     ),
     mode: z.enum(['working', 'reference']),
   })).max(10).optional(),
