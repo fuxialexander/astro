@@ -47,9 +47,9 @@ type Op = (ctx: OpContext, args: any) => Promise<unknown> | unknown
 const OP_PERMISSIONS: Record<string, PluginPermission> = {
   'storage.get': 'storage',
   'storage.set': 'storage',
-  // 'projects.list' is intentionally omitted — the op is not yet wired to
-  // the server (Phase 4B). Re-add when it returns real data so plugins
-  // don't request a permission that grants access to nothing.
+  // TODO(Phase 4B): re-enable once 'projects.list' returns real data.
+  //   'projects.list': 'projects:read',
+  // Omitted today so plugins don't request a permission that grants nothing.
   'ui.registerCommand': 'ui:contribute',
 }
 

@@ -14,6 +14,12 @@
 import { app, shell } from 'electron'
 
 const ALLOWED_SCHEMES = new Set(['https:', 'astro-plugin:'])
+// Dev-only: the Vite dev server is reachable on http://localhost:5173, and a
+// plugin author experimenting locally may want to embed a dev-server asset in
+// a <webview>. Restricted to localhost hosts and only when the main window
+// itself was loaded from the dev server.
+const DEV_HOSTS = new Set(['localhost', '127.0.0.1'])
+const isDev = !!process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL
 
 export function installWebviewGuard(): void {
   app.on('web-contents-created', (_event, contents) => {
@@ -28,10 +34,14 @@ export function installWebviewGuard(): void {
       delete webPreferences.preload
       delete (webPreferences as Record<string, unknown>).preloadURL
 
-      // Reject src schemes outside the allowlist.
+      // Reject src schemes outside the allowlist. In dev, additionally allow
+      // http://localhost:*|127.0.0.1:* so plugin authors can point a webview
+      // at a local dev server without tripping the guard.
       try {
         const url = new URL(params.src)
-        if (!ALLOWED_SCHEMES.has(url.protocol)) {
+        const isAllowedScheme = ALLOWED_SCHEMES.has(url.protocol)
+        const isDevHttp = isDev && url.protocol === 'http:' && DEV_HOSTS.has(url.hostname)
+        if (!isAllowedScheme && !isDevHttp) {
           params.src = 'about:blank'
         }
       } catch {
@@ -53,6 +63,13 @@ export function installWebviewGuard(): void {
     })
 
     // Block in-process navigation away from the app's own origins.
+    //
+    // Production frontend origins (astroanywhere.com) are intentionally NOT
+    // allowed here: the packaged app is a file:// shell and must stay on that
+    // shell. An in-process navigation to astroanywhere.com would replace the
+    // app with the web frontend and lose the main-process bridge. External
+    // links (OAuth callbacks, marketing links) are opened in the user's
+    // browser via shell.openExternal below.
     contents.on('will-navigate', (event, url) => {
       try {
         const u = new URL(url)
