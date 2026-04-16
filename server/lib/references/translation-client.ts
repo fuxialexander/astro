@@ -18,7 +18,20 @@
 function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 15_000): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeoutId))
+  try {
+    return fetch(url, { ...init, signal: controller.signal })
+      .then((res) => {
+        clearTimeout(timeoutId)
+        return res
+      })
+      .catch((err) => {
+        clearTimeout(timeoutId)
+        throw err
+      })
+  } catch (err) {
+    clearTimeout(timeoutId)
+    throw err
+  }
 }
 
 // ---------------------------------------------------------------------------

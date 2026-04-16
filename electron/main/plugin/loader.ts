@@ -97,8 +97,9 @@ export async function enablePlugin(id: string): Promise<void> {
   const entry = registry.get(id)
   if (!entry) throw new Error(`plugin not found: ${id}`)
   if (entry.state === 'running') return
-  if (entry.manifest.runtime && entry.manifest.runtime !== 'sandbox') {
-    throw new Error(`plugin ${id}: unsupported runtime "${entry.manifest.runtime}"`)
+  const runtime = entry.manifest.runtime ?? 'sandbox'
+  if (runtime !== 'sandbox') {
+    throw new Error(`plugin ${id}: unsupported runtime "${runtime}"`)
   }
   if (!entry.manifest.entry) {
     throw new Error(`plugin ${id}: manifest is missing "entry"`)

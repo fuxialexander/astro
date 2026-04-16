@@ -45,6 +45,11 @@ export function registerPdfChannels(): void {
       const buf = Buffer.from(await res.arrayBuffer())
       bytes = buf.length
       await fsp.writeFile(dest, buf)
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`pdf download timed out after ${req.timeoutMs}ms`)
+      }
+      throw err
     } finally {
       clearTimeout(timer)
     }
