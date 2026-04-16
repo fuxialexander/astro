@@ -1,11 +1,10 @@
 /**
  * Skill Provider (Shared Interface)
  *
- * Abstracts skill discovery and management across runtimes:
- * - WebSkillProvider: fetches from HTTP API (server/relay)
- * - TauriSkillProvider: invokes Tauri IPC commands (direct filesystem)
- *
- * The frontend uses createSkillProvider() to get the right implementation.
+ * Abstracts skill discovery and management. Currently the only implementation
+ * is WebSkillProvider, which talks to the Hono API (which may proxy to a relay
+ * for remote machines). The desktop shell (Electron) reuses the same HTTP
+ * provider against the bundled local server.
  */
 
 import type { OpenClawSkill } from '@/types/skill'
@@ -21,7 +20,6 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 /**
  * Abstract interface for skill discovery and management.
- * Implemented by runtime-specific providers.
  */
 export interface SkillProvider {
   /** Discover all available skills */
@@ -38,8 +36,8 @@ export interface SkillProvider {
 }
 
 /**
- * Web-mode skill provider.
- * Fetches skills from the Hono API (which may proxy to relay for remote machines).
+ * HTTP-backed skill provider. Used in both web and Electron desktop modes;
+ * desktop just points at the bundled local server.
  */
 export class WebSkillProvider implements SkillProvider {
   async scanSkills(): Promise<OpenClawSkill[]> {
@@ -65,7 +63,8 @@ export class WebSkillProvider implements SkillProvider {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async installSkill(_name: string, _content: string): Promise<OpenClawSkill> {
-    // Web mode: skill installation not supported (no filesystem access)
+    // Skill installation from the renderer is not supported; the local server
+    // owns the filesystem and exposes management endpoints separately.
     throw new Error('Skill installation requires the desktop app')
   }
 
@@ -95,47 +94,8 @@ export class WebSkillProvider implements SkillProvider {
 }
 
 /**
- * Tauri-mode skill provider (stub).
- * Will invoke Tauri IPC commands for direct filesystem access.
- * Implementation lives in src-tauri/src/commands/skills.rs.
- */
-export class TauriSkillProvider implements SkillProvider {
-  async scanSkills(): Promise<OpenClawSkill[]> {
-    // Will be: return invoke<OpenClawSkill[]>('scan_skills', { workdir })
-    throw new Error('Tauri skill provider not yet implemented')
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async installSkill(_name: string, _content: string): Promise<OpenClawSkill> {
-    // Will be: return invoke<OpenClawSkill>('install_skill', { name, content })
-    throw new Error('Tauri skill provider not yet implemented')
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async uninstallSkill(_name: string): Promise<boolean> {
-    // Will be: return invoke<boolean>('uninstall_skill', { name })
-    throw new Error('Tauri skill provider not yet implemented')
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async updateSkillConfig(_name: string, _config: Record<string, unknown>): Promise<boolean> {
-    // Will be: return invoke<boolean>('update_skill_config', { name, config })
-    throw new Error('Tauri skill provider not yet implemented')
-  }
-}
-
-/**
- * Detect if running inside a Tauri webview
- */
-export const isTauri = (): boolean =>
-  typeof window !== 'undefined' && '__TAURI__' in window
-
-/**
- * Create the appropriate skill provider for the current runtime
+ * Create the default skill provider for the current runtime.
  */
 export function createSkillProvider(): SkillProvider {
-  if (isTauri()) {
-    return new TauriSkillProvider()
-  }
   return new WebSkillProvider()
 }

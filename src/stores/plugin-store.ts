@@ -11,6 +11,9 @@ import type {
   SignalContribution,
   NodeMetadataFieldContribution,
 } from "@/types/plugin"
+import { isDesktop } from "@/lib/desktop-detect"
+import { desktopBridge } from "@/lib/desktop-bridge"
+import { requestPluginApproval } from "@/components/plugins/PluginApprovalDialog"
 
 interface PluginStore {
   plugins: Map<string, PluginEntry>
@@ -20,8 +23,8 @@ interface PluginStore {
   load: () => Promise<void>
   registerPlugin: (manifest: PluginManifest, config?: Record<string, unknown>, source?: string) => void
   unregisterPlugin: (id: string) => void
-  enablePlugin: (id: string) => void
-  disablePlugin: (id: string) => void
+  enablePlugin: (id: string) => Promise<void>
+  disablePlugin: (id: string) => Promise<void>
   updatePluginConfig: (id: string, config: Record<string, unknown>) => void
   setPluginInstance: (id: string, instance: AstroPlugin, contributions: PluginContributions) => void
   setPluginError: (id: string, error: string) => void
@@ -59,25 +62,75 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     set({ plugins })
   },
 
-  enablePlugin: (id) => {
+  enablePlugin: async (id) => {
     const plugins = new Map(get().plugins)
     const entry = plugins.get(id)
-    if (entry) {
-      plugins.set(id, { ...entry, enabled: true })
-      set({ plugins })
+    if (!entry) return
+
+    // Phase 4B: surface a permission approval dialog before touching the
+    // host. The user must explicitly confirm the declared permissions.
+    const approved = await requestPluginApproval(entry.manifest)
+    if (!approved) {
+      console.info(`[PluginStore] user declined to enable "${id}"`)
+      return
+    }
+
+    // On desktop, ask the Electron plugin host to fork the utilityProcess.
+    // Any failure surfaces as a plugin error in the store.
+    if (isDesktop()) {
+      try {
+        await desktopBridge.plugins.enable(id)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`[PluginStore] enable failed for "${id}":`, err)
+        const next = new Map(get().plugins)
+        const current = next.get(id)
+        if (current) {
+          next.set(id, { ...current, enabled: false, error: message })
+          set({ plugins: next })
+        }
+        return
+      }
+    }
+
+    const next = new Map(get().plugins)
+    const current = next.get(id)
+    if (current) {
+      next.set(id, { ...current, enabled: true, error: undefined })
+      set({ plugins: next })
     }
   },
 
-  disablePlugin: (id) => {
+  disablePlugin: async (id) => {
     const plugins = new Map(get().plugins)
     const entry = plugins.get(id)
-    if (entry) {
-      // Call deactivate() on the instance before clearing it
-      entry.instance?.deactivate?.().catch((err) => {
-        console.warn(`[PluginStore] deactivate() failed for "${id}":`, err)
+    if (!entry) return
+
+    // Call deactivate() on the legacy in-process instance if present.
+    try {
+      await entry.instance?.deactivate?.()
+    } catch (err) {
+      console.warn(`[PluginStore] deactivate() failed for "${id}":`, err)
+    }
+
+    if (isDesktop()) {
+      try {
+        await desktopBridge.plugins.disable(id)
+      } catch (err) {
+        console.warn(`[PluginStore] bridge.disable failed for "${id}":`, err)
+      }
+    }
+
+    const next = new Map(get().plugins)
+    const current = next.get(id)
+    if (current) {
+      next.set(id, {
+        ...current,
+        enabled: false,
+        instance: undefined,
+        contributions: undefined,
       })
-      plugins.set(id, { ...entry, enabled: false, instance: undefined, contributions: undefined })
-      set({ plugins })
+      set({ plugins: next })
     }
   },
 

@@ -3,6 +3,7 @@
  *
  * Supports:
  * - Unpaywall API (primary, for DOI-based lookup)
+ * - NCBI PMC (fallback, covers NIH Public Access deposits Unpaywall misses)
  * - Zotero file attachments (for synced libraries)
  *
  * In Tauri mode: downloads are handled via Rust `download_pdf` command.
@@ -12,6 +13,8 @@
 import type { PdfResolution, Reference } from '@/types'
 
 const UNPAYWALL_EMAIL = 'team@astroanywhere.com'
+const NCBI_TOOL = 'astro'
+const NCBI_EMAIL = 'team@astroanywhere.com'
 
 // ── Unpaywall API ────────────────────────────────────────────────────
 
@@ -50,6 +53,73 @@ export async function resolveDoiPdf(doi: string): Promise<PdfResolution> {
     return { pdfUrl, isOa, oaSource }
   } catch (err) {
     console.warn('[pdf-resolver] Unpaywall lookup failed:', err)
+    return { pdfUrl: null, isOa: false, oaSource: null }
+  }
+}
+
+// ── NCBI PMC (NIH Public Access) ─────────────────────────────────────
+
+/**
+ * Resolve a DOI or PMID to a PMC (PubMed Central) open-access PDF URL.
+ *
+ * Covers NIH Public Access deposits that Unpaywall sometimes misses
+ * (especially Elsevier author manuscripts).
+ *
+ * @see https://www.ncbi.nlm.nih.gov/books/NBK25501/ (E-utilities docs)
+ */
+export async function resolvePmcPdf(
+  opts: { doi?: string; pmid?: string },
+): Promise<PdfResolution> {
+  const doi = opts.doi?.replace(/^https?:\/\/doi\.org\//, '').trim()
+  const pmid = opts.pmid?.trim()
+
+  if (!doi && !pmid) {
+    return { pdfUrl: null, isOa: false, oaSource: null }
+  }
+
+  try {
+    let pmcid: string | null = null
+
+    // Prefer PMID → PMCID via elink (more direct)
+    if (pmid) {
+      const linkUrl =
+        `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi` +
+        `?dbfrom=pubmed&db=pmc&id=${encodeURIComponent(pmid)}&retmode=json` +
+        `&tool=${NCBI_TOOL}&email=${encodeURIComponent(NCBI_EMAIL)}`
+      const res = await fetch(linkUrl, { headers: { 'Accept': 'application/json' } })
+      if (res.ok) {
+        const data = await res.json()
+        const linkset = data.linksets?.[0]?.linksetdbs?.find(
+          (db: { dbto?: string; links?: string[] }) => db.dbto === 'pmc',
+        )
+        pmcid = linkset?.links?.[0] ?? null
+      }
+    }
+
+    // Otherwise, look up PMCID via DOI esearch
+    if (!pmcid && doi) {
+      const searchUrl =
+        `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi` +
+        `?db=pmc&term=${encodeURIComponent(doi)}[DOI]&retmode=json` +
+        `&tool=${NCBI_TOOL}&email=${encodeURIComponent(NCBI_EMAIL)}`
+      const res = await fetch(searchUrl, { headers: { 'Accept': 'application/json' } })
+      if (res.ok) {
+        const data = await res.json()
+        pmcid = data.esearchresult?.idlist?.[0] ?? null
+      }
+    }
+
+    if (!pmcid) {
+      return { pdfUrl: null, isOa: false, oaSource: null }
+    }
+
+    // Normalise to "PMC12345"
+    const normalizedId = pmcid.startsWith('PMC') ? pmcid : `PMC${pmcid}`
+    const pdfUrl = `https://www.ncbi.nlm.nih.gov/pmc/articles/${normalizedId}/pdf/`
+
+    return { pdfUrl, isOa: true, oaSource: 'pmc' }
+  } catch (err) {
+    console.warn('[pdf-resolver] PMC lookup failed:', err)
     return { pdfUrl: null, isOa: false, oaSource: null }
   }
 }
@@ -115,12 +185,10 @@ export async function fetchDoiMetadata(doi: string): Promise<Partial<Reference> 
   if (!cleanDoi) return null
 
   try {
-    const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(cleanDoi)}`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Astro/0.1 (mailto:team@astroanywhere.com)',
-      },
-    })
+    const response = await fetch(
+      `https://api.crossref.org/works/${encodeURIComponent(cleanDoi)}?mailto=team@astroanywhere.com`,
+      { headers: { 'Accept': 'application/json' } },
+    )
 
     if (!response.ok) return null
 
@@ -172,7 +240,20 @@ export async function autoResolvePdf(
     }
   }
 
-  // 2. Try Zotero if key + config available
+  // 2. Try NCBI PMC (catches NIH Public Access deposits Unpaywall misses,
+  //    e.g. Elsevier author manuscripts like 10.1016/j.stem.2013.09.002 → PMC3888026)
+  if (reference.doi || reference.pmid) {
+    const result = await resolvePmcPdf({ doi: reference.doi, pmid: reference.pmid })
+    if (result.pdfUrl) {
+      return {
+        pdfUrl: result.pdfUrl,
+        isOpenAccess: result.isOa,
+        oaSource: result.oaSource,
+      }
+    }
+  }
+
+  // 3. Try Zotero if key + config available
   if (reference.zoteroKey && zoteroConfig) {
     const pdfUrl = await resolveZoteroPdf(
       reference.zoteroKey,
@@ -185,7 +266,7 @@ export async function autoResolvePdf(
     }
   }
 
-  // 3. Check if the reference already has a PDF URL
+  // 4. Check if the reference already has a PDF URL
   if (reference.pdfUrl) {
     return { pdfUrl: reference.pdfUrl, isOpenAccess: reference.isOpenAccess ?? false, oaSource: reference.oaSource ?? null }
   }

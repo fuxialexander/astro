@@ -14,7 +14,6 @@ out/
 .next/
 .nuxt/
 .cache/
-src-tauri/target/
 
 # Environment variables
 .env
@@ -199,3 +198,17 @@ trajectories.jsonl
 
 # Test results
 test-results/
+
+# Claude Code
+.claude/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Compiled TS output alongside source files
+src/types/*.js
+src/types/*.js.map
+server/types/*.js
+server/types/*.js.map
+packages/core/src/types/*.js
+packages/core/src/types/*.js.map

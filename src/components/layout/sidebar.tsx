@@ -2,12 +2,12 @@ import { useEffect, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
 import {
-  Inbox, Activity, Settings, Search, Server, FlaskConical, Folder,
+  Inbox, Activity, Settings, Server, FlaskConical, Folder,
   LogOut, PanelLeftClose, PanelLeft, AlertCircle, Loader2, User,
   Cpu, Zap, Sun, Moon, CheckSquare, GitBranch, Github, Terminal,
   Radio, Target, Plus, Minus, GripVertical, BookOpen, Palette,
   Globe, FileText, Layers, Box, Wrench, Code, Sparkles, X, LayoutTemplate,
-  Pin, PinOff, ChevronRight,
+  Pin, PinOff, ChevronRight, Search,
 } from "lucide-react"
 import {
   DndContext,
@@ -41,6 +41,7 @@ import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
+import { isDesktop } from "@/lib/desktop-detect"
 import { deriveActiveTasks } from "@/lib/active-tasks"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -138,8 +139,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const nodesLoaded = usePlanStore((s) => s.loaded)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
-  const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
+  const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const sidebarItems = useSidebarStore((s) => s.items)
   const teamFeatureFlags = useTeamStore((s) => s.teams[0]?.featureFlags) ?? EMPTY_FLAGS
   const isEditing = useSidebarStore((s) => s.isEditing)
@@ -168,7 +169,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const yoloMode = useSettingsStore((s) => s.yoloMode)
   const setYoloMode = useSettingsStore((s) => s.setYoloMode)
   const showAuth = isServerMode()
-  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+  const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const activeProjectId = params.id
 
   // Auto-reveal sidebar items based on usage thresholds
@@ -270,7 +271,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     return s
   }
 
-  // Node-based categorization, sorted alphabetically
+  // Categorization: SESSION only if projectType === 'playground' AND no plan nodes.
+  // Manually-created projects (projectType 'default') stay in PROJECTS even before
+  // plan generation populates nodes.
   const { activeProjects, recentSessions } = useMemo(() => {
     const projectIdsWithNodes = new Set<string>()
     for (const node of planNodes) projectIdsWithNodes.add(node.projectId)
@@ -279,8 +282,10 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     for (const p of projects) {
       if (p.status !== "active") continue
       if (pinnedIds.has(p.id)) continue // Pinned items shown in pages section
-      if (projectIdsWithNodes.has(p.id)) withNodes.push(p)
-      else recent.push(p)
+      const hasNodes = projectIdsWithNodes.has(p.id)
+      const isSession = !hasNodes && p.projectType === "playground"
+      if (isSession) recent.push(p)
+      else withNodes.push(p)
     }
     withNodes.sort((a, b) => a.name.localeCompare(b.name))
     recent.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -417,14 +422,50 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     )
   }
 
-  return (
-    <aside className={cn(
-      "flex h-full shrink-0 flex-col border-r bg-card overflow-hidden w-full",
-      collapsed ? "!w-[52px] border-border/30" : "border-border",
-    )}>
+  /* Sidebar renders as a fixed floating rounded white card. Visibility is
+   * controlled by the parent wrapper in app-layout (translate + opacity).
+   * The `collapsed` prop is still accepted for API compatibility but the
+   * inner content always renders in "expanded" mode — the user toggles the
+   * sidebar via show/hide, not via an icon-rail state. */
+  const desktopMode = isDesktop()
 
-      {/* ─── Header ─── */}
-      {collapsed ? (
+  return (
+    <aside
+      data-collapsed={collapsed || undefined}
+      className={cn(
+        "group/sidebar flex flex-col overflow-hidden h-full w-full",
+        desktopMode
+          ? cn(
+              "rounded-lg bg-background",
+              "shadow-[0_0_6px_-2px_rgba(0,0,0,0.16),0_0_18px_-10px_rgba(0,0,0,0.16)]",
+              "dark:shadow-[0_0_6px_-2px_rgba(0,0,0,0.65),0_0_18px_-10px_rgba(0,0,0,0.65)]",
+            )
+          : "border-r bg-card",
+      )}
+      style={desktopMode && isDark ? { backgroundColor: '#121212', border: '1px solid #202020' } : undefined}
+    >
+
+      {/* ─── Header ─── desktop: workspace switcher; web: Astro branding + search. */}
+      {desktopMode ? (
+        <div className={cn(
+          "flex shrink-0 items-center gap-1.5 px-2",
+          collapsed ? "flex-col py-2" : "h-10 flex-row",
+        )}>
+          <WorkspaceSwitcher iconOnly={!collapsed} collapsed={collapsed} />
+          {!collapsed && <div className="flex-1" />}
+          {!collapsed && (
+            <div
+              className={cn(
+                "h-1.5 w-1.5 rounded-full shrink-0",
+                connectionStatus === "connected" ? "bg-success"
+                  : connectionStatus === "checking" ? "bg-warning animate-pulse"
+                  : "bg-destructive"
+              )}
+              title={`Connection: ${connectionStatus}`}
+            />
+          )}
+        </div>
+      ) : collapsed ? (
         <div className="flex flex-col items-center gap-1 py-2 border-b border-border/50">
           <div className="relative shrink-0">
             <img src="/icon-192.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
@@ -472,39 +513,79 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       )}
 
       {/* ─── Pages section (sticky, does NOT scroll) ─── */}
-      <div className="shrink-0 border-b border-border/50">
-        {collapsed ? (
-          <nav className="flex flex-col gap-1 py-2 items-center">
+      <div className="shrink-0">
+        {!isEditing ? (
+          <nav className={cn(
+            "flex flex-col gap-1 py-2",
+            collapsed ? "items-center" : "px-4",
+          )}>
             {visibleItems.map((item) => {
               const Icon = iconMap[item.icon] || CheckSquare
               const badge = getBadge(item.id)
               const isItemActive = location.pathname === item.to
                 || (item.id === "projects" && location.pathname.startsWith("/project/"))
+
+              if (collapsed) {
+                const active = isItemActive || location.pathname === item.to
+                return (
+                  <div key={item.id} className="flex justify-center w-full">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => navigate(item.to)}
+                          data-tour-id={item.id}
+                          className={cn(
+                            "flex items-center justify-center h-9 w-9 rounded-[10px] transition-colors",
+                            active
+                              ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground"
+                              : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                          )}
+                        >
+                          <Icon className="h-[18px] w-[18px] shrink-0" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">{getItemLabel(item)}</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )
+              }
+
               return (
-                <div key={item.id} className="flex justify-center w-full">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        data-tour-id={item.id}
-                        onClick={() => navigate(item.to)}
+                <div key={item.id}>
+                  <NavLink
+                    to={item.to}
+                    end
+                    data-tour-id={item.id}
+                    className={({ isActive }) => {
+                      const active = isActive || isItemActive
+                      return cn(
+                        "flex items-center rounded-[10px] text-[15px] font-medium transition-colors",
+                        "gap-3 px-3.5 py-2.5 w-full",
+                        active
+                          ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
+                          : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                      )
+                    }}
+                  >
+                    <Icon className="h-[18px] w-[18px] shrink-0" />
+                    <span className="flex-1 truncate">{getItemLabel(item)}</span>
+                    {badge && (
+                      <span
                         className={cn(
-                          "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
-                          isItemActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/50"
+                          "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
+                          badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info",
                         )}
                       >
-                        <Icon className="h-[18px] w-[18px]" />
-                        {badge && (
-                          <span className={cn(
-                            "absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full text-[8px] font-bold text-white px-0.5",
-                            badge.variant === "warning" ? "bg-warning" : "bg-info"
-                          )}>
-                            {badge.count}
-                          </span>
+                        {badge.variant === "info" && (
+                          <div className="relative h-1.5 w-1.5">
+                            <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                          </div>
                         )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">{getItemLabel(item)}</TooltipContent>
-                  </Tooltip>
+                        {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
+                        {badge.count}
+                      </span>
+                    )}
+                  </NavLink>
                 </div>
               )
             })}
@@ -605,17 +686,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   Done
                 </button>
               )}
-
-              {/* Pinned items in pages section */}
-              {!isEditing && resolvedPinnedItems.length > 0 && (
-                <div className="flex flex-col gap-0.5 mt-1">
-                  {resolvedPinnedItems.map((item, index) => (
-                    <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
-                  ))}
-                </div>
-              )}
             </nav>
           </DndContext>
+        )}
+
+        {/* Pinned items in pages section (rendered in both editing and non-editing modes) */}
+        {!isEditing && !collapsed && resolvedPinnedItems.length > 0 && (
+          <div className="flex flex-col gap-0.5 px-4 pb-2">
+            {resolvedPinnedItems.map((item, index) => (
+              <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
+            ))}
+          </div>
         )}
 
         {/* Pinned items collapsed mode */}
@@ -627,12 +708,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </div>
         )}
 
-        {/* Customize sidebar button — above projects */}
-        {!collapsed && !isEditing && (
+        {/* Customize sidebar button — hidden when collapsed */}
+        {!isEditing && !collapsed && (
           <div className="px-5 py-1">
             <button
               onClick={() => setEditing(true)}
-              className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
             >
               Customize sidebar...
             </button>
@@ -806,63 +887,57 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
       {/* ─── Quick Settings ─── */}
       {collapsed ? (
-        <div className="flex flex-col gap-1 py-2 border-t border-border">
-          <div className="flex justify-center w-full">
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  <Cpu className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="right" align="center" className="w-auto p-2">
-                <div className="flex items-center gap-2">
-                  {(["small", "medium", "large"] as const).map((tier) => (
-                    <Tooltip key={tier}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => setModelTier(tier)}
-                          className={cn(
-                            "flex items-center justify-center rounded-full transition-colors",
-                            tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                            modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                          )}
-                        >
-                          <div className={cn(
-                            "rounded-full",
-                            tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
-                            modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                          )} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div className="flex justify-center w-full">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button data-tour-id="yolo" onClick={() => setYoloMode(!yoloMode)} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+        <div className="flex flex-col items-center gap-1 py-2 border-t border-border">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                <Cpu className="h-[18px] w-[18px] text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="center" className="w-auto p-2">
+              <div className="flex items-center gap-2">
+                {(["small", "medium", "large"] as const).map((tier) => (
+                  <Tooltip key={tier}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setModelTier(tier)}
+                        className={cn(
+                          "flex items-center justify-center rounded-full transition-colors",
+                          tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                          modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                        )}
+                      >
+                        <div className={cn(
+                          "rounded-full",
+                          tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                          modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                        )} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-tour-id="yolo" onClick={() => setYoloMode(!yoloMode)} className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                <Zap className={cn("h-[18px] w-[18px]", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">YOLO: {yoloMode ? "On" : "Off"} — Auto-approve all tasks across all projects</TooltipContent>
             </Tooltip>
-          </div>
-          <div className="flex justify-center w-full">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={() => setTheme(isDark ? "light" : "dark")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Toggle {isDark ? "Light" : "Dark"} Mode</TooltipContent>
-            </Tooltip>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => setTheme(isDark ? "light" : "dark")} className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                {isDark ? <Sun className="h-[18px] w-[18px] text-muted-foreground" /> : <Moon className="h-[18px] w-[18px] text-muted-foreground" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Toggle {isDark ? "Light" : "Dark"} Mode</TooltipContent>
+          </Tooltip>
         </div>
       ) : (
         <div className="flex items-center gap-3 px-5 py-2 border-t border-border">
@@ -914,37 +989,31 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
       {/* ─── User Profile ─── */}
       {collapsed ? (
-        <div className="flex flex-col gap-1 border-t border-border py-2">
-          <div className="flex justify-center w-full">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={() => navigate("/stats")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Profile & Stats</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex justify-center w-full">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={() => navigate("/settings")} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  <Settings className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Settings</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex justify-center w-full">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={toggleSidebar} className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
-                  <PanelLeft className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Expand sidebar</TooltipContent>
-            </Tooltip>
-          </div>
+        <div className="flex flex-col items-center gap-1 border-t border-border py-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => navigate("/stats")} className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                <User className="h-[18px] w-[18px] text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Profile & Stats</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => navigate("/settings")} className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                <Settings className="h-[18px] w-[18px] text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Settings</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={toggleSidebar} className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
+                <PanelLeft className="h-[18px] w-[18px] text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Expand sidebar</TooltipContent>
+          </Tooltip>
         </div>
       ) : (
         <div className="flex items-center justify-between border-t border-border px-5 py-3 gap-2">

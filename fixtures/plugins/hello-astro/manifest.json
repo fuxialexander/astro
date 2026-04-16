@@ -1,0 +1,11 @@
+{
+  "id": "hello-astro",
+  "name": "Hello Astro",
+  "version": "0.1.0",
+  "description": "Reference plugin demonstrating the Astro plugin host (storage + command contribution).",
+  "author": "Astro",
+  "runtime": "sandbox",
+  "entry": "index.js",
+  "capabilities": ["commands"],
+  "permissions": ["storage", "ui:contribute"]
+}

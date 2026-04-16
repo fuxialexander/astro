@@ -30,7 +30,7 @@ import {
   deleteLocalPdf,
   type PdfDownloadProgress,
 } from '@/lib/pdf-downloader'
-import { isTauri } from '@/lib/skill-provider'
+import { isDesktop } from '@/lib/desktop-detect'
 
 // ── Props ────────────────────────────────────────────────────────────
 
@@ -233,8 +233,8 @@ export function ReferenceDetail({
             </Button>
           )}
 
-          {/* Re-download for Tauri mode */}
-          {isTauri() && hasPdf && !reference.pdfDownloaded && (
+          {/* Re-download for desktop mode */}
+          {isDesktop() && hasPdf && !reference.pdfDownloaded && (
             <Button
               variant="ghost"
               size="sm"
@@ -248,7 +248,7 @@ export function ReferenceDetail({
           )}
 
           {/* Delete local PDF */}
-          {isTauri() && reference.pdfPath && (
+          {isDesktop() && reference.pdfPath && (
             <Button
               variant="ghost"
               size="sm"
@@ -296,7 +296,7 @@ export function ReferenceDetail({
         )}
 
         {/* Local path indicator */}
-        {isTauri() && reference.pdfPath && (
+        {isDesktop() && reference.pdfPath && (
           <p className="text-xs text-muted-foreground font-mono truncate">
             {reference.pdfPath}
           </p>
@@ -306,8 +306,8 @@ export function ReferenceDetail({
       {/* Inline PDF Viewer */}
       {showPdf && pdfViewUrl && (
         <div className="border rounded-lg overflow-hidden" style={{ height: '600px' }}>
-          {isTauri() && reference.pdfPath ? (
-            // Tauri: use embed with local file path
+          {isDesktop() && reference.pdfPath ? (
+            // Desktop: use embed with local file path
             <embed
               src={pdfViewUrl}
               type="application/pdf"

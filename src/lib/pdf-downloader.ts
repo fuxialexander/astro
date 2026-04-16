@@ -1,12 +1,19 @@
 /**
- * PDF download manager — bridges between web and Tauri desktop modes.
+ * PDF download manager — bridges between web and Electron desktop modes.
  *
- * Tauri mode: Uses Rust `download_pdf` command for local filesystem storage.
- * Web mode: Stores PDF URL only, displays in-browser via iframe.
+ * Desktop mode: uses `desktopBridge.pdf.download` (routes to `pdf:download`
+ * IPC → main-process fetch → fs write under `app.getPath('userData')`).
+ * Web mode: stores the resolved PDF URL only and displays via iframe.
+ *
+ * Historical note: this module previously called the Tauri `download_pdf`
+ * command via `@tauri-apps/api/core`. The Tauri path was removed during the
+ * Electron migration — `isDesktop()` now means "running inside the Electron
+ * shell", and Tauri builds no longer ship.
  */
 
 import type { Reference, PdfDownloadStatus } from '@/types'
-import { isTauri } from '@/lib/skill-provider'
+import { isDesktop } from '@/lib/desktop-detect'
+import { desktopBridge } from '@/lib/desktop-bridge'
 import { autoResolvePdf } from '@/lib/pdf-resolver'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -19,63 +26,16 @@ export interface PdfDownloadProgress {
   pdfPath?: string
 }
 
-interface TauriPdfResult {
+interface DesktopPdfResult {
   path: string
   size: number
-  source_url: string
 }
-
-// ── Tauri IPC wrappers ───────────────────────────────────────────────
-//
-// @tauri-apps/api is an optional dependency — only present in the Tauri
-// desktop build. We use dynamic import() and cast to avoid type errors
-// in the web-only build.
-
-type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
-
-async function getTauriInvoke(): Promise<TauriInvoke> {
-  // Dynamic import with variable path to avoid TS module resolution on web builds
-  const modulePath = '@tauri-apps/api/core'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mod: any = await import(/* @vite-ignore */ modulePath)
-  return mod.invoke as TauriInvoke
-}
-
-async function tauriDownloadPdf(url: string, destPath: string): Promise<TauriPdfResult> {
-  if (!isTauri()) throw new Error('download_pdf is only available in Tauri desktop mode')
-  const invoke = await getTauriInvoke()
-  return invoke<TauriPdfResult>('download_pdf', { url, destPath })
-}
-
-async function tauriGetReferencesDir(): Promise<string> {
-  if (!isTauri()) throw new Error('get_references_dir is only available in Tauri desktop mode')
-  const invoke = await getTauriInvoke()
-  return invoke<string>('get_references_dir')
-}
-
-async function tauriListDownloadedPdfs(): Promise<TauriPdfResult[]> {
-  if (!isTauri()) throw new Error('list_downloaded_pdfs is only available in Tauri desktop mode')
-  const invoke = await getTauriInvoke()
-  return invoke<TauriPdfResult[]>('list_downloaded_pdfs')
-}
-
-async function tauriDeletePdf(path: string): Promise<void> {
-  if (!isTauri()) throw new Error('delete_downloaded_pdf is only available in Tauri desktop mode')
-  const invoke = await getTauriInvoke()
-  return invoke<void>('delete_downloaded_pdf', { path })
-}
-
-// ── PDF Download Manager ─────────────────────────────────────────────
 
 /**
  * Download a PDF for a reference.
  *
- * In Tauri mode: downloads to ~/.astro/references/pdfs/ and returns the local path.
- * In web mode: resolves the PDF URL and returns it for in-browser display.
- *
- * @param reference - The reference to download a PDF for
- * @param onProgress - Optional callback for download progress updates
- * @returns Updated reference with pdfUrl/pdfPath populated
+ * Desktop: downloads to the Electron userData PDFs subdir and returns the path.
+ * Web: resolves the PDF URL and returns it for in-browser display.
  */
 export async function downloadPdfForReference(
   reference: Reference,
@@ -86,7 +46,7 @@ export async function downloadPdfForReference(
     onProgress?.({ referenceId: reference.id, status, ...extra })
   }
 
-  // Step 1: Resolve PDF URL if not already known
+  // Step 1: resolve the PDF URL if not already known.
   let pdfUrl = reference.pdfUrl
   if (!pdfUrl) {
     progress('resolving')
@@ -101,30 +61,25 @@ export async function downloadPdfForReference(
       }
     }
 
-    // Return early updates for OA metadata
-    const updates: Partial<Reference> = {
-      pdfUrl,
-      isOpenAccess: resolved.isOpenAccess,
-      oaSource: resolved.oaSource ?? undefined,
-    }
-
-    // In web mode, we just store the URL — no local download
-    if (!isTauri()) {
+    if (!isDesktop()) {
       progress('complete', { pdfUrl })
-      return updates
+      return {
+        pdfUrl,
+        isOpenAccess: resolved.isOpenAccess,
+        oaSource: resolved.oaSource ?? undefined,
+      }
     }
   }
 
-  // Step 2: In web mode, we're done — just return the URL
-  if (!isTauri()) {
+  // Step 2: web mode — done.
+  if (!isDesktop()) {
     progress('complete', { pdfUrl })
     return { pdfUrl }
   }
 
-  // Step 3: In Tauri mode, download the PDF locally
+  // Step 3: desktop mode — download via the IPC channel.
   progress('downloading')
   try {
-    // Build a meaningful filename: "AuthorYear_Title.pdf"
     const firstAuthor = reference.authors?.[0]?.split(' ').pop() ?? 'Unknown'
     const year = reference.year ?? 'undated'
     const titleSlug = (reference.title ?? 'paper')
@@ -134,10 +89,9 @@ export async function downloadPdfForReference(
       .replace(/_+$/, '')
     const filename = `${firstAuthor}${year}_${titleSlug}.pdf`
 
-    const refsDir = await tauriGetReferencesDir()
-    const destPath = `${refsDir}/${filename}`
-
-    const result = await tauriDownloadPdf(pdfUrl, destPath)
+    const result: DesktopPdfResult = await desktopBridge.pdf
+      .download({ url: pdfUrl, filename, subdir: 'pdfs' })
+      .then((r) => ({ path: r.path, size: r.bytes }))
 
     progress('complete', { pdfUrl, pdfPath: result.path })
     return {
@@ -148,7 +102,6 @@ export async function downloadPdfForReference(
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     progress('error', { error: errorMsg })
-    // Even if download fails, preserve the URL
     return { pdfUrl }
   }
 }
@@ -156,17 +109,19 @@ export async function downloadPdfForReference(
 /**
  * Open a PDF for viewing.
  *
- * Tauri mode: Opens local file if downloaded, otherwise opens URL in browser.
- * Web mode: Returns the URL for iframe/embed display.
+ * Desktop: prefer the local file path via the `file://` URL; the renderer
+ * has webSecurity:true but local files served from `userData` are accessible
+ * to `<iframe>` once we wire a custom `astro://` protocol (Phase 5).
+ * Web: returns the PDF URL.
+ *
+ * NOTE: until the `astro://` protocol lands, the local-path branch returns
+ * the URL fallback so the iframe still loads something.
  */
 export function getPdfViewUrl(reference: Reference): string | null {
-  // Tauri: prefer local path
-  if (isTauri() && reference.pdfPath) {
-    // Tauri can load local files via asset protocol
-    return `asset://localhost/${reference.pdfPath}`
+  if (isDesktop() && reference.pdfPath) {
+    // TODO(phase-5): register an astro:// protocol handler to serve files
+    // out of userData. For now, fall through to the URL.
   }
-
-  // Fallback to URL
   return reference.pdfUrl ?? null
 }
 
@@ -174,24 +129,25 @@ export function getPdfViewUrl(reference: Reference): string | null {
  * Check if a PDF is available for a reference.
  */
 export function isPdfAvailable(reference: Reference): boolean {
-  if (isTauri()) {
+  if (isDesktop()) {
     return !!reference.pdfPath || !!reference.pdfUrl
   }
   return !!reference.pdfUrl
 }
 
 /**
- * List all locally downloaded PDFs (Tauri only).
+ * List all locally downloaded PDFs. Desktop only. Phase 3A: returns []
+ * because there is no `pdf:list` IPC channel yet — gallery views should
+ * derive availability from the per-reference `pdfPath` field instead.
  */
-export async function listLocalPdfs(): Promise<TauriPdfResult[]> {
-  if (!isTauri()) return []
-  return tauriListDownloadedPdfs()
+export async function listLocalPdfs(): Promise<DesktopPdfResult[]> {
+  return []
 }
 
 /**
- * Delete a locally downloaded PDF (Tauri only).
+ * Delete a locally downloaded PDF. Desktop only. Phase 3A: not implemented
+ * (no `pdf:delete` channel yet). Throws so callers know to upgrade.
  */
 export async function deleteLocalPdf(path: string): Promise<void> {
-  if (!isTauri()) throw new Error('PDF deletion only available in Tauri mode')
-  return tauriDeletePdf(path)
+  throw new Error(`deleteLocalPdf is not implemented in the Electron shell yet (path=${path})`)
 }

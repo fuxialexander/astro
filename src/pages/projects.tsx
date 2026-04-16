@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Download, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X } from "lucide-react"
+import { Folder, Plus, Rocket, FlaskConical, Users, Trash2, Download, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +10,7 @@ import { ImportPreviewDialog } from "@/components/sharing/import-preview-dialog"
 import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
 import { useGitHubAppStore } from "@/stores/github-app-store"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
-import { FilterSelect } from "@/components/views/filter-select"
+import { FilterPopover, FilterRow } from "@/components/views/filter-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { ColorIconBadge } from "@/components/color-icon-picker"
@@ -788,7 +788,7 @@ export function Projects() {
   return (
     <div className="flex flex-1 flex-col min-w-0 h-full">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
+        <div className="flex items-center justify-between border-b border-border/40 px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
           </div>
@@ -839,6 +839,38 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
+            <FilterPopover activeCount={[statusFilter, healthFilter, initiativeFilter].filter(f => f !== "all").length}>
+              <FilterRow
+                label="Status"
+                value={statusFilter}
+                options={[
+                  { value: "all", label: "All statuses" },
+                  { value: "active", label: "Active" },
+                  { value: "archived", label: "Archived" },
+                ]}
+                onChange={setStatusFilter}
+              />
+              <FilterRow
+                label="Health"
+                value={healthFilter}
+                options={[
+                  { value: "all", label: "All health" },
+                  { value: "on_track", label: "On track" },
+                  { value: "at_risk", label: "At risk" },
+                  { value: "off_track", label: "Off track" },
+                ]}
+                onChange={setHealthFilter}
+              />
+              <FilterRow
+                label="Initiative"
+                value={initiativeFilter}
+                options={[
+                  { value: "all", label: "All initiatives" },
+                  ...initiatives.map((i) => ({ value: i.id, label: i.name })),
+                ]}
+                onChange={setInitiativeFilter}
+              />
+            </FilterPopover>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -874,71 +906,10 @@ export function Projects() {
           onOpenChange={setGithubPickerOpen}
         />
 
-        {/* Keyboard help tip */}
-        {showHelpTip && (
-          <div className="flex items-center gap-2 px-3 md:px-6 py-1.5 bg-primary/5 border-b border-primary/10 text-xs text-muted-foreground">
-            <span>
-              Press <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> to toggle fast edit,{" "}
-              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> to confirm,{" "}
-              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit.{" "}
-              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>{" "}
-              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">2</kbd>{" "}
-              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">3</kbd> to switch views
-            </span>
-            <button
-              type="button"
-              onClick={dismissHelpTip}
-              className="ml-auto text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Filter Bar */}
-        <div className="flex items-center gap-3 border-b border-border px-4 sm:px-6 py-3 shrink-0 relative z-10">
-          <div className="flex items-center gap-2 shrink-0">
-            <ListFilter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">Filter</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <FilterSelect
-              label="Status"
-              value={statusFilter}
-              options={[
-                { value: "all", label: "All statuses" },
-                { value: "active", label: "Active" },
-                { value: "archived", label: "Archived" },
-              ]}
-              onChange={setStatusFilter}
-            />
-            <FilterSelect
-              label="Health"
-              value={healthFilter}
-              options={[
-                { value: "all", label: "All health" },
-                { value: "on_track", label: "On track" },
-                { value: "at_risk", label: "At risk" },
-                { value: "off_track", label: "Off track" },
-              ]}
-              onChange={setHealthFilter}
-            />
-            <FilterSelect
-              label="Initiative"
-              value={initiativeFilter}
-              options={[
-                { value: "all", label: "All initiatives" },
-                ...initiatives.map((i) => ({ value: i.id, label: i.name })),
-              ]}
-              onChange={setInitiativeFilter}
-            />
-          </div>
-        </div>
-
         {viewTab === "all" && (
           sortedProjects.length === 0 ? (
             <div className="flex-1 overflow-auto flex flex-col">
-              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
+              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 hover:bg-muted/40 rounded-md mx-2 transition-colors">
                 <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <input
                   ref={createInputRef}
@@ -980,7 +951,7 @@ export function Projects() {
               sortDirection={displaySettings.orderDirection}
               onSort={handleSort}
               footer={() => creating ? (
-                <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 hover:bg-muted/40 rounded-md mx-2 transition-colors">
                   <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <input
                     ref={createInputRef}
@@ -1010,12 +981,13 @@ export function Projects() {
                 <button
                   type="button"
                   onClick={() => setCreating(true)}
-                  className="flex items-center gap-2.5 px-4 sm:px-6 min-h-[44px] sm:min-h-0 sm:h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
+                  className="flex items-center gap-2.5 px-4 sm:px-6 min-h-[44px] sm:min-h-0 sm:h-9 w-full text-left text-xs text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 rounded-md mx-2 transition-colors cursor-pointer"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add project</span>
                 </button>
               )}
+              headerActions={undefined}
               renderMobileItem={(p) => {
                 const health = healthConfig[p.health ?? "on_track"]
                 const counts = projectTaskCounts[p.id]
@@ -1216,6 +1188,34 @@ export function Projects() {
                 ))
               })()
             )}
+          </div>
+        )}
+
+        {/* Keyboard help tip — subtle footer that lives in the blank area
+            below the project list, dismissable, no accent tint. */}
+        {showHelpTip && (
+          <div className="hidden sm:flex shrink-0 items-center gap-2 px-6 py-2 text-[11px] text-muted-foreground/70">
+            <span className="flex items-center gap-1.5 flex-wrap">
+              Press
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">I</kbd>
+              to toggle fast edit,
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">Enter</kbd>
+              to confirm,
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">Esc</kbd>
+              to exit.
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">1</kbd>
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">2</kbd>
+              <kbd className="px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 font-mono text-[10px] text-muted-foreground/80">3</kbd>
+              to switch views
+            </span>
+            <button
+              type="button"
+              onClick={dismissHelpTip}
+              className="ml-auto shrink-0 text-muted-foreground/40 hover:text-foreground transition-colors cursor-pointer"
+              title="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
         )}
 

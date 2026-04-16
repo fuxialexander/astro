@@ -18,7 +18,7 @@ import type { Reference } from '@/types'
 import { ReferenceDetail } from './reference-detail'
 import { fetchDoiMetadata, resolveDoiPdf } from '@/lib/pdf-resolver'
 import { downloadPdfForReference } from '@/lib/pdf-downloader'
-import { isTauri } from '@/lib/skill-provider'
+import { isDesktop } from '@/lib/desktop-detect'
 
 // ── Props ────────────────────────────────────────────────────────────
 
@@ -82,8 +82,8 @@ export function ReferenceList({
           newRef.isOpenAccess = pdfResolution.isOa
           newRef.oaSource = pdfResolution.oaSource ?? undefined
 
-          // Auto-download in Tauri mode
-          if (isTauri()) {
+          // Auto-download in desktop mode
+          if (isDesktop()) {
             try {
               const downloadResult = await downloadPdfForReference(newRef)
               Object.assign(newRef, downloadResult)
