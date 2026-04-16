@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { installCSP } from './security/csp.js'
 import { registerPluginProtocol } from './security/plugin-protocol.js'
+import { installWebviewGuard } from './security/webview-guard.js'
 import { createMainWindow } from './windows/main-window.js'
 import { windowRegistry } from './windows/registry.js'
 import { serverSupervisor } from './services/supervisor.js'
@@ -40,6 +41,11 @@ if (!gotLock) {
     }
   })
 }
+
+// Pin secure webPreferences on every <webview> attached anywhere in the app.
+// Must run before any window is created so the listener catches the very
+// first webContents (the main window itself).
+installWebviewGuard()
 
 app.whenReady().then(async () => {
   installCSP()

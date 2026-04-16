@@ -47,7 +47,9 @@ type Op = (ctx: OpContext, args: any) => Promise<unknown> | unknown
 const OP_PERMISSIONS: Record<string, PluginPermission> = {
   'storage.get': 'storage',
   'storage.set': 'storage',
-  'projects.list': 'projects:read',
+  // TODO(Phase 4B): re-enable once 'projects.list' returns real data.
+  //   'projects.list': 'projects:read',
+  // Omitted today so plugins don't request a permission that grants nothing.
   'ui.registerCommand': 'ui:contribute',
 }
 
@@ -86,9 +88,11 @@ const ops: Record<string, Op> = {
     await writeStorage(manifest.id, data)
     return { ok: true }
   },
-  // Stub: returns an empty list. Phase 4B threads this through to the
-  // server utilityProcess so plugins see the real project list.
-  'projects.list': () => ({ projects: [] }),
+  // TODO(Phase 4B): wire 'projects.list' through to the server utilityProcess.
+  //   'projects.list': async (_ctx, _args) => ({ projects: await fetchProjects() }),
+  // Left unregistered so dispatchHostApi returns an "unknown op" error —
+  // consistent with the matching TODO in OP_PERMISSIONS above.
+
   // Registration is fire-and-forget — the renderer's plugin-store eventually
   // listens for these via a contributions channel. Phase 4B wires that path.
   'ui.registerCommand': () => ({ ok: true }),
