@@ -20,6 +20,10 @@ const PROD_CSP = [
   "connect-src 'self' http://127.0.0.1:3001 ws://127.0.0.1:3002 https://api.astroanywhere.com wss://api.astroanywhere.com https://api.unpaywall.org https://api.zotero.org https://api.crossref.org https://fonts.googleapis.com https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
 ].join('; ')
 
 const DEV_CSP = [
@@ -29,6 +33,10 @@ const DEV_CSP = [
   "connect-src 'self' http://localhost:5173 ws://localhost:5173 http://127.0.0.1:3001 ws://127.0.0.1:3002 http://localhost:3001 ws://localhost:3002 https://api.astroanywhere.com wss://api.astroanywhere.com https://api.unpaywall.org https://api.zotero.org https://api.crossref.org https://fonts.googleapis.com https://fonts.gstatic.com",
   "img-src 'self' data: blob: https: http://localhost:5173",
   "font-src 'self' data: https://fonts.gstatic.com",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
 ].join('; ')
 
 export function installCSP(): void {
