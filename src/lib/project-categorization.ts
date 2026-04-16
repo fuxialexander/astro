@@ -1,11 +1,11 @@
 import type { Project, PlanNode } from "@/types"
 
 /**
- * Categorize projects into "projects with plan nodes" and "recent sessions"
- * based on whether they have any active plan nodes.
+ * Categorize projects into "projects with plan nodes" and "recent sessions".
  *
- * This replaces the old projectType-based categorization where
- * `'plan'` and `'default'` went to PROJECTS and `'playground'` went to RECENT.
+ * A project is a SESSION only when it is explicitly `projectType === 'playground'`
+ * AND has no active plan nodes. Everything else (manually-created 'default' projects,
+ * 'github' projects, or anything that already has nodes) is treated as a PROJECT.
  */
 export function categorizeProjects(
   projects: Project[],
@@ -23,10 +23,12 @@ export function categorizeProjects(
 
   for (const p of projects) {
     if (p.status !== "active") continue
-    if (projectIdsWithNodes.has(p.id)) {
-      projectsWithNodes.push(p)
-    } else {
+    const hasNodes = projectIdsWithNodes.has(p.id)
+    const isSession = !hasNodes && p.projectType === "playground"
+    if (isSession) {
       recentSessions.push(p)
+    } else {
+      projectsWithNodes.push(p)
     }
   }
 

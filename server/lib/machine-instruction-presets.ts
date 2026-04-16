@@ -10,7 +10,9 @@ import { fileURLToPath } from 'url'
 import { MACHINE_INSTRUCTION_PRESET_META, DEFAULT_MACHINE_INSTRUCTION_NAME, formatMachineInstruction } from './prompt-templates.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PRESETS_DIR = resolve(__dirname, '../../skills/machine_instruction_presets')
+const PRESETS_DIR = process.env.ASTRO_SKILLS_DIR
+  ? resolve(process.env.ASTRO_SKILLS_DIR, 'machine_instruction_presets')
+  : resolve(__dirname, '../../skills/machine_instruction_presets')
 
 function loadPresetFile(filename: string): string {
   try {

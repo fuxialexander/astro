@@ -476,6 +476,6 @@ The strongest arguments for WS are **mobile support** and **JWT-in-URL eliminati
 - [Relay Protocol](./relay/protocol.md) — Machine ↔ server WebSocket message types
 - [Realtime Sync](./features/realtime-sync.md) — Supabase Realtime (DB CDC, separate from this)
 - [ARCHITECTURE](./design/ARCHITECTURE.md) — System structure and protocols
-- [TAURI_APP](./design/TAURI_APP.md) — Desktop app, which will also benefit from WebSocket
+- [ELECTRON_APP](./design/ELECTRON_APP.md) — Electron desktop app, which will also benefit from WebSocket
 - [Refresh Robustness](./design/REFRESH_ROBUSTNESS.md) — Three-layer recovery architecture (transport-agnostic)
 - [GitHub Issue #513](https://github.com/fuxialexander/astro/issues/513) — WebSocket migration tracking with flow diagrams

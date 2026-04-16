@@ -5,7 +5,6 @@ import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, Ro
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -14,13 +13,12 @@ import { UnifiedActivityView } from "@/components/task-detail/unified-activity-v
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { TaskContentTab } from "@/components/task-detail/task-content-tab"
 import { ApprovalCard } from "@/components/approval-card"
-import { NodeInspectorSidebar } from "@/components/node-inspector"
+import { TaskPropertiesBar } from "@/components/task-properties-bar"
 import { PrStatusCard } from "@/components/task-detail/pr-status-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
 import { useStreamEvents } from "@/hooks/use-stream-events"
-import { useMediaQuery } from "@/hooks/use-media-query"
 import { ExecutionSwitcher } from "@/components/task-detail/execution-switcher"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
@@ -50,8 +48,6 @@ export function TaskDetail() {
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
-  const isMobile = useMediaQuery("(max-width: 767px)")
-  const [inspectorOpen, setInspectorOpen] = useState(!isMobile)
 
   // GitHub user login for self-approval guard — not available without OAuth, disabled for now
   const currentUserLogin = undefined
@@ -142,22 +138,6 @@ export function TaskDetail() {
           </p>
         </div>
 
-        {/* Inspector toggle */}
-        {!isMobile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setInspectorOpen((o) => !o)}
-              >
-                <Info className={cn("h-4 w-4", inspectorOpen && "text-primary")} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Toggle Inspector</TooltipContent>
-          </Tooltip>
-        )}
       </div>
 
       {/* Meta Row - scrollable on mobile, hidden when empty */}
@@ -529,9 +509,24 @@ export function TaskDetail() {
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
 
-          {/* Note section — collapsible, shown only when content or attachments exist */}
-          {(node.content || node.description || (node.attachments?.length ?? 0) > 0 || (node.links?.length ?? 0) > 0) && (
-            <NoteSection node={node} projectId={projectId} fileTree={project?.fileTree} />
+          {/* Unified task bar: Notes + properties + execution pills */}
+          {project && (
+            <div className="border-b border-border/50 px-4 md:px-6 py-1.5 shrink-0">
+              <TaskPropertiesBar
+                node={node}
+                project={{
+                  id: project.id,
+                  workingDirectory: project.workingDirectory,
+                  defaultMachineId: project.defaultMachineId,
+                  fileTree: project.fileTree,
+                }}
+                viewMode={searchParams.get("from") || "list"}
+                hasNote={!!(node.content || node.description)}
+                attachmentCount={(node.attachments?.length ?? 0) + (node.links?.length ?? 0)}
+              >
+                <TaskContentTab node={node} projectId={projectId} panelSize="default" fileTree={project.fileTree} />
+              </TaskPropertiesBar>
+            </div>
           )}
 
           {/* Activity — primary content, takes all remaining height */}
@@ -562,62 +557,12 @@ export function TaskDetail() {
           )}
         </div>
 
-        {/* Node Inspector sidebar — desktop only */}
-        {!isMobile && inspectorOpen && project && (
-          <NodeInspectorSidebar
-            node={node}
-            project={{
-              id: project.id,
-              workingDirectory: project.workingDirectory,
-              defaultMachineId: project.defaultMachineId,
-              fileTree: project.fileTree,
-            }}
-            viewMode={searchParams.get("from") || "list"}
-            onClose={() => setInspectorOpen(false)}
-            onNodeUpdate={() => {}}
-          />
-        )}
       </div>
     </div>
   )
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
-
-function NoteSection({ node, projectId, fileTree }: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  node: any
-  projectId: string
-  fileTree?: string[]
-}) {
-  const [open, setOpen] = useState(false)
-  const attachmentCount = (node.attachments?.length ?? 0) + (node.links?.length ?? 0)
-  const hasContent = !!(node.content || node.description)
-
-  return (
-    <div className="border-b border-border/50 shrink-0">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 w-full px-4 md:px-6 py-2.5 text-left hover:bg-muted/30 transition-colors"
-      >
-        {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground">Note</span>
-        {attachmentCount > 0 && (
-          <span className="ml-1 text-[10px] text-muted-foreground/60">({attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""})</span>
-        )}
-        {!hasContent && attachmentCount === 0 && (
-          <span className="ml-1 text-[10px] text-muted-foreground/40 italic">empty</span>
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-border/30 max-h-[40vh] overflow-auto">
-          <TaskContentTab node={node} projectId={projectId} panelSize="default" fileTree={fileTree} />
-        </div>
-      )}
-    </div>
-  )
-}
 
 function FilesSection({ changes, machineId }: {
   changes: Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }>

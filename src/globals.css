@@ -142,6 +142,15 @@
   --info-foreground: #0C0C0E;
 }
 
+/* Desktop dark mode: individual panel cards match main content bg */
+.dark .desktop-panel-card {
+  background-color: #121212;
+  border: 1px solid #202020;
+}
+.dark .desktop-panel-card-header {
+  background-color: #121212;
+}
+
 /* Fade-in animation for conditionally rendered sections */
 .animate-reveal {
   animation: fade-in 200ms ease-out;
@@ -379,6 +388,7 @@ html {
      indicator (bottom bar) is filled correctly in standalone PWA mode. */
   background-color: var(--background);
 }
+
 
 /* Desktop (md+): locked app-shell layout — scrolling inside containers */
 @media (min-width: 768px) {
@@ -817,4 +827,89 @@ html[lang="zh-CN"] h1,
 html[lang="zh-CN"] h2,
 html[lang="zh-CN"] h3 {
   font-family: "Noto Serif SC", "PingFang SC", serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLAPSED SIDEBAR — force center alignment on ALL sidebar sections when the
+   `data-collapsed` attribute is present. This single rule replaces dozens of
+   scattered `collapsed ?` ternaries and guarantees every section's icons align.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* (Collapsed sidebar alignment is handled inline via Tailwind classes.) */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MINIMAL SCROLLBARS — thin, subtle, hover-to-reveal
+   Applied globally so side panes (terminal, file browser, diff, plan, chat),
+   xterm.js viewports, and ordinary content all share one compact look.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Firefox + modern standards */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 25%, transparent) transparent;
+}
+
+/* WebKit (Chrome / Safari / Electron / WebKitGTK) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 20%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 24px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── xterm.js viewport scrollbar override ───────────────────────────────────
+   xterm ships its own CSS that sets `background-color: #000` and forces the
+   viewport to `overflow-y: scroll`. Higher-specificity selectors + !important
+   are needed so our thin scrollbar wins over xterm's defaults and the
+   browser's native chunky scrollbar. */
+.xterm .xterm-viewport {
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 25%, transparent) transparent !important;
+  background-color: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  background: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 25%, transparent) !important;
+  border-radius: 999px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+  box-shadow: none !important;
+  min-height: 24px !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 50%, transparent) !important;
+  background-clip: padding-box !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-corner {
+  background: transparent !important;
 }

@@ -2,7 +2,7 @@
  * Skill Parser (Shared, Pure)
  *
  * Parses SKILL.md files into OpenClawSkill objects.
- * No filesystem dependencies — works in browser, server, and Tauri.
+ * No filesystem dependencies — works in browser, server, and Electron.
  */
 
 import type { OpenClawSkill } from './types/skill.js'

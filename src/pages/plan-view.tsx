@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, FolderGit2, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, PanelRight, Info, Maximize2, Minimize2, MessageSquare } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, Maximize2, Minimize2, MessageSquare } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -19,7 +19,6 @@ import { Progress } from "@/components/ui/progress"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
-import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-inspector"
 import { BoardView } from "@/components/board/board-view"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -52,7 +51,6 @@ import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } f
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
-import { remoteTypeLabel } from "@/lib/project-source"
 import {
   getProjectGroupDescriptor,
   getProjectGroupDescriptorForId,
@@ -71,7 +69,8 @@ import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { useSettingsStore } from "@/stores/settings-store"
-import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { ProviderAgentPicker } from "@/components/execution/provider-agent-picker"
+import { MachineWorkdirPill } from "@/components/execution/machine-workdir-pill"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -227,7 +226,7 @@ function ExecuteAllButton({ projectId }: { projectId: string }) {
           type="button"
           onClick={() => stopBatchExecution(projectId)}
           title="Stop queuing new tasks (running tasks will finish)"
-          className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+          className="flex h-6 items-center gap-1 rounded-full border border-destructive/30 bg-destructive/5 px-2.5 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
         >
           <Square className="h-3 w-3" />
           Stop
@@ -239,15 +238,19 @@ function ExecuteAllButton({ projectId }: { projectId: string }) {
   if (plannedCount <= 0) return null
 
   return (
-    <button
-      type="button"
-      onClick={handleExecuteAll}
-      title={`Execute all ${plannedCount} planned tasks in dependency order`}
-      className="flex h-6 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-    >
-      <PlayCircle className="h-3.5 w-3.5" />
-      Execute All ({plannedCount})
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleExecuteAll}
+          className="flex h-6 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          <PlayCircle className="h-3.5 w-3.5" />
+          Execute All ({plannedCount})
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Execute all {plannedCount} planned tasks in dependency order</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -335,181 +338,84 @@ function WorkdirBar({ project }: { project: Project }) {
   return (
     <>
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
-      <div className="flex items-center gap-2 border-t border-border/60 px-3 md:px-6 h-9 shrink-0 bg-muted/20 text-xs">
+      <div className="flex items-center gap-2 px-3 md:px-6 h-9 shrink-0 text-xs">
         {hasWorkdir ? (
           <>
-            <button
-              onClick={() => setRepoOpen(true)}
-              className="flex items-center gap-1.5 min-w-0 px-2 py-0.5 -ml-2 rounded-md hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-xs font-mono text-muted-foreground"
-              title="Edit working directory"
-            >
-              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
-              {project.source?.isGit && (
-                <>
-                  <span className="shrink-0">
-                    {project.githubOwner && project.githubRepo
-                      ? `${project.githubOwner}/${project.githubRepo}`
-                      : project.source.remoteType !== 'none'
-                        ? remoteTypeLabel(project.source.remoteType)
-                        : 'Local Git'}
-                  </span>
-                  {project.source.baseBranch && (
-                    <>
-                      <span className="opacity-40">/</span>
-                      <GitBranch className="h-3 w-3 shrink-0" />
-                      <span className="shrink-0">{project.source.baseBranch}</span>
-                    </>
-                  )}
-                  {project.projectPrUrl ? (
-                    <>
-                      <span className="opacity-30 mx-0.5">|</span>
-                      <a
-                        href={project.projectPrUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-0.5 text-primary hover:underline shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <GitPullRequest className="h-3 w-3" />
-                        <span>PR #{project.projectPrNumber}</span>
-                      </a>
-                    </>
-                  ) : project.projectBranch && project.source?.remoteType === 'none' ? (
-                    <>
-                      <span className="opacity-30 mx-0.5">|</span>
-                      <span className="flex items-center gap-0.5 shrink-0" title={`Results on branch: ${project.projectBranch}`}>
-                        <GitBranch className="h-3 w-3 text-emerald-500" />
-                        <span className="text-emerald-600 dark:text-emerald-400">{project.projectBranch}</span>
-                      </span>
-                    </>
-                  ) : null}
-                  <span className="opacity-30 mx-0.5">|</span>
-                </>
-              )}
-              <span className="truncate" title={project.workingDirectory || project.repository}>
-                {project.workingDirectory || project.repository}
-              </span>
-              {defaultMachine && (
-                <span className="opacity-60 shrink-0">
-                  ({defaultMachine.name || 'unknown'})
-                </span>
-              )}
-            </button>
+            <MachineWorkdirPill project={project} onClick={() => setRepoOpen(true)} />
 
-            {/* AI Agent selector */}
-            {providerIds.length > 0 && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-border hover:bg-muted transition-colors text-xs shrink-0 cursor-pointer">
-                    <Bot className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      {defaultProvider ? (PROVIDER_NAMES[defaultProvider] || defaultProvider) : "Auto"}
-                    </span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-48 p-1" align="start">
-                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">AI Agent</p>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors",
-                      !defaultProvider && "bg-accent/50"
-                    )}
-                    onClick={() => setDefaultProvider("")}
-                  >
-                    <span className="flex-1 text-left text-muted-foreground">Auto</span>
-                    {!defaultProvider && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </button>
-                  {providerIds.map((pid) => (
-                    <button
-                      key={pid}
-                      type="button"
+            {/* Open in editor: immediately after workdir */}
+            {project.workingDirectory && (
+              <div className="flex items-center shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={editorUrl ?? '#'}
                       className={cn(
-                        "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors",
-                        pid === defaultProvider && "bg-accent/50"
+                        "flex items-center justify-center h-6 w-6 rounded-l-full border border-border hover:bg-muted transition-colors",
+                        !editorUrl && "pointer-events-none opacity-40"
                       )}
-                      onClick={() => setDefaultProvider(pid)}
                     >
-                      <span className="flex-1 text-left font-medium">{PROVIDER_NAMES[pid] || pid}</span>
-                      {pid === defaultProvider && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <AppIcon appId={selectedApp} className="h-4 w-4" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent>Open in {selectedAppDef.label}</TooltipContent>
+                </Tooltip>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center justify-center h-6 w-5 rounded-r-full border border-l-0 border-border hover:bg-muted transition-colors cursor-pointer">
+                      <ChevronLeft className="h-3 w-3 text-muted-foreground rotate-[270deg]" />
                     </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-52 p-1" align="start" side="top">
+                    {EDITOR_APPS.map((app) => (
+                      <button
+                        key={app.id}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors cursor-pointer",
+                          app.id === selectedApp && "bg-accent/50"
+                        )}
+                        onClick={() => handleSelectApp(app.id)}
+                      >
+                        <AppIcon appId={app.id} className="h-4 w-4" />
+                        <span className="flex-1 text-left font-medium">{app.label}</span>
+                        {app.id === selectedApp && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </button>
+                    ))}
+                    <div className="border-t border-border mt-1 pt-1 px-3 py-2 flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Remote (SSH)</span>
+                      <button
+                        type="button"
+                        onClick={() => setUseRemote(!useRemote)}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                          useRemote ? "bg-primary" : "bg-muted-foreground/30"
+                        )}
+                      >
+                        <span className={cn(
+                          "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow-sm",
+                          useRemote ? "translate-x-[18px]" : "translate-x-[3px]"
+                        )} />
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             )}
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
+              <ProviderAgentPicker
+                providers={providerIds}
+                value={defaultProvider || ""}
+                onChange={(id) => setDefaultProvider(id)}
+                align="end"
+              />
               <ExecuteAllButton projectId={project.id} />
-
-              {/* Open in editor: icon button + dropdown */}
-              {project.workingDirectory && (
-                <div className="flex items-center">
-                  {/* Direct open button */}
-                  <a
-                    href={editorUrl ?? '#'}
-                    className={cn(
-                      "flex items-center justify-center h-7 w-7 rounded-l-md border border-border hover:bg-muted transition-colors",
-                      !editorUrl && "pointer-events-none opacity-40"
-                    )}
-                    title={`Open in ${selectedAppDef.label}`}
-                  >
-                    <AppIcon appId={selectedApp} className="h-4 w-4" />
-                  </a>
-                  {/* Dropdown chevron */}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button className="flex items-center justify-center h-7 w-5 rounded-r-md border border-l-0 border-border hover:bg-muted transition-colors cursor-pointer">
-                        <ChevronLeft className="h-3 w-3 text-muted-foreground rotate-[270deg]" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-52 p-1" align="end" side="top">
-                      {EDITOR_APPS.map((app) => (
-                        <button
-                          key={app.id}
-                          type="button"
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors cursor-pointer",
-                            app.id === selectedApp && "bg-accent/50"
-                          )}
-                          onClick={() => handleSelectApp(app.id)}
-                        >
-                          <AppIcon appId={app.id} className="h-4 w-4" />
-                          <span className="flex-1 text-left font-medium">{app.label}</span>
-                          {app.id === selectedApp && <Check className="h-3.5 w-3.5 text-primary" />}
-                        </button>
-                      ))}
-                      {/* Local/Remote toggle */}
-                      <div className="border-t border-border mt-1 pt-1 px-3 py-2 flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">Remote (SSH)</span>
-                        <button
-                          type="button"
-                          onClick={() => setUseRemote(!useRemote)}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
-                            useRemote ? "bg-primary" : "bg-muted-foreground/30"
-                          )}
-                        >
-                          <span className={cn(
-                            "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow-sm",
-                            useRemote ? "translate-x-[18px]" : "translate-x-[3px]"
-                          )} />
-                        </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              )}
             </div>
           </>
         ) : (
           <>
-            <button
-              onClick={() => setRepoOpen(true)}
-              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            >
-              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
-              <span>Set working directory</span>
-            </button>
+            <MachineWorkdirPill project={project} onClick={() => setRepoOpen(true)} />
             <div className="ml-auto shrink-0">
               <ExecuteAllButton projectId={project.id} />
             </div>
@@ -2122,10 +2028,7 @@ export function PlanView() {
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
-  const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-  const [inspectorOpen, setInspectorOpen] = useState(false)
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false)
-  const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
   const fastEdit = fastEditSetting
@@ -2140,8 +2043,6 @@ export function PlanView() {
       const activeStatuses = new Set(['in_progress', 'dispatched', 'completed', 'auto_verified'])
       const tab = activeStatuses.has(node.status) ? 'activity' : 'content'
       navigate(`/project/${id}/task/${node.id}?from=${from}&tab=${tab}`)
-    } else {
-      setSelectedNode(null)
     }
   }, [id, navigate, location.pathname, fastEdit])
 
@@ -2233,17 +2134,7 @@ export function PlanView() {
     }
   }, [location.pathname, id, navigate])
 
-  // Close detail panel when switching view modes.
-  // This effect legitimately syncs UI state (selectedNode) when the derived
-  // viewMode changes from URL navigation. The guard avoids no-op renders.
-  useEffect(() => { setSelectedNode(null) }, [viewMode, activeTab])
 
-  // Sync keyboard-nav focused node → inspector selected node
-  useEffect(() => {
-    if (!inspectorOpen || !focusedId) return
-    const node = planNodes.find((n) => n.id === focusedId)
-    if (node) setSelectedNode(node)
-  }, [focusedId, inspectorOpen, planNodes])
 
   // Keyboard shortcuts: 'i' to enter fast edit, 'Escape' to exit, 1-4 to switch views
   useEffect(() => {
@@ -2288,7 +2179,6 @@ export function PlanView() {
     if (!node) return
     const message = `Decompose @${node.title} into smaller sub-tasks with minimal overlap. Each sub-task should be agent-solvable in one session.`
     setChatInitialMessage(message)
-    setSelectedNode(null)
   }, [planNodes])
 
   // Auto-fetch file tree in the background when stale or missing
@@ -2333,13 +2223,6 @@ export function PlanView() {
     )
   }
 
-  const inspectorProps = selectedNode ? {
-    node: selectedNode,
-    project,
-    viewMode,
-    onClose: () => { setSelectedNode(null); setInspectorOpen(false) },
-    onNodeUpdate: setSelectedNode,
-  } : null
 
   return (
     <div className="flex h-dvh md:h-full flex-col">
@@ -2561,19 +2444,6 @@ export function PlanView() {
               </TooltipTrigger>
               <TooltipContent>Chat <kbd className="ml-1.5 px-1 rounded border border-white/20 dark:border-white/30 bg-white/10 dark:bg-white/15 font-mono text-[10px] text-inherit">C</kbd></TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={inspectorOpen ? "secondary" : "outline"}
-                  size="sm"
-                  onClick={() => { setInspectorOpen(!inspectorOpen); if (inspectorOpen) setSelectedNode(null) }}
-                  className="h-8 w-8 p-0 rounded-full"
-                >
-                  <Info className={cn("h-3.5 w-3.5", inspectorOpen && "text-primary")} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Node Inspector</TooltipContent>
-            </Tooltip>
           </div>
         )}
 
@@ -2746,20 +2616,6 @@ export function PlanView() {
             </div>
           </div>
 
-        {/* Node inspector — pushes content left, like chat panel */}
-        {inspectorOpen && chatPanelMode === 'hidden' && !isMobile && (
-          inspectorProps ? (
-            <NodeInspectorSidebar {...inspectorProps} />
-          ) : (
-            <div className="flex flex-col items-center justify-center border-l bg-card p-5 border-border w-[320px] shrink-0 text-muted-foreground text-sm">
-              <PanelRight className="h-8 w-8 mb-2 text-muted-foreground/30" />
-              <span>Use <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">K</kbd> to navigate</span>
-            </div>
-          )
-        )}
-        {inspectorOpen && inspectorProps && isMobile && (
-          <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />
-        )}
 
         {/* Chat panel — pushes content left, expands from right edge */}
         {chatPanelMode !== 'hidden' && !isMobile && (

@@ -26,8 +26,9 @@ export function getProjectGroupDescriptor(
   project: Pick<Project, "id" | "name" | "projectType">,
   hasPlanNodes?: boolean,
 ): ProjectGroupDescriptor {
-  // Node-based categorization: projects without plan nodes are "sessions" (like old playground)
-  const isSession = hasPlanNodes === false || (hasPlanNodes === undefined && project.projectType === "playground")
+  // A project is a "session" only when it's explicitly playground AND has no nodes.
+  // Manually-created 'default' projects without nodes still render as projects.
+  const isSession = project.projectType === "playground" && hasPlanNodes !== true
   if (isSession) {
     return {
       key: PLAYGROUND_PROJECT_GROUP_KEY,

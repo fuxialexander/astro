@@ -26,6 +26,21 @@ export type PluginCapability =
 
 // --- Plugin Manifest ---
 
+/**
+ * Permissions a plugin can declare. The Electron plugin host gates host-API
+ * calls against this list. Unknown permissions prompt the user.
+ */
+export type PluginPermission =
+  | 'storage'
+  | 'projects:read'
+  | 'plans:read'
+  | 'plans:write'
+  | 'tasks:dispatch'
+  | 'fs:read'
+  | 'fs:write'
+  | 'http:fetch'
+  | 'ui:contribute'
+
 export interface PluginManifest {
   id: string
   name: string
@@ -34,6 +49,18 @@ export interface PluginManifest {
   author?: string
   capabilities: PluginCapability[]
   configSchema?: Record<string, unknown>  // JSON Schema for plugin config
+  /**
+   * Phase 4+: the only supported runtime in the Electron shell is 'sandbox',
+   * which loads the plugin in a per-plugin utilityProcess. Optional for
+   * backwards compatibility with the legacy renderer-loaded plugin store.
+   */
+  runtime?: 'sandbox'
+  /** Entry file relative to the plugin directory. Required when runtime='sandbox'. */
+  entry?: string
+  /** Declared permissions; gated by the host on every host-API call. */
+  permissions?: PluginPermission[]
+  /** Optional plugin UI shell loaded into a sandboxed <webview>. */
+  ui?: { webviewPath: string }
 }
 
 // --- Plugin Context (passed to activate) ---

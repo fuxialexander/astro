@@ -139,9 +139,9 @@ export function RunningSection() {
         )}
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="@container flex flex-col @lg:flex-row gap-6">
         {machineFleetData.length > 0 && (
-          <div className="shrink-0 md:w-[120px]">
+          <div className="shrink-0 @lg:w-[120px]">
             <h3 className="text-[10px] font-semibold tracking-wider text-muted-foreground/40 uppercase mb-3">Fleet</h3>
             <MachineFleetPanel machines={machineFleetData} />
           </div>

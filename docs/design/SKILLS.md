@@ -190,7 +190,7 @@ CREATE TABLE skills (
 | `builtin` | `skills/` directory, seeded on startup | No | No | Global (NULL team/author) |
 | `workspace` | User-created via paste or UI | Yes | Yes | Team-scoped |
 | `clawhub` | Imported from ClawHub registry | Yes | Yes | Team-scoped |
-| `plugin` | Contributed by Tauri plugins | Yes | Yes | Team-scoped |
+| `plugin` | Contributed by Electron plugins | Yes | Yes | Team-scoped |
 | `user` | Legacy per-user skills | Yes | Yes | Team-scoped |
 
 ---

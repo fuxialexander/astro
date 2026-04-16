@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
+import { usePaneSize } from "@/components/panes/use-pane-size"
 import { Link, useNavigate } from "react-router"
 import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -79,6 +80,9 @@ export function InboxHome() {
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; url: string; mimeType: string; size: number }>>([])
   const [pendingUploads, setPendingUploads] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const { density: toolbarDensity } = usePaneSize(toolbarRef)
+  const showLabels = toolbarDensity !== 'compact'
   const [isDragOver, setIsDragOver] = useState(false)
 
   const uploadFiles = useCallback((fileList: File[]) => {
@@ -369,10 +373,10 @@ export function InboxHome() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-8 p-6 md:px-10 md:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
+    <div className="@container flex flex-col gap-8 p-6 @2xl:px-10 @2xl:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
       {/* Greeting */}
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl md:text-[28px] font-secondary font-light tracking-wide leading-tight">
+        <h1 className="text-2xl @xl:text-[28px] font-secondary font-light tracking-wide leading-tight">
           {greeting}{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
         </h1>
         <p className="text-[13px] text-muted-foreground/40 tracking-wide">{dateString}</p>
@@ -461,22 +465,22 @@ export function InboxHome() {
               e.target.value = ''
             }}
           />
-          <div className="flex items-center justify-between px-4 pb-3">
+          <div ref={toolbarRef} className="flex items-center justify-between px-4 pb-3">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
                 title="Attach files (images, documents, code — max 5MB)"
               >
                 <Paperclip className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">Attach</span>
+                {showLabels && <span>Attach</span>}
               </button>
               <button
                 type="button"
                 onClick={() => setSkillsOpen(true)}
                 className={cn(
-                  "flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border text-[11px] transition-colors cursor-pointer",
+                  "flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[11px] transition-colors cursor-pointer",
                   visionDoc.trim()
                     ? "border-primary/30 bg-primary/5 text-primary"
                     : "border-border hover:bg-muted text-muted-foreground"
@@ -484,17 +488,17 @@ export function InboxHome() {
                 title="Edit skill.md — context injected into every agent session"
               >
                 <FileText className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">skill.md</span>
+                {showLabels && <span>skill.md</span>}
               </button>
               {curatedExamples.length > 0 && (
                 <Popover open={examplesOpen} onOpenChange={setExamplesOpen}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 h-7 px-2 md:px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
                     >
                       <LayoutTemplate className="h-3.5 w-3.5" />
-                      <span className="hidden md:inline">Examples</span>
+                      {showLabels && <span>Examples</span>}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -567,7 +571,7 @@ export function InboxHome() {
                       )}
                     >
                       <ListTree className={cn("h-3.5 w-3.5", planMode && "text-blue-600 dark:text-blue-400")} />
-                      <span className="hidden md:inline">Plan</span>
+                      {showLabels && <span>Plan</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -591,7 +595,7 @@ export function InboxHome() {
                       )}
                     >
                       <Microscope className={cn("h-3.5 w-3.5", discoveryMode && "text-emerald-600 dark:text-emerald-400")} />
-                      <span className="hidden md:inline">Discovery</span>
+                      {showLabels && <span>Discovery</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -614,7 +618,7 @@ export function InboxHome() {
                       }`}
                     >
                       <Zap className={`h-3.5 w-3.5 ${playgroundYolo ? "fill-warning" : ""}`} />
-                      <span className="hidden md:inline">YOLO</span>
+                      {showLabels && <span>YOLO</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -633,8 +637,8 @@ export function InboxHome() {
                 ) : (
                   <Play className="h-3.5 w-3.5 fill-current" />
                 )}
-                <span className="hidden md:inline">{isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}</span>
-                {!isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans hidden md:inline">↵</kbd>}
+                {showLabels && <span>{isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}</span>}
+                {showLabels && !isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans">↵</kbd>}
               </Button>
             </div>
           </div>
@@ -748,7 +752,7 @@ export function InboxHome() {
               </Button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3 gap-3">
             {projectHealth.map(({ project, completed, inProgress, planned, awaiting, pruned, total, costUsd, velocityData }) => (
               <ProjectHealthCard
                 key={project.id}

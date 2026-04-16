@@ -220,7 +220,7 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-destructive hidden md:flex"
+              className="h-6 w-6 text-muted-foreground hover:text-destructive hidden @lg:flex"
               onClick={(e) => {
                 e.stopPropagation()
                 onRemove(machine.machineId)
@@ -719,35 +719,35 @@ export function Environments() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10 max-w-[1100px] mx-auto w-full">
+    <div className="@container flex flex-col gap-6 p-4 @2xl:p-8 @2xl:px-10 max-w-[1100px] mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
-          <p className="text-sm text-muted-foreground hidden md:block">
+          <p className="text-sm text-muted-foreground hidden @lg:block">
             Manage your connected machines and compute resources
           </p>
-          <p className="text-sm text-muted-foreground md:hidden">
+          <p className="text-sm text-muted-foreground @lg:hidden">
             {connectedCount} machines connected
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleRefresh} className="hidden md:flex">
+          <Button variant="outline" onClick={handleRefresh} className="hidden @lg:flex">
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
-          <Button onClick={() => setDialogOpen(true)} size="icon" className="md:hidden h-11 w-11 rounded-[22px]">
+          <Button onClick={() => setDialogOpen(true)} size="icon" className="@lg:hidden h-11 w-11 rounded-[22px]">
             <Plus className="h-5 w-5" />
           </Button>
-          <Button onClick={() => setDialogOpen(true)} className="hidden md:flex">
+          <Button onClick={() => setDialogOpen(true)} className="hidden @lg:flex">
             <Plus className="h-4 w-4" />
             {t('connect')}
           </Button>
         </div>
       </div>
 
-      {/* Stats Row - Desktop only */}
-      <div className="hidden md:grid grid-cols-4 gap-4">
+      {/* Stats Row — adapts to container width */}
+      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-3 @2xl:gap-4">
         <StatCard
           label="Total Machines"
           value={totalMachines}
@@ -781,7 +781,7 @@ export function Environments() {
       {/* Connected — only show when there are live relay machines */}
       {connectedLiveMachines.length > 0 && (
         <div className="flex flex-col gap-4">
-          <div className="hidden md:flex flex-col gap-1">
+          <div className="hidden @lg:flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <Globe className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-lg font-semibold">Connected</h2>
@@ -791,8 +791,8 @@ export function Environments() {
               Remote machines running the agent runner with an active relay connection. Tasks can be dispatched to these machines directly.
             </p>
           </div>
-          <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <p className="@lg:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
+          <div className="grid grid-cols-1 @lg:grid-cols-2 @2xl:grid-cols-3 gap-4">
             {connectedLiveMachines.map((machine) => (
               <ConnectedMachineCard
                 key={machine.machineId}
@@ -809,7 +809,7 @@ export function Environments() {
       {/* Registered (offline) — multi-tenant only */}
       {isMultiTenant && registeredMachines.length > 0 && (
         <div className="flex flex-col gap-4">
-          <div className="hidden md:flex flex-col gap-1">
+          <div className="hidden @lg:flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <Server className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-lg font-semibold">Registered</h2>
@@ -821,8 +821,8 @@ export function Environments() {
               Previously connected machines not currently online. Remove stale entries you no longer need.
             </p>
           </div>
-          <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Registered</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <p className="@lg:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Registered</p>
+          <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
             <RegisteredMachinesCard
               machines={registeredMachines}
               liveMachineIds={liveMachineIds}
@@ -834,7 +834,7 @@ export function Environments() {
 
       {/* Machine Instructions */}
       <div className="flex flex-col gap-4">
-        <div className="hidden md:flex flex-col gap-1">
+        <div className="hidden @lg:flex flex-col gap-1">
           <div className="flex items-center gap-3">
             <ScrollText className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">Machine Instructions</h2>
@@ -846,7 +846,7 @@ export function Environments() {
             Markdown documents that tell AI agents how to run computation on specific environments. Assign an instruction to a machine using the <ScrollText className="inline h-3 w-3" /> icon.
           </p>
         </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Machine Instructions</p>
+        <p className="@lg:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Machine Instructions</p>
 
         {/* Built-in presets */}
         {miPresets.length > 0 && (
@@ -1005,7 +1005,7 @@ export function Environments() {
       {/* Team Machines */}
       {showTeamMachines && isMultiTenant && (
         <div className="flex flex-col gap-4">
-          <div className="hidden md:flex flex-col gap-1">
+          <div className="hidden @lg:flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold">Team Machines</h2>
             </div>
@@ -1019,7 +1019,7 @@ export function Environments() {
 
       {/* Compute Backends */}
       <div className="flex flex-col gap-4">
-        <div className="hidden md:flex flex-col gap-1">
+        <div className="hidden @lg:flex flex-col gap-1">
           <div className="flex items-center gap-3">
             <Boxes className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">Compute Backends</h2>
@@ -1033,9 +1033,9 @@ export function Environments() {
             Execution environments detected by agent runners on each connected machine. Click any backend to see details and the AI context that gets injected into agent sessions.
           </p>
         </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
+        <p className="@lg:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
         {backendsByMachine.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
             {backendsByMachine.map((group) => (
               <LocalBackendsCard
                 key={group.machineId}

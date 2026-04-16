@@ -203,12 +203,12 @@ An audit of `docs/` found that the 2026-02-27 major documentation refresh brough
 | # | File | Issue | Fix |
 |---|------|-------|-----|
 | 28 | `docs/design/ARCHITECTURE.md` | Section 4.5 referenced global `~/.astro/worktrees/` | Fixed to `{projectDir}/.astro/worktrees/` (per WORKSPACE_V2.md, CURRENT_CONFLICT_VIEW #13) |
-| 29 | `docs/design/TAURI_APP.md` | Missing "PROPOSED" status banner | Added "PROPOSED -- Not yet implemented" banner |
+| 29 | `docs/design/TAURI_APP.md` | Missing "PROPOSED" status banner | Added "PROPOSED -- Not yet implemented" banner. **Resolved/superseded by #33**: the Tauri scaffold was removed and replaced with an Electron shell; `TAURI_APP.md` has been deleted and replaced with `ELECTRON_APP.md` (IMPLEMENTED). |
 | 30 | `docs/design/WORKSPACE_V2.md` | Status banner said "PARTIALLY IMPLEMENTED" but didn't reflect worktree location implementation | Updated to note per-project worktree location is implemented |
 
 ### Backups
 
-Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_TAURI_APP.md`, `bak_WORKSPACE_V2.md`, `bak_CURRENT_CONFLICT_VIEW.md`.
+Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_WORKSPACE_V2.md`, `bak_CURRENT_CONFLICT_VIEW.md`. (`bak_TAURI_APP.md` was deleted alongside `TAURI_APP.md` during the Tauri → Electron migration — see #33.)
 
 ---
 
@@ -222,20 +222,32 @@ Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_TA
 | Other issues (resolved) | 2 (#17, #18) |
 | Refresh robustness documentation (resolved) | 3 (#19, #20, #21) |
 | Documentation audit pass (resolved) | 9 (#22-#30 — IndexedDB refs, stale paths, missing banners) |
+| Desktop shell migration (resolved) | 1 (#33 — Tauri → Electron) |
 | Other issues (open) | 1 (#6 — production domain references) |
 | New subsystems without dedicated design docs (open) | 1 (#31 — connected accounts, plugin system, notifications) |
 | Team system design/code drift (open) | 1 (#32 — AUTH_AND_TEAMS.md partially ahead of code) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
 | **Total open** | **3** |
-| **Total resolved** | **29** |
+| **Total resolved** | **30** |
 
 ---
+
+### #33 — Desktop shell migrated from Tauri to Electron (resolved)
+
+The original desktop shell was built on Tauri 2 (`src-tauri/` — Rust host + Node.js sidecar). It was removed and replaced with an Electron shell under `electron/` (Node main process + `utilityProcess`-hosted server + typed IPC channels with Zod schemas). Consequences for docs:
+
+- `docs/design/TAURI_APP.md` deleted; replaced by `docs/design/ELECTRON_APP.md` (status: IMPLEMENTED).
+- `docs/design/bak_TAURI_APP.md` deleted.
+- `docs/index.md`, `docs/api.md`, `docs/websocket.md`, `ROADMAP.md` updated to reference Electron instead of Tauri where the reference is architectural.
+- `FRONTEND.md`, `SKILLS.md`, `PACKAGE_ARCHITECTURE.md`, `CLI_PACKAGE.md`, and `DESKTOP_UI_SPEC.md` updated in the same pass.
+
+Rust-native FS/terminal commands became typed IPC handlers in `electron/main/ipc/channels/`. The sidecar is now a child `utilityProcess` managed by `electron/main/services/server-process.ts` + `supervisor.ts`. The renderer-side detection global changed from `__TAURI__` to `window.astro` (see `src/lib/desktop-detect.ts`).
 
 ### #31 — New subsystems implemented post-2026-02-27 without dedicated design docs (open)
 
 Three subsystems are fully implemented but lack dedicated design docs:
 - **Connected Accounts** (`connected-accounts-store.ts`, `/api/connected-accounts`) — Slack, Telegram, GitHub Webhooks, Linear integrations. Architecture-level coverage in ARCHITECTURE.md/FRONTEND.md but no standalone doc.
-- **Plugin System** (`src/types/plugin.ts`, `plugin-store.ts`) — Browser plugin architecture. Covered conceptually in TAURI_APP.md but no implementation doc.
+- **Plugin System** (`src/types/plugin.ts`, `plugin-store.ts`) — Browser plugin architecture. Covered conceptually in ELECTRON_APP.md (plugin protocol, plugin-runtime utility process) but no standalone implementation doc.
 - **Notifications** (`notification-store.ts`, `/api/notifications`) — Persistent dismissible notifications distinct from toasts. No design doc.
 
 ### #32 — AUTH_AND_TEAMS.md partially ahead of implemented code (open)
@@ -266,5 +278,5 @@ Three subsystems are fully implemented but lack dedicated design docs:
 
 1. **IndexedDB references persist in technical docs long after removal from code.** Design docs were updated promptly (2026-02-27 refresh), but technical docs lagged. Consider adding a grep check for "IndexedDB" to CI to catch regressions.
 2. **Schema source-of-truth path** (`packages/core/src/db/schema.ts`) was incorrect in `database-schema.md`. This is a common issue when packages are extracted -- all references to the old path need updating.
-3. **Design doc status banners** are inconsistent. TAURI_APP.md was missing one while all other aspirational docs had them. A checklist for new design docs would help.
+3. **Design doc status banners** are inconsistent. The old TAURI_APP.md was missing one while all other aspirational docs had them; its replacement ELECTRON_APP.md ships with a "IMPLEMENTED" banner. A checklist for new design docs would help.
 4. **Codebase has grown significantly since 2026-03-01 audit** (commits through #804). New features (background execution monitoring, project page UX, approval routing) may have design drift. Run another audit pass when documentation effort is prioritized.

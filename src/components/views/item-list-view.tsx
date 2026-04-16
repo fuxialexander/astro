@@ -421,12 +421,12 @@ export function ItemListView<T>({
         }}
         onClick={() => onItemClick?.(item)}
         className={cn(
-          "flex flex-wrap sm:flex-nowrap items-center border-b border-border py-2.5 hover:bg-muted/30 transition-all duration-200",
-          withDnd ? "px-1 sm:px-1" : "px-6",
+          "flex flex-wrap sm:flex-nowrap items-center py-2 hover:bg-muted/40 rounded-md transition-colors duration-150 mx-2",
+          withDnd ? "px-1 sm:px-1" : "px-4",
           onItemClick && "cursor-pointer",
-          indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "pl-12",
+          indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "pl-10",
           isSelected && "bg-primary/5",
-          isFocused && "bg-accent/40 border-l-2 border-l-primary",
+          isFocused && "bg-accent/40 ring-1 ring-inset ring-primary/30",
           getItemClass?.(item),
           itemClassName,
         )}
@@ -485,7 +485,7 @@ export function ItemListView<T>({
         <div key={group.key}>
           {/* Group header */}
           {showGroupHeaders && hasMultipleGroups && (
-            <div className={cn("flex items-center gap-2 bg-muted px-6 h-8 w-full", group.headerClassName)}>
+            <div className={cn("flex items-center gap-2 px-6 pt-5 pb-1.5 w-full", group.headerClassName)}>
               {selectable && (
                 <div className="w-10 shrink-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                   <Checkbox
@@ -499,12 +499,12 @@ export function ItemListView<T>({
               <button
                 type="button"
                 onClick={() => toggleGroup(group.key)}
-                className="flex items-center gap-2 flex-1 text-left cursor-pointer hover:bg-muted/80 transition-colors"
+                className="flex items-center gap-2 flex-1 text-left cursor-pointer transition-colors"
               >
-                <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isCollapsed && "rotate-90")} />
+                <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
                 {group.icon}
-                <span className="text-sm font-medium">{group.label}</span>
-                <span className="text-[13px] text-muted-foreground">{group.items.length}</span>
+                <span className="text-[13px] font-semibold text-primary/80">{group.label}</span>
+                <span className="text-xs text-muted-foreground/50">{group.items.length}</span>
                 {group.meta}
               </button>
             </div>
@@ -573,7 +573,7 @@ export function ItemListView<T>({
     <>
       {/* Batch action bar */}
       {someSelected && resolvedBatchActions && resolvedBatchActions.length > 0 && (
-        <div className="flex items-center gap-3 border-b border-border bg-muted/50 px-6 h-10 shrink-0">
+        <div className="flex items-center gap-3 border-b border-border/40 bg-muted/30 px-6 h-10 shrink-0">
           <span className="text-xs font-medium text-muted-foreground">
             {selected.size} selected
           </span>
@@ -605,7 +605,7 @@ export function ItemListView<T>({
       )}
 
       {/* Column headers */}
-      <div className="flex items-center border-b border-border px-6 h-9 shrink-0">
+      <div className="flex items-center border-b border-border/40 px-6 h-9 shrink-0">
         {selectable && (
           <div className="w-10 shrink-0 flex items-center justify-center">
             <Checkbox

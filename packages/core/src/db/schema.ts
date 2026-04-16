@@ -1159,3 +1159,8 @@ export const githubSyncLog = pgTable('github_sync_log', {
   index('github_sync_log_project_id_idx').on(table.projectId),
   index('github_sync_log_created_at_idx').on(table.createdAt),
 ])
+
+// ── References ───────────────────────────────────────────────────────
+// References are currently stored in the projects.references JSONB field.
+// A standalone references table with proper normalization, team-scoping,
+// and RLS is planned for a future migration. See docs/design/DATA_MODEL.md.

@@ -21,7 +21,8 @@ export async function runMigrations(migrationsFolder?: string) {
   console.log('[db] Running Drizzle migrations against PGlite...')
   const { migrate } = await import('drizzle-orm/pglite/migrator')
   const { db } = await import('./index.js')
+  const folder = migrationsFolder ?? process.env.ASTRO_MIGRATIONS_FOLDER ?? './drizzle'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await migrate(db as any, { migrationsFolder: migrationsFolder ?? './drizzle' })
+  await migrate(db as any, { migrationsFolder: folder })
   console.log('[db] PGlite migrations complete')
 }

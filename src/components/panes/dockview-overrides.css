@@ -1,0 +1,183 @@
+/* ─── Shared theme variables ─────────────────────────────────────────────── */
+.dockview-theme-light,
+.dockview-theme-dark {
+  --dv-paneview-active-outline-color: var(--ring);
+  --dv-drag-over-background-color: var(--accent);
+  --dv-drag-over-border-color: var(--primary);
+  --dv-tabs-container-scrollbar-color: var(--border);
+  --dv-scrollbar-background-color: var(--border);
+  --dv-icon-hover-background-color: var(--accent);
+  --dv-floating-box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.15);
+
+  /* Group / panel backgrounds */
+  --dv-group-view-background-color: var(--background);
+  --dv-tabs-and-actions-container-background-color: var(--background);
+
+  /* Compact 30px tab bar — matches Claude Code panel header height */
+  --dv-tabs-and-actions-container-height: 30px;
+
+  /* Active tab: slightly elevated background */
+  --dv-activegroup-visiblepanel-tab-background-color: var(--muted);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+
+  /* No divider lines between tabs */
+  --dv-tab-divider-color: transparent;
+
+  /* Tab text colors */
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+
+  /* Panel separators */
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+}
+
+/* ─── Group / dockview root backgrounds ─────────────────────────────────── */
+.dockview-theme-light .dv-groupview,
+.dockview-theme-dark .dv-groupview,
+.dockview-theme-light .dv-dockview,
+.dockview-theme-dark .dv-dockview,
+.dockview-theme-light .dv-groupview > .dv-content-container,
+.dockview-theme-dark .dv-groupview > .dv-content-container,
+.dockview-theme-light .dv-pane-container,
+.dockview-theme-dark .dv-pane-container,
+.dockview-theme-light .dv-pane-container .dv-view,
+.dockview-theme-dark .dv-pane-container .dv-view,
+.dockview-theme-light .dv-pane-container .dv-pane,
+.dockview-theme-dark .dv-pane-container .dv-pane {
+  background-color: var(--background) !important;
+  color: var(--foreground);
+}
+
+/* ─── Tab bar ────────────────────────────────────────────────────────────── */
+.dockview-theme-light .dv-tabs-and-actions-container,
+.dockview-theme-dark .dv-tabs-and-actions-container {
+  background-color: var(--background) !important;
+  border-bottom: 1px solid var(--border);
+  /* Remove any padding so tabs sit flush */
+  padding: 0;
+}
+
+.dockview-theme-light .dv-tabs-container,
+.dockview-theme-dark .dv-tabs-container,
+.dockview-theme-light .dv-pane-container .dv-view .dv-default-header,
+.dockview-theme-dark .dv-pane-container .dv-view .dv-default-header {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+}
+
+/* ─── Active tab — highlighted ───────────────────────────────────────────── */
+.dockview-theme-light .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab,
+.dockview-theme-dark .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab,
+.dockview-theme-light .dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab,
+.dockview-theme-dark .dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
+  background-color: var(--muted) !important;
+  color: var(--foreground) !important;
+  border-radius: 4px 4px 0 0;
+}
+
+/* ─── Inactive tab ───────────────────────────────────────────────────────── */
+.dockview-theme-light .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab,
+.dockview-theme-dark .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab,
+.dockview-theme-light .dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab,
+.dockview-theme-dark .dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab {
+  background-color: transparent !important;
+  color: var(--muted-foreground) !important;
+}
+
+/* ─── Default tab content (text + close button) ──────────────────────────── */
+.dockview-theme-light .dv-tab .dv-default-tab,
+.dockview-theme-dark .dv-tab .dv-default-tab,
+.dockview-theme-light .dv-tabs-overflow-dropdown-default,
+.dockview-theme-dark .dv-tabs-overflow-dropdown-default {
+  color: inherit !important;
+}
+
+/* Compact the built-in default tab's internal padding if used */
+.dockview-theme-light .dv-tab .dv-default-tab-content,
+.dockview-theme-dark .dv-tab .dv-default-tab-content {
+  font-size: 11px;
+  padding: 0 10px;
+}
+
+/* Make the built-in close button match overall style */
+.dockview-theme-light .dv-tab .dv-default-tab .dv-default-tab-action,
+.dockview-theme-dark .dv-tab .dv-default-tab .dv-default-tab-action {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.dockview-theme-light .dv-tab:hover .dv-default-tab .dv-default-tab-action,
+.dockview-theme-dark .dv-tab:hover .dv-default-tab .dv-default-tab-action,
+.dockview-theme-light .dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action,
+.dockview-theme-dark .dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action {
+  opacity: 0.6;
+}
+.dockview-theme-light .dv-tab:hover .dv-default-tab .dv-default-tab-action:hover,
+.dockview-theme-dark .dv-tab:hover .dv-default-tab .dv-default-tab-action:hover {
+  opacity: 1;
+}
+
+/* ─── Pane body background ───────────────────────────────────────────────── */
+.dockview-theme-light .dv-pane-container .dv-pane .dv-pane-body,
+.dockview-theme-dark .dv-pane-container .dv-pane .dv-pane-body {
+  background: var(--background) !important;
+}
+
+/* ─── Panel group border (the outer container) ───────────────────────────── */
+.dockview-theme-light .dv-groupview,
+.dockview-theme-dark .dv-groupview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Remove double borders when groups are adjacent */
+.dockview-theme-light .dv-dockview > .dv-split-view-container .dv-groupview,
+.dockview-theme-dark .dv-dockview > .dv-split-view-container .dv-groupview {
+  border: none;
+  border-radius: 0;
+}
+
+/* Keep a clean separator between panels */
+.dockview-theme-light .dv-sash,
+.dockview-theme-dark .dv-sash {
+  background-color: var(--border) !important;
+}
+.dockview-theme-light .dv-sash:hover,
+.dockview-theme-dark .dv-sash:hover {
+  background-color: var(--primary) !important;
+  opacity: 0.4;
+}
+
+/* ─── Void drop area (empty background) ─────────────────────────────────── */
+.dockview-theme-light .dv-void-container,
+.dockview-theme-dark .dv-void-container {
+  background: var(--background) !important;
+}
+
+/* ─── Actions container (right side of tab bar) ──────────────────────────── */
+.dockview-theme-light .dv-right-actions-container,
+.dockview-theme-dark .dv-right-actions-container {
+  background: var(--background) !important;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  gap: 2px;
+}
+
+/* ─── Suppress transitions during live panel resize ─────────────────────── */
+.dockview-live-resize .dv-pane-container.dv-animated .dv-view,
+.dockview-live-resize .dv-split-view-container.dv-animation .dv-view,
+.dockview-live-resize .dv-split-view-container.dv-animation .dv-sash,
+.dockview-live-resize .dv-tabs-container,
+.dockview-live-resize .dv-scrollable .dv-scrollbar {
+  transition: none !important;
+  animation: none !important;
+  will-change: auto !important;
+  transform: none !important;
+}

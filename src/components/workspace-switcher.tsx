@@ -151,7 +151,7 @@ export function WorkspaceSwitcher({ collapsed = false, iconOnly = false }: { col
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <button className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted/50 transition-colors">
+                <button className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06] transition-colors">
                   {switching ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" /> : triggerIcon}
                 </button>
               </PopoverTrigger>

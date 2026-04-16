@@ -1155,7 +1155,7 @@ All library utilities live in `src/lib/`. These are non-React utility modules us
 | `plugin-context.ts` | Plugin execution context: provides plugins with access to stores, API clients, and UI hooks. |
 | `skill-loader.ts` | Skill loading and discovery from registered skill sources. |
 | `skill-parser.ts` | Skill definition parsing. |
-| `skill-provider.ts` | Skill provider abstraction: `createSkillProvider()` for runtime skill injection. Also includes Tauri detection (`isTauri()`). |
+| `skill-provider.ts` | Skill provider abstraction: `createSkillProvider()` for runtime skill injection. Uses `isDesktop()` from `src/lib/desktop-detect.ts` to select the Electron-backed provider in the desktop shell. |
 
 ### UI Utilities
 
