@@ -464,7 +464,7 @@ The core ~8 tools that every coding agent needs. These are the minimum viable se
 
 #### MCP Bridge
 
-External tools connect via MCP servers, following the existing pattern in `server/lib/mcp/astro-tools-server.ts`. The tool registry unifies built-in and MCP tools into a single namespace:
+External tools connect via MCP servers configured per agent-runner (see `packages/agent-runner/src/mcp/server.ts` for the attach-bridge example). The tool registry unifies built-in and MCP tools into a single namespace:
 
 ```typescript
 export interface ToolRegistry {
@@ -812,7 +812,7 @@ Phase 4 can start in parallel with Phase 3 since the proxy is independent of con
 | `packages/agent-runner/src/lib/worktree.ts` | Git worktree isolation (reusable) |
 | `packages/agent-runner/src/lib/workdir-safety.ts` | Working directory safety checks (reusable) |
 | `packages/core/src/db/schema.ts` | `streaming_events` table schema (training data source) |
-| `server/lib/mcp/astro-tools-server.ts` | MCP server for `ask_user_question` approval tool |
+| `packages/agent-runner/src/providers/claude-sdk-adapter.ts` | `canUseTool` hook intercepts `AskUserQuestion` for dynamic approvals |
 | `server/lib/dispatch/` | Dispatch queue, machine selection, result routing |
 | `server/lib/streaming-event-log.ts` | Persists streaming events to database |
 

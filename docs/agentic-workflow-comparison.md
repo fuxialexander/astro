@@ -135,7 +135,8 @@ Steering (mid-execution):
 
 Approval Flow:
   Agent needs decision
-    --> MCP ask_user_question tool
+    --> Claude SDK AskUserQuestion tool
+    --> canUseTool hook in agent-runner adapter
     --> POST /api/dispatch/request-dynamic-approval
     --> SSE approval.requested --> UI shows card
     --> User responds --> POST /api/dispatch/approval

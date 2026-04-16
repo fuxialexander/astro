@@ -180,32 +180,25 @@ Status: completed
 - If a referenced task has no output (not yet run, failed, pruned), include
   only its title, description, and status — the agent can note the gap
 
-### 1.5 MCP Tool
+### 1.5 CLI Command
 
-Add a `link_task` tool to `server/lib/mcp/astro-tools-server.ts`:
+Add a `task link` subcommand to `packages/cli/src/commands/task.ts` so agents
+can create cross-project references via the same astro-cli surface they use
+for every other mutation:
 
-```typescript
-{
-  name: 'link_task',
-  description: 'Create a cross-project reference from the current task to a task in another project. ' +
-    'This makes the referenced task\'s output available as context. ' +
-    'Use query_projects and query_plan to discover linkable tasks first.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      targetProjectId: { type: 'string', description: 'Project ID of the task to reference' },
-      targetNodeId: { type: 'string', description: 'Node ID of the task to reference' },
-      label: { type: 'string', description: 'Human-readable label for this reference (e.g., "clustering results")' }
-    },
-    required: ['targetProjectId', 'targetNodeId']
-  }
-}
+```bash
+astro-cli task link \
+  --source-node-id <nodeId> \
+  --target-project-id <projectId> \
+  --target-node-id <nodeId> \
+  --label "clustering results" \
+  --json
 ```
 
-Agents can discover what to link by using existing `query_projects` +
-`query_plan` tools, then create references programmatically. This is useful
-during plan generation: the AI can search for relevant completed tasks across
-projects and auto-link them.
+Agents discover what to link with existing commands (`project list`,
+`plan tree`), then call `task link` programmatically. This is useful during
+plan generation: the AI can search for relevant completed tasks across
+projects and auto-link them without needing a second mutation channel.
 
 ### 1.6 UI
 
@@ -367,47 +360,24 @@ The Overleaf repo becomes the working directory. The agent writes `.tex` files,
 and pushes are handled either:
 
 - **Automatically** at task completion (if `autoSync: true`)
-- **Via MCP tool** (agent calls `sync_to_overleaf`)
+- **Via astro-cli** (agent calls `astro-cli overleaf sync`)
 - **Manually** by the user from the UI
 
-### 2.4 MCP Tools
+### 2.4 CLI Commands
 
-Two new tools for agents:
+Two new subcommands for agents, added to `packages/cli/src/commands/overleaf.ts`:
 
-```typescript
-// server/lib/mcp/astro-tools-server.ts — new tools
+```bash
+# Push local changes to the connected Overleaf project. Commits all modified
+# .tex, .bib, and image files, then pushes. Call after writing LaTeX files.
+astro-cli overleaf sync \
+  --commit-message "<message>" \
+  [--file <path>]... \
+  --json
 
-{
-  name: 'overleaf_sync',
-  description: 'Push local changes to the connected Overleaf project. ' +
-    'Commits all modified .tex, .bib, and image files, then pushes to Overleaf. ' +
-    'Call this after writing or modifying LaTeX files.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      commitMessage: {
-        type: 'string',
-        description: 'Git commit message describing the changes'
-      },
-      files: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Specific files to stage (default: all modified files)'
-      }
-    },
-    required: ['commitMessage']
-  }
-}
-
-{
-  name: 'overleaf_pull',
-  description: 'Pull latest changes from Overleaf. ' +
-    'Use this before writing to avoid conflicts with edits made in Overleaf\'s editor.',
-  inputSchema: {
-    type: 'object',
-    properties: {}
-  }
-}
+# Pull latest changes from Overleaf. Use before writing to avoid conflicts
+# with edits made in Overleaf's editor.
+astro-cli overleaf pull --json
 ```
 
 **Implementation in the backend:**
@@ -598,7 +568,7 @@ USER ACTIONS                          SYSTEM ACTIONS
 | `src/types/index.ts` | Add `TaskReference` interface, `references` field to `PlanNode` |
 | `src/stores/plan-store.ts` | Add `getBacklinksForNode()`, handle references in CRUD |
 | `server/lib/dispatch/context-assembler.ts` | Add `gatherReferenceOutputs()`, inject into prompt |
-| `server/lib/mcp/astro-tools-server.ts` | Add `link_task` MCP tool |
+| `packages/cli/src/commands/task.ts` | Add `astro-cli task link` subcommand |
 | `src/components/plan-graph/task-node.tsx` | Show reference indicator on nodes |
 | New: `src/components/task-detail/references-section.tsx` | References list + add picker |
 
@@ -629,14 +599,14 @@ USER ACTIONS                          SYSTEM ACTIONS
 
 ### Phase 4: Overleaf Sync Engine
 
-**Scope:** Git clone/pull/push, MCP tools, workspace integration
+**Scope:** Git clone/pull/push, CLI commands, workspace integration
 **Files to create/modify:**
 
 | File | Change |
 |------|--------|
 | New: `server/lib/overleaf/sync.ts` | Git operations (clone, pull, push, conflict detection) |
 | New: `server/lib/overleaf/credential-helper.ts` | Ephemeral Git credential injection |
-| `server/lib/mcp/astro-tools-server.ts` | Add `overleaf_sync` and `overleaf_pull` tools |
+| New: `packages/cli/src/commands/overleaf.ts` | Add `astro-cli overleaf sync` and `overleaf pull` subcommands |
 | `server/lib/dispatch/dispatch-engine.ts` | Clone/pull Overleaf repo during workspace setup |
 
 ### Phase 5: Polish
@@ -656,9 +626,9 @@ USER ACTIONS                          SYSTEM ACTIONS
 ### Credential Isolation
 
 - Overleaf tokens are **never exposed to agents**. The backend handles all Git
-  operations via the MCP tool layer. The agent calls `overleaf_sync`; the
-  backend fetches the token from encrypted storage and injects it via a
-  temporary Git credential helper.
+  operations. The agent calls `astro-cli overleaf sync`, which hits an
+  authenticated backend endpoint; the backend fetches the token from encrypted
+  storage and injects it via a temporary Git credential helper.
 - Tokens are encrypted at rest using Web Crypto API (AES-GCM), matching the
   existing `api-keys-store` pattern.
 - In local mode, tokens are stored in IndexedDB (single-user, no encryption
