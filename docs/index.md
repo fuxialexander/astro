@@ -27,7 +27,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 | [REFRESH_ROBUSTNESS](./design/REFRESH_ROBUSTNESS.md) | Page-refresh recovery: two-layer architecture, data lifecycle on reset |
 | [FRONTEND_EPHEMERAL_CACHE](./design/FRONTEND_EPHEMERAL_CACHE.md) | Ephemeral auto-fetch for machine-derived metadata (file trees, skills) |
 | [PACKAGE_ARCHITECTURE](./design/PACKAGE_ARCHITECTURE.md) | Monorepo package structure: core, cli, server, agent-runner, desktop |
-| [TAURI_APP](./design/TAURI_APP.md) | Tauri desktop app vision, plugin system architecture, migration path |
+| [ELECTRON_APP](./design/ELECTRON_APP.md) | Electron desktop app architecture and IPC surface |
 | [AGENTIC_WORKFLOW](./design/AGENTIC_WORKFLOW.md) | Agentic workflow: context flow, observability, event streaming, token budgets |
 | [CURRENT_CONFLICT_VIEW](./design/CURRENT_CONFLICT_VIEW.md) | Known conflicts between design and code |
 

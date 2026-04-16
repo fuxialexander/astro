@@ -50,7 +50,7 @@ Terminal
 
 ### Key Design Decisions
 
-1. **No `serve` command**: The Hono backend is not bundled. Dispatch calls the deployed server API. A future Tauri app will use IPC directly, not Hono as sidecar (see `TAURI_APP.md`).
+1. **No `serve` command**: The Hono backend is not bundled. Dispatch calls the deployed server API. The Electron desktop app hosts the Hono server as a `utilityProcess` sidecar and talks to it over `127.0.0.1` rather than bundling it into the CLI (see `ELECTRON_APP.md`).
 
 2. **Server URL defaults to production**: `https://astro-api.fuxialexander.work`. Overridable via `--server-url` flag, `ASTRO_SERVER_URL` env var, or `~/.astro/config.json`.
 

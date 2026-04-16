@@ -323,7 +323,7 @@ All auth required.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/skills` | List all skills with eligibility |
-| POST | `/skills/register` | Bulk register skills (relay/Tauri) |
+| POST | `/skills/register` | Bulk register skills (relay/desktop) |
 | POST | `/skills/install` | Install from ClawHub (501 stub) |
 | DELETE | `/skills/:name` | Remove skill |
 | PUT | `/skills/:name/config` | Update skill config |
@@ -517,12 +517,12 @@ Change Data Capture subscriptions for multi-device sync:
 
 Current status of API capabilities needed for each client platform:
 
-| Capability | Web | CLI | Desktop (Tauri) | Mobile | Status |
+| Capability | Web | CLI | Desktop (Electron) | Mobile | Status |
 |------------|-----|-----|-----------------|--------|--------|
 | Auth | Supabase JWT | Device auth | JWT / Device auth | JWT | Done |
 | Data CRUD | Full | Full (via device token) | Full | Full | Done |
 | SSE streaming | Full | Full | Full | Full | Done (robust: persistence + catch-up + merge) |
-| Relay dispatch | Full | Via agent-runner | Via Tauri plugin | N/A | Done |
+| Relay dispatch | Full | Via agent-runner | Via Electron IPC | N/A | Done |
 | API versioning | N/A | Critical | Critical | Critical | Missing |
 | Pagination | N/A | Needed | Needed | Needed | Missing |
 | Filtering/sorting | Partial | Needed | Needed | Needed | Partial |
@@ -573,4 +573,4 @@ Current status of API capabilities needed for each client platform:
 - [Relay Protocol](./relay/protocol.md) — WebSocket message types and flows
 - [Realtime Sync](./features/realtime-sync.md) — Supabase Realtime integration
 - [ARCHITECTURE](./design/ARCHITECTURE.md) — System structure and protocols
-- [TAURI_APP](./design/TAURI_APP.md) — Desktop app vision and plugin architecture
+- [ELECTRON_APP](./design/ELECTRON_APP.md) — Electron desktop app architecture and IPC surface

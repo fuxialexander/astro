@@ -254,7 +254,7 @@ export interface Reference {
   url?: string;
   /** URL to the PDF (may be open-access or Zotero-provided) */
   pdfUrl?: string;
-  /** Local filesystem path to downloaded PDF (Tauri desktop only) */
+  /** Local filesystem path to downloaded PDF (desktop app only) */
   pdfPath?: string;
   /** Whether the PDF has been downloaded locally */
   pdfDownloaded?: boolean;

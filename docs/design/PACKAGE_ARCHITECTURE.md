@@ -2,7 +2,7 @@
 
 ## Overview
 
-Astro is structured as a monorepo with a shared core library consumed by multiple frontends: CLI, web server, desktop app (Tauri), and MCP tool server. The guiding principle is that **orchestration logic is a library, not an HTTP server** — each deployment surface imports the same core and wraps it with its own I/O layer.
+Astro is structured as a monorepo with a shared core library consumed by multiple frontends: CLI, web server, desktop app (Electron), and MCP tool server. The guiding principle is that **orchestration logic is a library, not an HTTP server** — each deployment surface imports the same core and wraps it with its own I/O layer.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -17,12 +17,13 @@ Astro is structured as a monorepo with a shared core library consumed by multipl
   │         │     │  + Relay WS │    │               │  │             │
   └────┬────┘     └─────────────┘    └───────────────┘  └─────────────┘
        │
-       │  Tauri bundles everything as a single binary
+       │  Electron bundles everything as a single app
        │
   ┌────▼──────────────────────────────────────┐
-  │  Tauri App (desktop)                      │
-  │  Rust: window, tray, native fs, CLI detect│
-  │  Sidecar: core + cli + agent-runner + Hono│
+  │  Electron App (desktop)                   │
+  │  Main process: window, IPC, security      │
+  │  utilityProcess sidecar: core + Hono API  │
+  │  Renderer: src/ React app (same as web)   │
   └───────────────────────────────────────────┘
 ```
 
@@ -139,11 +140,11 @@ server/
 | Imports | @astro/core |
 | Filesystem access | None (post-refactor) |
 | Network access | Inbound (serves HTTP API + WebSocket relay) |
-| Deployment | Fly.io (production), localhost via `astro serve`, Tauri sidecar |
+| Deployment | Fly.io (production), localhost via `astro serve`, Electron `utilityProcess` sidecar |
 
 ### @astroanywhere/agent-runner
 
-Runs on user machines. Receives task dispatches, spawns agent processes (Claude Code, Codex), streams output, collects results. Can run standalone or embedded in Tauri.
+Runs on user machines. Receives task dispatches, spawns agent processes (Claude Code, Codex), streams output, collects results. Can run standalone or embedded in the Electron desktop app.
 
 ```
 packages/agent-runner/
@@ -169,7 +170,7 @@ packages/agent-runner/
 | Imports | @astro/core (for MCP tools) |
 | Filesystem access | Yes (worktrees, agent execution, file changes) |
 | Network access | Relay WS (receives dispatches), Claude API (via agent) |
-| Runs as | Standalone daemon, embedded in Tauri sidecar, on HPC/cloud/CI |
+| Runs as | Standalone daemon, on HPC/cloud/CI, or spawned by the Electron app |
 
 ### MCP Tool Server
 
@@ -181,40 +182,44 @@ Runs INSIDE agent execution sessions. Gives agents the ability to query and modi
 | Imports | @astro/core (direct, or via ASTRO_SERVER_URL HTTP) |
 | Filesystem | None (pure data operations) |
 
-### Tauri App (desktop)
+### Electron App (desktop)
 
-Single binary that provides GUI + CLI. Rust handles native concerns; a Node.js sidecar runs the TypeScript stack.
+Single app that wraps the existing `src/` React renderer and forks the Hono server as a `utilityProcess` sidecar. See [ELECTRON_APP.md](./ELECTRON_APP.md) for the full architecture and IPC surface.
 
 ```
-packages/desktop/
-├── src-tauri/
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   ├── src/
-│   │   ├── main.rs          # Entry: CLI args? → sidecar CLI : open window
-│   │   ├── lib.rs
-│   │   └── commands/
-│   │       ├── mod.rs
-│   │       ├── skills.rs    # scan_skills → native fs scan
-│   │       ├── plugins.rs   # scan_plugins → native fs scan
-│   │       ├── files.rs     # list_files → git ls-files
-│   │       └── watcher.rs   # file watchers for live reload
-│   └── icons/
-├── sidecar/                  # Bundled Node.js process
-│   └── (built from @astro/core + @astro/cli + agent-runner + Hono)
-└── package.json
+electron/
+├── main/
+│   ├── index.ts              # Main process entry: windows, CSP, supervisor
+│   ├── ipc/
+│   │   ├── broker.ts         # MessagePortMain stream fan-out
+│   │   ├── registry.ts       # ipcMain.handle registrar
+│   │   ├── channels/         # fs, git, terminal, pdf, dialog, editor, …
+│   │   └── schema/           # Zod schemas (source for codegen)
+│   ├── services/
+│   │   ├── server-process.ts # Forks server/dist/index.js as utilityProcess
+│   │   └── supervisor.ts     # Restart/backoff + lifecycle binding
+│   ├── security/
+│   │   ├── csp.ts            # CSP via webRequest headers
+│   │   └── plugin-protocol.ts # astro-plugin:// custom scheme
+│   ├── windows/              # Window factory + registry
+│   └── updater.ts            # electron-updater integration
+├── preload/main.ts           # contextBridge exposing window.astro
+├── plugin-runtime/           # Sandboxed plugin utility process
+├── workers/                  # Worker threads for git, fs, PTY
+├── forge.config.ts           # electron-forge packaging (dmg/zip/squirrel/deb/rpm)
+└── entitlements.mac.plist    # macOS hardened-runtime entitlements
 ```
 
-Rust only does 4 things:
+The Electron main process does four things:
 
-| Rust responsibility | Why not TypeScript |
-|--------------------|--------------------|
-| Window management | Native webview API |
-| System tray | OS-specific API |
-| Native filesystem (plugin/skill scan) | <1ms reads, file watchers |
-| CLI arg detection | Decides window vs CLI before Node starts |
+| Main-process responsibility | Notes |
+|--------------------------|-------|
+| Window management | BrowserWindow lifecycle, single-instance lock |
+| IPC registry | Typed Zod-validated channels, MessagePort streams |
+| Server sidecar supervision | utilityProcess fork + restart + health-check |
+| Security (CSP, plugin protocol, entitlements) | webRequest headers, custom scheme |
 
-Everything else runs in the Node.js sidecar.
+All business logic runs in either the server `utilityProcess` or worker threads — never on the main thread.
 
 ---
 
@@ -256,63 +261,50 @@ Terminal
 - `astro plan generate` calls Claude API directly
 - `astro task dispatch` optionally spawns agent-runner in-process
 
-### 3. Tauri Standalone (desktop, offline, single user)
+### 3. Electron Standalone (desktop, offline, single user)
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ Tauri binary                                          │
+│ Electron app                                          │
 │                                                       │
-│  Webview (React) ◀══IPC══▶ Rust (fs, tray)           │
+│  Renderer (React) ◀══IPC══▶ Main (windows, IPC)      │
 │                              │                        │
-│                     Node.js sidecar                   │
+│                     utilityProcess sidecar           │
 │                      ├─ @astro/core → PGlite          │
-│                      ├─ Hono (localhost)               │──▶ Claude API
-│                      └─ agent-runner                   │
+│                      ├─ Hono (127.0.0.1)              │──▶ Claude API
+│                      └─ agent-runner (local)          │
 │                           └─▶ Filesystem              │
 └──────────────────────────────────────────────────────┘
 ```
 
-- 1 binary, 0 network hops for local operations
+- 1 app, 0 network hops for local operations
 - Only outbound connection: Claude API
 - Full offline capability (except plan generation)
 
-### 4. Tauri + Remote Machines (desktop + HPC/cloud dispatch)
+### 4. Electron + Remote Machines (desktop + HPC/cloud dispatch)
 
 ```
 ┌──────────────────────────────────┐
-│ Tauri binary                      │       Relay          Remote Machine
+│ Electron app                      │       Relay          Remote Machine
 │                                   │        Server         (HPC/Cloud)
-│ Webview ◀══IPC══▶ Rust           │  WS   ┌───────┐  WS ┌────────────┐
+│ Renderer ◀══IPC══▶ Main           │  WS   ┌───────┐  WS ┌────────────┐
 │                     │             │──────▶│       │────▶│ Agent      │
-│              Node.js sidecar      │◀══════│       │◀════│ Runner     │
-│               ├─ core → PGlite   │       └───────┘     └────────────┘
-│               ├─ Hono            │──▶ Claude API
-│               ├─ agent-runner    │──▶ Supabase (sync)
-│               │   (local tasks)  │
-│               └─ relay client    │──▶ Relay (remote tasks only)
+│              utilityProcess       │◀══════│       │◀════│ Runner     │
+│               ├─ core → PGlite    │       └───────┘     └────────────┘
+│               ├─ Hono             │──▶ Claude API
+│               ├─ agent-runner     │──▶ Supabase (sync)
+│               │   (local tasks)   │
+│               └─ relay client     │──▶ Relay (remote tasks only)
 └──────────────────────────────────┘
 ```
 
 - Local tasks: 0 network hops (embedded agent-runner)
-- Remote tasks: Tauri → Relay → Remote Agent Runner
-- Hono backend on Fly.io is bypassed — Rust connects to Relay directly
+- Remote tasks: Electron sidecar → Relay → Remote Agent Runner
+- Hono backend on Fly.io is bypassed — the local sidecar connects to Relay directly
 
-### 5. Tauri CLI Mode (same binary, no window)
+### 5. CLI Mode (separate binary)
 
-```
-Terminal
-  │
-  ▼
-Tauri binary (Rust detects CLI args)
-  │
-  └──▶ Node.js sidecar
-         ├─ @astro/cli (handles command)
-         └─ @astro/core → PGlite
-```
-
-- Same binary as GUI — `astro` opens window, `astro plan list` runs CLI
-- Tauri v2 `plugin-cli` handles arg detection before window creation
-- CLI commands execute in the sidecar and exit
+Unlike the legacy Tauri plan, the Electron app does not double as the CLI. The CLI ships as a separate `@astroanywhere/cli` package (`astro-cli` binary) that imports `@astro/core` directly — see [CLI_PACKAGE.md](./CLI_PACKAGE.md). Users who want both install them independently.
 
 ---
 
@@ -330,13 +322,14 @@ Tauri binary (Rust detects CLI args)
 | Hono | Supabase | TCP/SSL | 10-50ms | Data persistence |
 | Browser | Supabase | WebSocket | 50-200ms | Realtime sync |
 
-### Tauri Mode
+### Electron Mode
 
 | From | To | Protocol | Latency | Used for |
 |------|----|----------|---------|----------|
-| Webview | Rust | Tauri IPC (OS pipes) | ~0.1ms | All frontend-backend calls |
-| Rust | Filesystem | Direct syscalls | <1ms | Skills, plugins, file trees |
-| Rust | Node sidecar | stdin/stdout | ~1ms | Business logic delegation |
+| Renderer | Main | contextBridge → ipcMain.handle | <1ms | FS, git, dialog, editor, server status |
+| Renderer | Main (streams) | MessagePortMain | <1ms | PTY output, watcher events |
+| Main | Worker threads | postMessage | <1ms | git, fs, PTY (node-pty) |
+| Main | Server utilityProcess | MessagePort + HTTP(127.0.0.1) | <1ms | Same as web fetch, but localhost |
 | Sidecar | PGlite | In-process FFI | <1ms | Data persistence |
 | Sidecar | Claude API | HTTPS + SSE | 100-500ms | Plan generation, chat |
 | Sidecar | Agent Runner | Process spawn + pipes | ~50ms startup | Local task execution |
@@ -359,9 +352,9 @@ Tauri binary (Rust detects CLI args)
 | Mode | Outbound connections | Can work offline? |
 |------|---------------------|-------------------|
 | CLI (local) | Claude API only | Yes (except plan generation) |
-| Tauri standalone | Claude API only | Yes (except plan generation) |
-| Tauri connected | Claude API + Supabase | Partial (queues syncs) |
-| Tauri team | Claude API + Supabase + Relay | Partial (queues syncs, no remote dispatch) |
+| Electron standalone | Claude API only | Yes (except plan generation) |
+| Electron connected | Claude API + Supabase | Partial (queues syncs) |
+| Electron team | Claude API + Supabase + Relay | Partial (queues syncs, no remote dispatch) |
 | Web local dev | Claude API | Yes (except plan generation) |
 | Web production | Claude API + Supabase | No (server must be reachable) |
 
@@ -405,7 +398,7 @@ These are HTTP/WebSocket-specific and remain in `server/`:
 
 ### What stays in src/
 
-The React frontend stays as-is. It calls HTTP API in web mode and Tauri IPC in desktop mode, selected by the `SkillProvider` pattern (already implemented).
+The React frontend stays as-is. It calls the HTTP API in web mode and the Electron IPC surface (via `src/lib/desktop-bridge.ts`) in desktop mode, gated at runtime by `isDesktop()` and the `SkillProvider` pattern.
 
 ### New packages to create
 
@@ -413,7 +406,7 @@ The React frontend stays as-is. It calls HTTP API in web mode and Tauri IPC in d
 |---------|----------|-------------|
 | `packages/core` | P0 — prerequisite for everything | Extract from server/ and src/ |
 | `packages/cli` | P1 — immediately useful | CLI frontend for planning |
-| `packages/desktop` | P2 — after core + cli work | Tauri wrapper |
+| `electron/` | Shipped | Electron shell (main, preload, workers, plugin-runtime) — see `ELECTRON_APP.md` |
 
 ---
 
@@ -425,7 +418,7 @@ npm install -g @astro/cli
 astro project create --name "my-project" --dir ./my-repo
 astro plan generate --project-id abc123
 
-# 2. Desktop app (Tauri binary, includes CLI)
+# 2. Desktop app (Electron — dmg/zip on macOS, Squirrel on Windows, deb/rpm on Linux)
 # macOS
 brew install astro
 # Linux
@@ -433,9 +426,8 @@ curl -fsSL https://astro.your-domain.com/install.sh | sh
 # Windows
 winget install astro
 
-# Both modes from one binary:
-astro                        # → opens GUI window
-astro plan generate --id x   # → runs CLI command, no window
+# The desktop app and the CLI are separate binaries — install both if you want both.
+# Desktop launches a window; `astro-cli` (from @astroanywhere/cli) is a pure CLI.
 
 # 3. Web mode (self-hosted, Docker or npm)
 npm run dev                  # Local development

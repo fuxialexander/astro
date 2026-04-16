@@ -1,8 +1,8 @@
 # Desktop UI Specification
 
-> **Status: PROPOSED** -- Defines the Codex-like desktop frontend for the Tauri app. No desktop-specific frontend code exists yet. The current Tauri shell loads the web app in a webview.
+> **Status: PARTIALLY IMPLEMENTED** -- Defines the Codex-like desktop frontend that runs inside the Electron shell. The pane system (`src/components/panes/`) and desktop-only components (`src/components/desktop/` — FileBrowser, TerminalTab, GitChangesPanel, QuickLook) are shipped; other panels described below remain aspirational.
 
-> **See also:** [TAURI_APP.md](./TAURI_APP.md) for the full Tauri architecture and migration path. [COLOR_PALETTE.md](./COLOR_PALETTE.md) for the design system color tokens. [FRONTEND.md](./FRONTEND.md) for the existing web frontend architecture.
+> **See also:** [ELECTRON_APP.md](./ELECTRON_APP.md) for the shell architecture and IPC surface. [COLOR_PALETTE.md](./COLOR_PALETTE.md) for the design system color tokens. [FRONTEND.md](./FRONTEND.md) for the existing web frontend architecture.
 
 > **Reference:** [OpenAI Codex](https://developers.openai.com/codex/app) for the conversational coding UX pattern this spec draws from.
 
@@ -248,7 +248,7 @@ Renders file diffs with syntax highlighting. Supports unified and side-by-side m
 
 ### 5. TerminalPanel
 
-Embedded terminal emulator using xterm.js, connected to a Rust PTY via Tauri events.
+Embedded terminal emulator using xterm.js, connected to a `node-pty` PTY running in an Electron worker thread. The renderer talks to it through the typed IPC surface and receives output over the stream broker (`MessagePortMain`).
 
 **Props:**
 - `workdir: string` -- working directory for the terminal session
@@ -256,19 +256,19 @@ Embedded terminal emulator using xterm.js, connected to a Rust PTY via Tauri eve
 
 **Communication flow:**
 ```
-xterm.js (browser)
+xterm.js (renderer)
     |  onData callback
     v
-invoke('terminal_write', { id, data })
-    |  Tauri IPC
+window.astro.invoke('terminal:write', { id, data })
+    |  contextBridge -> ipcMain.handle
     v
-Rust: write to PTY fd
+Worker thread: write to node-pty fd
     |  PTY output
     v
-Tauri event: 'terminal-output-{id}'
-    |  Event listener
+Stream broker publishes 'terminal:<id>:data'
+    |  MessagePort (no ipcMain round-trip)
     v
-xterm.js: terminal.write(data)
+window.astro.streams.subscribe(...) -> xterm.write(data)
 ```
 
 **Features:**
@@ -472,54 +472,33 @@ The desktop app uses the system font stack for maximum native feel:
 
 ## Project Structure
 
+The desktop UI ships inside the same `src/` tree as the web build. Desktop-only modules live under:
+
 ```
-src-tauri/
-  frontend/                    # Desktop-specific frontend (Phase 2)
-    index.html
-    src/
-      main.tsx                 # Entry point
-      App.tsx                  # Root layout (three-panel)
-      components/
-        layout/
-          ThreePanel.tsx       # Main layout container
-          ResizeHandle.tsx     # Draggable panel divider
-          PanelHeader.tsx      # Shared panel header with tab bar
-        sidebar/
-          ProjectSidebar.tsx   # Left panel
-          ProjectList.tsx      # Project list items
-          ThreadList.tsx       # Thread list items
-          MachineStatus.tsx    # Connected machine indicators
-        thread/
-          ThreadPanel.tsx      # Center panel
-          MessageBubble.tsx    # User/assistant message
-          ToolCallBlock.tsx    # Tool use/result display
-          InputArea.tsx        # Chat input with send button
-          PlanPreview.tsx      # Inline plan graph mini-view
-          ApprovalInline.tsx   # Approve/reject inline widget
-        review/
-          ReviewPane.tsx       # Right panel with tabs
-          DiffViewer.tsx       # Unified/split diff display
-          TerminalPanel.tsx    # xterm.js terminal emulator
-          FileBrowser.tsx      # File tree with git status
-          FileViewer.tsx       # Read-only file viewer
-          PlanGraph.tsx        # React Flow plan graph
-        shared/
-          CommandPalette.tsx   # Cmd+K command palette (cmdk)
-          StatusBar.tsx        # Bottom status bar
-          KeyboardShortcuts.tsx # Global shortcut handler
-      hooks/
-        use-panel-layout.ts   # Panel resize/collapse state
-        use-terminal.ts       # PTY session management via Tauri IPC
-        use-file-tree.ts      # File listing via Tauri IPC
-        use-file-watcher.ts   # File change events via Tauri events
-        use-tauri-invoke.ts   # Typed wrapper for Tauri invoke()
-      lib/
-        tauri-commands.ts     # Type-safe Tauri command wrappers
-        panel-state.ts        # Panel dimensions persistence
-    vite.config.ts            # Vite config for desktop frontend
-    tailwind.config.ts        # Tailwind with desktop tokens
-    tsconfig.json
+src/
+  components/
+    desktop/                   # Desktop-only components (gated by isDesktop())
+      FileBrowser.tsx
+      FileTreeNode.tsx
+      GitChangesPanel.tsx
+      QuickLook.tsx
+      TerminalTab.tsx
+    panes/                     # Pane host + registry (three-panel layout)
+      PaneHost.tsx
+      default-panes.ts
+      pane-registry.tsx
+      pane-tab.tsx
+      panel-menu.tsx
+      panel-stack.tsx
+      use-pane-size.ts
+      kinds/                   # Individual pane implementations
+  lib/
+    desktop-bridge.ts          # Typed wrapper over window.astro.*
+    desktop-bridge.generated.ts # Codegen from electron/main/ipc/schema/
+    desktop-detect.ts          # isDesktop() runtime check
 ```
+
+The main/preload/shell code lives in `electron/` — see [ELECTRON_APP.md](./ELECTRON_APP.md).
 
 ### Shared Code
 
@@ -537,7 +516,7 @@ The desktop frontend shares code with the web app via imports from `@astro/core`
 
 ## Responsive Behavior
 
-The desktop app does **not** need mobile responsiveness. It targets desktop screens (min 800x600 per `tauri.conf.json`).
+The desktop app does **not** need mobile responsiveness. It targets desktop screens (min 800x600, configured in `electron/main/windows/main-window.ts`).
 
 **Window size breakpoints:**
 

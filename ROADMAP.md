@@ -1534,7 +1534,7 @@ const q = query({
 - Read-only monitoring -- no code editing features
 
 **Option B: Standalone Agent Viewer** (future)
-- Dedicated Electron/Tauri app with agent-first design
+- Dedicated Electron app with agent-first design (shipped — see `docs/design/ELECTRON_APP.md`)
 - Agent grid as primary view, code as secondary
 - Deferred until web UI and VS Code extension prove the concept
 
@@ -1585,7 +1585,7 @@ Analysis of features from HappyClaw, OpenClaw, OpenCode, and ZeroClaw that Astro
 
 | Feature | Priority | Rationale |
 |---------|----------|-----------|
-| **Desktop app (Tauri)** | Low | Future Option B for standalone agent viewer. OpenCode's Tauri integration proves the pattern. |
+| **Desktop app (Electron)** | Shipped | Astro's standalone desktop client is delivered as an Electron app (`electron/` directory). See `docs/design/ELECTRON_APP.md` for the architecture. |
 | **Plugin/extension system** | Medium | The SDK now has `plugins` support. Build on this for Astro-specific extensions. |
 | **Multi-agent switching** | Medium | OpenCode supports 2 built-in agents. Astro should make it easy to switch providers per task (already has the architecture, needs UI polish). |
 | **Session context metrics** | High | OpenCode's `AsyncLocalStorage` pattern for tracking per-session metrics. Adopt for Astro's observation pipeline. |
