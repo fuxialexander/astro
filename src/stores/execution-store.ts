@@ -1509,7 +1509,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   // ─── Unified Session Methods ──────────────────────────────────────────────
 
   startSession: async (description, projectName, options) => {
-    // 1. Create project — always 'default' projectType
+    // 1. Create project as a 'playground' session. It is promoted to 'default'
+    //    by use-convert-to-project when the user turns it into a real project.
     const projectId = crypto.randomUUID()
     const displayName = projectName || description.slice(0, 60) || "New Session"
     const teamId = options.teamId
@@ -1529,7 +1530,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       workingDirectory: options.workingDirectory || '',
       repository: options.repository,
       defaultMachineId: options.targetMachineId,
-      projectType: 'default',
+      projectType: 'playground',
       ...(options.selectedBackends?.length && { computeBackends: options.selectedBackends }),
       ...(options.githubOwner && { githubOwner: options.githubOwner }),
       ...(options.githubRepo && { githubRepo: options.githubRepo }),
