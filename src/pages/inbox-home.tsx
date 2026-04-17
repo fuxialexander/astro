@@ -11,6 +11,9 @@ import { NotificationCards } from "@/components/dashboard/notification-card"
 import { NeedsYouSection } from "@/components/inbox/needs-you-section"
 import { RunningSection } from "@/components/inbox/running-section"
 import { DoneTodaySection } from "@/components/inbox/done-today-section"
+import { ImportFromHistoryDialog } from "@/components/inbox/import-from-history-dialog"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
+import type { ClientImportManifest } from "@/types/imports"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
@@ -74,6 +77,10 @@ export function InboxHome() {
 
   // Path browser state
   const [showPathBrowser, setShowPathBrowser] = useState(false)
+
+  // Import-from-history state
+  const importFromHistoryEnabled = useFeatureFlag('import-from-history')
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   // skill.md state
   const [visionDoc, setVisionDoc] = useState("")
@@ -322,6 +329,59 @@ export function InboxHome() {
       setIsSubmitting(false)
     }
   }, [planGoal, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, detection, getModelForProvider, startSession, navigate, pendingUploads, attachments, visionDoc, discoveryMode, planMode, targetBranch, refreshDetection, forceWorktree, branchMismatch, effectiveUseWorktree, additionalFolders, checkoutBranch])
+
+  const handleImportFromHistory = useCallback(async (result: {
+    machineId: string
+    workingDirectory: string
+    goal: string
+    importManifest: ClientImportManifest
+  }) => {
+    // The dialog always returns a non-empty sessions array and a real cwd;
+    // no further validation needed here.
+    const machine = allMachines.find((m) => m.machineId === result.machineId)
+    if (!machine) {
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Machine not available',
+        description: 'The selected machine is no longer connected.',
+      })
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const modePrefix = result.importManifest.mode === 'plan'
+        ? 'Please give me a structured plan.\n\n'
+        : ''
+      const baseGoal = result.goal.trim()
+        || `Continue the work from ${result.importManifest.sessions.length} prior agent session${result.importManifest.sessions.length === 1 ? '' : 's'}.`
+      const finalGoal = modePrefix + baseGoal
+
+      const { projectId } = await startSession(
+        finalGoal,
+        baseGoal.split('\n')[0].slice(0, 60) || 'Imported Session',
+        {
+          targetMachineId: result.machineId,
+          workingDirectory: result.workingDirectory,
+          preferredProvider: selectedProvider || undefined,
+          model: selectedModel || undefined,
+          visionDoc: visionDoc.trim() || undefined,
+          deliveryMode: 'direct',
+          useWorktree: false,
+          importManifest: result.importManifest,
+        },
+      )
+      navigate(`/playground?projectId=${projectId}`)
+    } catch (err) {
+      console.error('[inbox] Failed to start imported session:', err)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Import failed',
+        description: err instanceof Error ? err.message : 'Could not start the imported session.',
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [allMachines, startSession, navigate, selectedProvider, selectedModel, visionDoc])
 
   const activeProjects = useMemo(() => {
     const idsWithNodes = new Set(nodes.map((n) => n.projectId))
@@ -682,6 +742,25 @@ export function InboxHome() {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              {importFromHistoryEnabled && (
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={() => setImportDialogOpen(true)}
+                        disabled={isSubmitting || allMachines.length === 0}
+                        variant="ghost"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        {showLabels && <span>Import</span>}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Import prior Claude / Codex / Pi sessions into a new project</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               <Button
                 onClick={handleSubmit}
                 disabled={!planGoal.trim() || !selectedMachine || isSubmitting || pendingUploads > 0}
@@ -928,6 +1007,19 @@ export function InboxHome() {
         value={visionDoc}
         onChange={setVisionDoc}
       />
+
+      {/* Import from history Dialog */}
+      {importFromHistoryEnabled && (
+        <ImportFromHistoryDialog
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          seedMachineId={selectedMachine?.machineId}
+          seedWorkingDir={workingDir.trim() || undefined}
+          seedGoal={planGoal}
+          seedPlanMode={planMode}
+          onConfirm={handleImportFromHistory}
+        />
+      )}
     </div>
   )
 }

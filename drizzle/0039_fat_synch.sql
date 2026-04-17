@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "imported_from_sessions" jsonb;

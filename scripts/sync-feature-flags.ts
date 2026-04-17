@@ -202,6 +202,7 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
   'loop-nodes': true,
 
   'parallel-execution': true,
+  'import-from-history': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────

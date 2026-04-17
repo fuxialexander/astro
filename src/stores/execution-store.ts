@@ -341,6 +341,23 @@ interface ExecutionState {
       selectedBackends?: string[]
       teamId?: string
       additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+      /**
+       * Bootstrap the new session from external agent transcripts. The server
+       * copies each referenced JSONL into `.astro/imports/` on the target
+       * machine before the planning agent runs; if the import fails, the
+       * whole dispatch is rejected.
+       */
+      importManifest?: {
+        mode: 'plan' | 'playground'
+        sessions: Array<{
+          provider: 'claude' | 'codex' | 'pi'
+          sessionId: string
+          title: string
+          cwd?: string
+          gitBranch?: string
+          lastModified?: number
+        }>
+      }
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelSession: (projectId: string) => Promise<void>
@@ -1589,6 +1606,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             ...(options.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
             ...(options.resumeSessionId && { resumeSessionId: options.resumeSessionId }),
             ...(options.forkSession && { forkSession: options.forkSession }),
+            ...(options.importManifest && { importManifest: options.importManifest }),
             ...signing,
           }),
           signal: abortController.signal,

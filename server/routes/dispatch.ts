@@ -31,7 +31,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
 import { hasFeature } from '../lib/feature-flags.js'
-import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT, DISCOVERY_MODE_INSTRUCTIONS } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, buildUnifiedPlaygroundPrompt, buildImportFromHistoryPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT, DISCOVERY_MODE_INSTRUCTIONS } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
@@ -411,6 +411,24 @@ const dispatchTaskSchema = z.object({
       followUps: z.array(z.string()).optional(),
     })),
     changeDescription: z.string().optional(),
+  }).optional(),
+  /**
+   * Inbox "Import from history" — copy a set of external-agent transcripts
+   * into `<workingDirectory>/.astro/imports/` on the target machine before
+   * the planning task runs. The server awaits the agent's
+   * `import_sessions:response` with the matching correlationId; if the
+   * import fails hard, the dispatch is rejected (no silent fallback).
+   */
+  importManifest: z.object({
+    mode: z.enum(['plan', 'playground']),
+    sessions: z.array(z.object({
+      provider: z.enum(['claude', 'codex', 'pi']),
+      sessionId: z.string().min(1).max(200),
+      title: z.string().max(500),
+      cwd: z.string().max(1000).optional(),
+      gitBranch: z.string().max(200).optional(),
+      lastModified: z.number().optional(),
+    })).min(1).max(50),
   }).optional(),
 })
 
@@ -1281,6 +1299,116 @@ async function dispatchViaRelay(
     }
   }
 
+  // ── Import from history: populate .astro/imports/ before the agent runs ─
+  // Hard-fails the dispatch if the agent-runner's import step doesn't succeed
+  // (per CLAUDE.md "never silently fall back" — the planning prompt assumes
+  // the import happened).
+  let importedManifestEntries:
+    | import('@astro/core/db/schema.js').ProjectImportManifestEntry[]
+    | null = null
+  const importMode = body.importManifest?.mode
+  if (body.importManifest && body.importManifest.sessions.length > 0) {
+    if (!machineId) {
+      return c.json(
+        { success: false, error: 'importManifest requires a resolved target machine' },
+        400,
+      )
+    }
+    if (!workingDirectory) {
+      return c.json(
+        { success: false, error: 'importManifest requires a workingDirectory' },
+        400,
+      )
+    }
+
+    const correlationId = crypto.randomUUID()
+    const IMPORT_TIMEOUT_MS = 60_000
+
+    interface ImportSessionsResponse {
+      correlationId: string
+      ok: boolean
+      manifestPath?: string
+      rawCount: number
+      failures: Array<{ provider: string; sessionId: string; reason: string }>
+      error?: string
+    }
+
+    const responsePromise = new Promise<Omit<ImportSessionsResponse, 'correlationId'>>((resolve) => {
+      const handler = (data: ImportSessionsResponse) => {
+        if (data.correlationId !== correlationId) return
+        relayServer.off('import_sessions:response', handler)
+        clearTimeout(timer)
+        resolve({
+          ok: data.ok,
+          manifestPath: data.manifestPath,
+          rawCount: data.rawCount,
+          failures: data.failures,
+          error: data.error,
+        })
+      }
+      const timer = setTimeout(() => {
+        relayServer.off('import_sessions:response', handler)
+        resolve({ ok: false, rawCount: 0, failures: [], error: 'Import timed out' })
+      }, IMPORT_TIMEOUT_MS)
+      relayServer.on('import_sessions:response', handler)
+    })
+
+    const sent = relayServer.requestImportSessions(
+      machineId,
+      correlationId,
+      workingDirectory,
+      body.importManifest.sessions,
+    )
+    if (!sent) {
+      return c.json(
+        { success: false, error: 'Target machine not reachable for session import' },
+        502,
+      )
+    }
+
+    const importResult = await responsePromise
+    if (!importResult.ok) {
+      const failMsg = importResult.error
+        ?? `${importResult.failures.length || 'All'} session(s) failed to import`
+      console.warn('[dispatch] import_sessions failed:', failMsg, importResult.failures)
+      return c.json(
+        { success: false, error: failMsg, failures: importResult.failures },
+        500,
+      )
+    }
+
+    // Persist manifest entries to the project row for provenance. The on-disk
+    // manifest.json at `.astro/imports/manifest.json` is the source of truth;
+    // this DB copy is what the frontend reads back to show which sessions
+    // bootstrapped the project. Fails soft — a dead DB write shouldn't
+    // unwind a successful on-disk import.
+    importedManifestEntries = body.importManifest.sessions.map((s) => ({
+      provider: s.provider,
+      sessionId: s.sessionId,
+      originalPath: '',
+      localPath: `raw/${s.provider}-${s.sessionId}.jsonl`,
+      memoryPath: `memory/${s.provider}-${s.sessionId}.md`,
+      cwd: s.cwd,
+      gitBranch: s.gitBranch,
+      lastModified: s.lastModified,
+      title: s.title,
+    }))
+    try {
+      await db
+        .update(projects)
+        .set({ importedFromSessions: importedManifestEntries, updatedAt: new Date() })
+        .where(eq(projects.id, projectId))
+    } catch (err) {
+      console.warn(
+        '[dispatch] Failed to persist imported_from_sessions on project row:',
+        err instanceof Error ? err.message : String(err),
+      )
+      notifyWarning(
+        `Failed to persist import manifest for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
   // Build prompt — interactive plans use the dedicated planning prompt template;
   // regular executions use the standard task execution prompt.
   let relaySystemPrompt: string | undefined
@@ -1327,7 +1455,21 @@ async function dispatchViaRelay(
   // Generative UI hint — shared constant from prompt-templates, injected into ALL pathways
   skillsInjection = (skillsInjection || '') + '\n\n' + GENERATIVE_UI_HINT
 
-  if (isInteractivePlan) {
+  if (importedManifestEntries && importedManifestEntries.length > 0 && importMode) {
+    // Import-from-history bootstrap. Overrides the normal planning /
+    // playground prompt: the agent's first job is to summarize the imported
+    // transcripts with subagents, then synthesize a plan or open a chat.
+    relaySystemPrompt = buildImportFromHistoryPrompt({
+      mode: importMode,
+      workingDirectory: workingDirectory!,
+      manifest: importedManifestEntries,
+      userGoal: description,
+      projectId,
+      visionDoc: visionDoc || undefined,
+      githubContext,
+    })
+    promptParts.push(description)
+  } else if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.
     // It includes vision doc, skills, GitHub context, and planning instructions.
     relaySystemPrompt = buildInteractivePlanPrompt(description, {

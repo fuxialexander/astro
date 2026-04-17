@@ -1151,3 +1151,171 @@ At the end of your task, write \`_manifest.json\` in your output directory:
 }
 \`\`\`
 `
+
+// ============================================================================
+// Import-from-history bootstrap prompt
+// ============================================================================
+
+/** Manifest entry shape as seen by the planning agent. Structural subset of
+ *  `ProjectImportManifestEntry` from the db schema; redeclared here so this
+ *  module has no dependency on `@astro/core/db`. */
+export interface ImportedSessionEntry {
+  provider: 'claude' | 'codex' | 'pi'
+  sessionId: string
+  /** Path of the copied transcript, relative to `.astro/imports/`. */
+  localPath: string
+  /** Planned path for the per-session memory summary, relative to `.astro/imports/`. */
+  memoryPath: string
+  title: string
+  cwd?: string
+  gitBranch?: string
+  lastModified?: number
+}
+
+/**
+ * System prompt for a project bootstrapped from external-agent transcripts.
+ *
+ * Run order this prompt assumes:
+ *   1. `<workingDir>/.astro/imports/raw/<provider>-<sessionId>.jsonl` already
+ *      exists (copied by the agent-runner's `import_sessions_request` handler
+ *      *before* this prompt runs).
+ *   2. `<workingDir>/.astro/imports/memory/` exists but is empty.
+ *   3. `<workingDir>/.astro/imports/manifest.json` records what was copied.
+ *
+ * The agent is instructed to spawn one Task subagent per session so raw
+ * JSONLs are never Read into the main context. Each subagent writes a
+ * Markdown summary to `memory/<provider>-<sessionId>.md`; the main agent
+ * then reads the memory files and either produces an Astro plan or opens a
+ * playground chat, depending on `mode`.
+ */
+export function buildImportFromHistoryPrompt(options: {
+  mode: 'plan' | 'playground'
+  workingDirectory: string
+  manifest: ImportedSessionEntry[]
+  /** Optional user goal text to focus the synthesis. */
+  userGoal?: string
+  projectId?: string
+  visionDoc?: string
+  githubContext?: GitHubContextForPrompt
+}): string {
+  const { mode, workingDirectory, manifest, userGoal, projectId, visionDoc, githubContext } = options
+
+  const visionSection = visionDoc
+    ? `\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
+    : ''
+
+  const projectIdSection = projectId
+    ? `\n## Project ID\nUse this exact project ID when calling Astro CLI: \`${projectId}\`\n`
+    : ''
+
+  let githubSection = ''
+  if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
+    const ghOwner = sanitizeGitHubName(githubContext.owner)
+    const ghRepo = sanitizeGitHubName(githubContext.repo)
+    const target = sanitizeGitBranch(githubContext.baseBranch || 'main')
+    if (ghOwner && ghRepo) {
+      githubSection = `\n## GitHub Integration
+This project is connected to \`${ghOwner}/${ghRepo}\` (base branch: \`${target}\`). If you produce a plan, the final step should open a pull request once tasks complete.
+`
+    }
+  }
+
+  const userGoalSection = userGoal?.trim()
+    ? `\n## User Goal\n<user_goal>\n${userGoal.trim()}\n</user_goal>\n`
+    : "\n## User Goal\nNo explicit goal was provided — infer direction from the imported transcripts.\n"
+
+  const manifestLines = manifest
+    .map((m, i) => {
+      const parts = [
+        `${i + 1}. [${m.provider}] "${m.title}"`,
+        `   raw:    ${m.localPath}`,
+        `   memory: ${m.memoryPath}`,
+      ]
+      if (m.cwd) parts.push(`   cwd:    ${m.cwd}`)
+      if (m.gitBranch) parts.push(`   branch: ${m.gitBranch}`)
+      if (m.lastModified) parts.push(`   last:   ${new Date(m.lastModified).toISOString()}`)
+      return parts.join('\n')
+    })
+    .join('\n')
+
+  const modeInstructions = mode === 'plan'
+    ? `### Phase 3 — Produce an Astro plan
+
+Using \`astro-cli plan create-node\`, turn the synthesis into a structured plan
+for the user's project. Each distinct outstanding thread from Phase 2 should
+become a milestone or task. Preserve dependencies you observed across sessions
+(e.g., if the Codex session built a schema that the Claude session then
+consumed, the tasks should reflect that order). Include a short \`description\`
+on each task that cites the relevant memory file (e.g.,
+\`"See memory/codex-019d0972.md — refactor auth module"\`).`
+    : `### Phase 3 — Engage the user
+
+Summarize what you found across the imported sessions in 4–8 bullets: current
+state of the project, outstanding problems, and where the previous agents
+stopped. Then ask the user what they want to pick up next. Only call
+\`astro-cli plan create-node\` if the user's reply clearly warrants a
+structured plan; otherwise keep the conversation free-form.`
+
+  return `You are bootstrapping an Astro project from transcripts of prior coding-agent sessions.
+All the work in this project so far happened in external tools (Claude Code, Codex, Pi);
+your job is to read what happened, understand where the project stands, and produce
+${mode === 'plan' ? 'a plan' : 'a conversational summary and next-step proposal'} so the user can continue with Astro managing it.
+${projectIdSection}${githubSection}${visionSection}${userGoalSection}
+## Import Source
+
+This project was bootstrapped from ${manifest.length} prior session${manifest.length === 1 ? '' : 's'}.
+Their transcripts live under \`${workingDirectory}/.astro/imports/\`:
+
+- \`raw/<provider>-<sessionId>.jsonl\` — original transcript (copied on import)
+- \`memory/<provider>-<sessionId>.md\` — your per-session summary (empty now)
+- \`manifest.json\` — authoritative list (also inlined below)
+
+### Manifest
+
+\`\`\`
+${manifestLines}
+\`\`\`
+
+## Phases
+
+### Phase 1 — Per-session summarization (parallel via Task)
+
+For EACH entry in the manifest, spawn a Task subagent with these instructions:
+
+> Read only \`raw/<provider>-<sessionId>.jsonl\` with the Read and Grep tools.
+> The file may be many megabytes — do NOT Read the whole file at once. Use
+> Grep to locate user prompts (\`"role":"user"\`), tool calls, and file-change
+> events; Read targeted line ranges only. Produce a Markdown summary with
+> these sections: **Goal**, **Key Decisions**, **Artifacts** (file paths
+> touched), **Dead Ends**, **Open Questions**. Keep under 4,000 characters.
+> Write the result to \`memory/<provider>-<sessionId>.md\` using Write.
+
+Give each subagent access to \`Read\`, \`Grep\`, and \`Write\` (restricted to
+the \`memory/\` path). Forbid Bash and any network tool — summarization is
+pure text analysis.
+
+**IMPORTANT**: Use the \`Task\` tool to run summaries in parallel. Do NOT Read
+the raw JSONL files yourself — they are too large for the main context.
+
+### Phase 2 — Synthesis
+
+Once every \`memory/*.md\` exists, read them all. Identify overlaps and
+dedupe. Determine:
+
+- The current state of the project (what's built, what works, what's broken).
+- Outstanding problems and unresolved questions.
+- The direction of intent the prior sessions were heading in.
+
+${modeInstructions}
+
+## Ground rules
+
+- Never modify files under \`.astro/imports/raw/\` — they are append-only
+  historical artifacts.
+- If a subagent fails (unreadable JSONL, malformed entries), note the
+  failure in your Phase 2 synthesis but do not retry indefinitely.
+- Honor the user goal above as the primary lens when prioritizing threads;
+  fall back to the transcripts' own direction if the goal is absent.
+`
+}
+
