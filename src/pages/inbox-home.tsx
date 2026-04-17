@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react"
-import { usePaneSize } from "@/components/panes/use-pane-size"
 import { Link, useNavigate } from "react-router"
 import { Loader2, Play, Zap, Paperclip, X, FileText, Eye, Pencil, LayoutTemplate, Microscope, ListTree, GitBranch, Plus, FolderEdit, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -90,9 +89,6 @@ export function InboxHome() {
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; url: string; mimeType: string; size: number }>>([])
   const [pendingUploads, setPendingUploads] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const toolbarRef = useRef<HTMLDivElement>(null)
-  const { density: toolbarDensity } = usePaneSize(toolbarRef)
-  const showLabels = toolbarDensity !== 'compact'
   const [isDragOver, setIsDragOver] = useState(false)
 
   const uploadFiles = useCallback((fileList: File[]) => {
@@ -586,42 +582,75 @@ export function InboxHome() {
               e.target.value = ''
             }}
           />
-          <div ref={toolbarRef} className="flex items-center justify-between px-4 pb-3">
+          <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
-                title="Attach files (images, documents, code — max 5MB)"
-              >
-                <Paperclip className="h-3.5 w-3.5" />
-                {showLabels && <span>Attach</span>}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSkillsOpen(true)}
-                className={cn(
-                  "flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[11px] transition-colors cursor-pointer",
-                  visionDoc.trim()
-                    ? "border-primary/30 bg-primary/5 text-primary"
-                    : "border-border hover:bg-muted text-muted-foreground"
-                )}
-                title="Edit skill.md — context injected into every agent session"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                {showLabels && <span>skill.md</span>}
-              </button>
-              {curatedExamples.length > 0 && (
-                <Popover open={examplesOpen} onOpenChange={setExamplesOpen}>
-                  <PopoverTrigger asChild>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border hover:bg-muted text-muted-foreground text-[11px] transition-colors cursor-pointer"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center justify-center h-7 w-7 rounded-md border border-border hover:bg-muted text-muted-foreground transition-colors cursor-pointer"
                     >
-                      <LayoutTemplate className="h-3.5 w-3.5" />
-                      {showLabels && <span>Examples</span>}
+                      <Paperclip className="h-3.5 w-3.5" />
                     </button>
-                  </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Attach files (images, documents, code — max 5MB)</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setSkillsOpen(true)}
+                      className={cn(
+                        "flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer",
+                        visionDoc.trim()
+                          ? "border-primary/30 bg-primary/5 text-primary"
+                          : "border-border hover:bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit skill.md — context injected into every agent session</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              {importFromHistoryEnabled && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setImportDialogOpen(true)}
+                        disabled={isSubmitting || allMachines.length === 0}
+                        className="flex items-center justify-center h-7 w-7 rounded-md border border-border hover:bg-muted text-muted-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Import prior Claude / Codex / Pi sessions into a new project</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {curatedExamples.length > 0 && (
+                <Popover open={examplesOpen} onOpenChange={setExamplesOpen}>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex items-center justify-center h-7 w-7 rounded-md border border-border hover:bg-muted text-muted-foreground transition-colors cursor-pointer"
+                          >
+                            <LayoutTemplate className="h-3.5 w-3.5" />
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>Start from an example</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <PopoverContent
                     side="bottom"
                     align="start"
@@ -685,14 +714,13 @@ export function InboxHome() {
                       type="button"
                       onClick={() => setPlanMode(!planMode)}
                       className={cn(
-                        "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
+                        "flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer",
                         planMode
                           ? "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400"
                           : "border-border hover:bg-muted text-muted-foreground",
                       )}
                     >
                       <ListTree className={cn("h-3.5 w-3.5", planMode && "text-blue-600 dark:text-blue-400")} />
-                      {showLabels && <span>Plan</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -709,14 +737,13 @@ export function InboxHome() {
                       type="button"
                       onClick={() => setDiscoveryMode(!discoveryMode)}
                       className={cn(
-                        "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
+                        "flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer",
                         discoveryMode
                           ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                           : "border-border hover:bg-muted text-muted-foreground",
                       )}
                     >
                       <Microscope className={cn("h-3.5 w-3.5", discoveryMode && "text-emerald-600 dark:text-emerald-400")} />
-                      {showLabels && <span>Discovery</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -732,14 +759,13 @@ export function InboxHome() {
                     <button
                       type="button"
                       onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
-                      className={`flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer ${
+                      className={`flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer ${
                         playgroundYolo
                           ? "border-warning/50 bg-warning/10 text-warning"
                           : "border-border hover:bg-muted text-muted-foreground"
                       }`}
                     >
                       <Zap className={`h-3.5 w-3.5 ${playgroundYolo ? "fill-warning" : ""}`} />
-                      {showLabels && <span>YOLO</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -747,39 +773,27 @@ export function InboxHome() {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              {importFromHistoryEnabled && (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        onClick={() => setImportDialogOpen(true)}
-                        disabled={isSubmitting || allMachines.length === 0}
-                        variant="ghost"
-                        size="sm"
-                        className="gap-2"
-                      >
-                        <BookOpen className="h-3.5 w-3.5" />
-                        {showLabels && <span>Import</span>}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Import prior Claude / Codex / Pi sessions into a new project</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              <Button
-                onClick={handleSubmit}
-                disabled={!planGoal.trim() || !selectedMachine || isSubmitting || pendingUploads > 0}
-                className="gap-2"
-                size="sm"
-              >
-                {isSubmitting || pendingUploads > 0 ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                )}
-                {showLabels && <span>{isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading..." : "Start"}</span>}
-                {showLabels && !isSubmitting && pendingUploads === 0 && <kbd className="ml-1 text-[10px] opacity-50 font-sans">↵</kbd>}
-              </Button>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleSubmit}
+                      disabled={!planGoal.trim() || !selectedMachine || isSubmitting || pendingUploads > 0}
+                      className="h-7 w-7 p-0"
+                      size="sm"
+                    >
+                      {isSubmitting || pendingUploads > 0 ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isSubmitting ? "Starting…" : pendingUploads > 0 ? "Uploading…" : "Start (↵)"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </div>
