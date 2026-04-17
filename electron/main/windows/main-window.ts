@@ -12,15 +12,12 @@
 
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { windowRegistry } from './registry.js'
 import { streamBroker } from '../ipc/broker.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
 const isDev = !app.isPackaged
 const DEV_SERVER_URL = process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:5173'
+const PROD_APP_URL = process.env.ASTRO_APP_URL ?? 'https://astroanywhere.com'
 
 export interface CreateMainWindowOptions {
   preloadDir: string
@@ -65,10 +62,15 @@ export async function createMainWindow(options: CreateMainWindowOptions): Promis
     await win.loadURL(DEV_SERVER_URL)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    // Vite outputs to dist/index.html at the repo root.
-    // electron/dist/main/windows/ → ../../../../dist/index.html
-    const indexPath = path.join(__dirname, '../../../../dist/index.html')
-    await win.loadFile(indexPath)
+    // Packaged app is a thin shell over the production web app — HTTPS origin
+    // is required for WebAuthn/passkeys and lets the page talk to the remote
+    // Supabase and Fly backend normally. The preload still exposes window.astro,
+    // so isDesktop() returns true and desktop-only panes (terminal/file/git)
+    // light up for the remote page.
+    await win.loadURL(PROD_APP_URL)
+    if (process.env.ASTRO_DEVTOOLS === '1') {
+      win.webContents.openDevTools({ mode: 'detach' })
+    }
   }
 
   return win

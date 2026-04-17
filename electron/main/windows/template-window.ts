@@ -73,7 +73,10 @@ export async function showTemplateWindow(
   if (isDev) {
     await win.loadURL(`${DEV_SERVER_URL}/electron/renderers/template_window/index.html`)
   } else {
-    const indexPath = path.join(__dirname, '../../renderers/template_window/index.html')
+    const indexPath = path.join(
+      __dirname,
+      '../renderer/main_window/electron/renderers/template_window/index.html',
+    )
     await win.loadFile(indexPath)
   }
 

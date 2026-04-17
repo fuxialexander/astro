@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "main": ".vite/build/index.js",
   "scripts": {
     "dev": "PORT=${PORT:-4001} RELAY_PORT=${RELAY_PORT:-4002} concurrently -n fe,be,cli,agent -c blue,green,cyan,yellow \"vite\" \"tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.ts\" \"npm run --prefix packages/cli watch\" \"sleep 4 && npm run dev:agent\"",
     "dev:local": "bash scripts/switch-env.sh local && npm run dev",
@@ -50,9 +51,9 @@
     "electron:build:main": "tsc -p electron/tsconfig.electron.json && tsc -p electron/tsconfig.preload.json",
     "electron:build:server": "tsx scripts/build-server.ts",
     "electron:dev": "concurrently -n vite,electron -c blue,cyan \"vite\" \"wait-on http://localhost:5173 && npm run electron:build:server && npm run electron:build:main && electron electron/dist/main/index.js\"",
-    "electron:package": "npm run electron:build:server && electron-forge package --config electron/forge.config.ts",
-    "electron:make": "npm run electron:build:server && electron-forge make --config electron/forge.config.ts",
-    "electron:publish": "npm run electron:build:server && electron-forge publish --config electron/forge.config.ts",
+    "electron:package": "electron-forge package",
+    "electron:make": "electron-forge make",
+    "electron:publish": "electron-forge publish",
     "desktop": "bash scripts/switch-env.sh local && concurrently -k -n desktop,agent -c blue,yellow \"npm run electron:dev\" \"sleep 6 && npm run dev:agent\"",
     "desktop:dev": "npm run desktop",
     "desktop:package": "npm run electron:package",
@@ -60,6 +61,9 @@
     "prepare": "husky"
   },
   "packageManager": "pnpm@9.15.4",
+  "config": {
+    "forge": "./electron/forge.config.ts"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.50",
     "@anthropic-ai/sdk": "^0.78.0",

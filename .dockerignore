@@ -80,3 +80,23 @@ drizzle/
 # Note: public/landing/*.html is COPYed explicitly in Dockerfile
 public/landing/assets/
 public/landing/images/
+
+# Electron build outputs (desktop app — not needed on backend)
+out/
+.vite/
+electron/
+server/dist/
+
+# Docs site build (~300MB of Docusaurus node_modules + generated static site)
+docs-site/
+
+# Marketing / demo media
+animation/
+
+# Installer artifacts
+*.dmg
+*.zip
+
+# Misc
+.turbo/
+.cache/

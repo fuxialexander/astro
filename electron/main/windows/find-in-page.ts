@@ -185,7 +185,12 @@ export async function showFindInPage(options: CreateFindInPageOptions): Promise<
   if (isDev) {
     await overlay.loadURL(`${DEV_SERVER_URL}/electron/renderers/find_in_page/index.html`)
   } else {
-    const indexPath = path.join(__dirname, '../../renderers/find_in_page/index.html')
+    // Forge vite plugin packs additional HTML entries under
+    // .vite/renderer/main_window/. Main bundle lives in .vite/build/.
+    const indexPath = path.join(
+      __dirname,
+      '../renderer/main_window/electron/renderers/find_in_page/index.html',
+    )
     await overlay.loadFile(indexPath)
   }
 

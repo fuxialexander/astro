@@ -29,9 +29,15 @@ interface TerminalTabProps {
   active: boolean
   /** Optional shell override (defaults to user's login shell). */
   shell?: string
+  /**
+   * Command(s) automatically fed to the PTY after it spawns. Used to SSH into
+   * a remote project machine + cd into its working directory so a "remote
+   * terminal" is really just a local PTY with an initial ssh handshake.
+   */
+  initialInput?: string
 }
 
-export function TerminalTab({ cwd, active, shell }: TerminalTabProps) {
+export function TerminalTab({ cwd, active, shell, initialInput }: TerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -138,6 +144,13 @@ export function TerminalTab({ cwd, active, shell }: TerminalTabProps) {
         term.onData((data: string) => {
           void desktopBridge.terminal.write(sessionId, data).catch(() => {})
         })
+
+        // Feed any preset commands (e.g. `ssh host\ncd /path`) into the PTY
+        // *after* data listeners are wired so the user sees the ssh banner.
+        if (initialInput && initialInput.length > 0) {
+          const payload = initialInput.endsWith('\n') ? initialInput : `${initialInput}\n`
+          void desktopBridge.terminal.write(sessionId, payload).catch(() => {})
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -157,6 +170,9 @@ export function TerminalTab({ cwd, active, shell }: TerminalTabProps) {
       initializedRef.current = false
       cleaningUpRef.current = false
     }
+    // initialInput is only consumed once, on spawn — intentionally not in deps
+    // because changing it after mount shouldn't respawn the PTY.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getTerminalColors, shell])
 
   // Fit + resync PTY dimensions.
