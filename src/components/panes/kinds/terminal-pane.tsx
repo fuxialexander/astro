@@ -61,14 +61,19 @@ export function TerminalPane({ paneState }: Props) {
     // Build the remote command as text, base64-encode it, then decode on the
     // far side. This avoids any quoting concerns with paths that contain
     // backticks, `$(...)`, or single-quote sequences.
+    //
+    // Decoder choice: `openssl base64 -d -A` is ubiquitous on both Linux and
+    // macOS. Plain `base64 -d` works on GNU coreutils and macOS ≥ Monterey,
+    // but older macOS wants `-D`, so we avoid it.
     const remoteInner = workingDirectory
       ? `cd -- "$ASTRO_REMOTE_CWD"; exec $SHELL -l`
       : 'exec $SHELL -l'
     const encoded = b64(remoteInner)
     const cwdEncoded = workingDirectory ? b64(workingDirectory) : ''
+    const decode = (e: string) => `printf %s ${e} | openssl base64 -d -A`
     const remoteCmd = workingDirectory
-      ? `ASTRO_REMOTE_CWD="$(printf %s ${cwdEncoded} | base64 -d)" && sh -c "$(printf %s ${encoded} | base64 -d)"`
-      : `sh -c "$(printf %s ${encoded} | base64 -d)"`
+      ? `ASTRO_REMOTE_CWD="$(${decode(cwdEncoded)})" && sh -c "$(${decode(encoded)})"`
+      : `sh -c "$(${decode(encoded)})"`
     const cmd = `ssh -t ${machine.hostname} ${JSON.stringify(remoteCmd)}`
     return { cwd: '.', initialInput: cmd }
   }, [isRemote, machine, workingDirectory])
