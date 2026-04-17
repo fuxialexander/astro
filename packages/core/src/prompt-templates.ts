@@ -1224,15 +1224,27 @@ This project is connected to \`${ghOwner}/${ghRepo}\` (base branch: \`${target}\
     ? `\n## User Goal\n<user_goal>\n${userGoal.trim()}\n</user_goal>\n`
     : "\n## User Goal\nNo explicit goal was provided — infer direction from the imported transcripts.\n"
 
+  // Manifest values — title / cwd / gitBranch — originate from external
+  // agent transcripts on the user's machine, so they're effectively
+  // user-controlled. Strip characters that could close our code fence or
+  // inject prompt structure. Keeps titles human-readable but neutered.
+  const sanitizeForPrompt = (s: string): string =>
+    s
+      .replace(/`/g, "'")
+      .replace(/[\r\n]+/g, ' ')
+      // eslint-disable-next-line no-control-regex -- intentionally strip control chars from agent-authored titles
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .slice(0, 300)
+
   const manifestLines = manifest
     .map((m, i) => {
       const parts = [
-        `${i + 1}. [${m.provider}] "${m.title}"`,
-        `   raw:    ${m.localPath}`,
-        `   memory: ${m.memoryPath}`,
+        `${i + 1}. [${m.provider}] "${sanitizeForPrompt(m.title)}"`,
+        `   raw:    ${sanitizeForPrompt(m.localPath)}`,
+        `   memory: ${sanitizeForPrompt(m.memoryPath)}`,
       ]
-      if (m.cwd) parts.push(`   cwd:    ${m.cwd}`)
-      if (m.gitBranch) parts.push(`   branch: ${m.gitBranch}`)
+      if (m.cwd) parts.push(`   cwd:    ${sanitizeForPrompt(m.cwd)}`)
+      if (m.gitBranch) parts.push(`   branch: ${sanitizeForPrompt(m.gitBranch)}`)
       if (m.lastModified) parts.push(`   last:   ${new Date(m.lastModified).toISOString()}`)
       return parts.join('\n')
     })

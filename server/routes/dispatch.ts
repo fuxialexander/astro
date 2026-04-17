@@ -1308,6 +1308,20 @@ async function dispatchViaRelay(
     | null = null
   const importMode = body.importManifest?.mode
   if (body.importManifest && body.importManifest.sessions.length > 0) {
+    // Team-level feature gate — matches the frontend check in inbox-home.tsx
+    // so an authenticated client can't trigger the 60s import hold / WS
+    // broadcast if its team doesn't have the flag. See CLAUDE.md §Feature Flags.
+    const [importTeamRow] = await db
+      .select({ featureFlags: teams.featureFlags })
+      .from(teams)
+      .where(eq(teams.id, dbProject.teamId))
+      .limit(1)
+    if (!hasFeature(importTeamRow?.featureFlags ?? null, 'import-from-history')) {
+      return c.json(
+        { success: false, error: 'Import from history is not enabled for this team' },
+        403,
+      )
+    }
     if (!machineId) {
       return c.json(
         { success: false, error: 'importManifest requires a resolved target machine' },
@@ -1333,11 +1347,14 @@ async function dispatchViaRelay(
       error?: string
     }
 
+    // Register listener BEFORE firing the request to avoid a race where the
+    // response arrives before we can subscribe. Capture the cleanup in a
+    // closure so the `!sent` early-return can also release the listener + timer.
+    let cleanupImportListener: () => void = () => {}
     const responsePromise = new Promise<Omit<ImportSessionsResponse, 'correlationId'>>((resolve) => {
       const handler = (data: ImportSessionsResponse) => {
         if (data.correlationId !== correlationId) return
-        relayServer.off('import_sessions:response', handler)
-        clearTimeout(timer)
+        cleanupImportListener()
         resolve({
           ok: data.ok,
           manifestPath: data.manifestPath,
@@ -1347,10 +1364,14 @@ async function dispatchViaRelay(
         })
       }
       const timer = setTimeout(() => {
-        relayServer.off('import_sessions:response', handler)
+        cleanupImportListener()
         resolve({ ok: false, rawCount: 0, failures: [], error: 'Import timed out' })
       }, IMPORT_TIMEOUT_MS)
       relayServer.on('import_sessions:response', handler)
+      cleanupImportListener = () => {
+        relayServer.off('import_sessions:response', handler)
+        clearTimeout(timer)
+      }
     })
 
     const sent = relayServer.requestImportSessions(
@@ -1360,6 +1381,7 @@ async function dispatchViaRelay(
       body.importManifest.sessions,
     )
     if (!sent) {
+      cleanupImportListener()
       return c.json(
         { success: false, error: 'Target machine not reachable for session import' },
         502,

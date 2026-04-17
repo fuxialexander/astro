@@ -229,8 +229,15 @@ export function ImportFromHistoryDialog({
     })
   }
 
-  const selectedCount = selected.size
-  const canConfirm = Boolean(machineId && cwd && cwd !== "(unknown)" && selectedCount > 0)
+  // Count from the intersection with filteredSessions — the `selected` Set
+  // retains keys across filter changes, so a raw `selected.size` can overstate
+  // what the Import button will actually send (and bypass the zod .min(1)
+  // check on the server).
+  const visibleSelectedCount = useMemo(
+    () => filteredSessions.reduce((n, s) => (selected.has(sessionKey(s)) ? n + 1 : n), 0),
+    [filteredSessions, selected],
+  )
+  const canConfirm = Boolean(machineId && cwd && cwd !== "(unknown)" && visibleSelectedCount > 0)
 
   const handleConfirm = () => {
     if (!canConfirm || !machineId || !cwd) return
@@ -332,7 +339,7 @@ export function ImportFromHistoryDialog({
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs text-muted-foreground">
-                Step 3 — Sessions ({selectedCount} selected)
+                Step 3 — Sessions ({visibleSelectedCount} selected)
               </Label>
               <div className="flex items-center gap-2">
                 <Button
@@ -341,9 +348,9 @@ export function ImportFromHistoryDialog({
                   size="sm"
                   className="h-7 px-2 text-xs"
                   disabled={!machineId || !cwd || filteredSessions.length === 0}
-                  onClick={selectedCount === filteredSessions.length && selectedCount > 0 ? clearAll : selectAll}
+                  onClick={visibleSelectedCount === filteredSessions.length && visibleSelectedCount > 0 ? clearAll : selectAll}
                 >
-                  {selectedCount === filteredSessions.length && selectedCount > 0 ? "Clear" : "Select all"}
+                  {visibleSelectedCount === filteredSessions.length && visibleSelectedCount > 0 ? "Clear" : "Select all"}
                 </Button>
                 <Select value={dateWindow} onValueChange={(v) => handleDateWindowChange(v as DateWindow)}>
                   <SelectTrigger className="h-7 w-28 text-xs">
@@ -461,7 +468,7 @@ export function ImportFromHistoryDialog({
             Cancel
           </Button>
           <Button onClick={handleConfirm} disabled={!canConfirm}>
-            Import {selectedCount > 0 ? `${selectedCount} session${selectedCount === 1 ? "" : "s"}` : ""}
+            Import {visibleSelectedCount > 0 ? `${visibleSelectedCount} session${visibleSelectedCount === 1 ? "" : "s"}` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
