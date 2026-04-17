@@ -17,6 +17,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
+import { hostname as osHostname } from 'node:os'
 
 type StreamHandler = (payload: unknown) => void
 
@@ -78,6 +79,16 @@ function subscribe(channel: string, handler: StreamHandler): () => void {
 const platform = {
   isElectron: true as const,
   os: process.platform,
+  // Renderer uses this to decide whether a project's agent-runner lives on
+  // the same machine as the Electron shell (so the terminal can just spawn
+  // a local PTY) or on a remote one (so we SSH into it first).
+  hostname: (() => {
+    try {
+      return osHostname()
+    } catch {
+      return ''
+    }
+  })(),
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
