@@ -22,6 +22,7 @@ import { useInitiativeStore } from "@/stores/initiative-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTeamStore } from "@/stores/team-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
+import { categorizeProjects } from "@/lib/project-categorization"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
@@ -281,11 +282,6 @@ type ViewTab = "all" | "timeline" | "board"
 export function Projects() {
   const { t } = useTranslation('projects')
   const allProjectsRaw = useProjectStore((s) => s.projects)
-  // Show all active projects (node-based categorization replaces projectType filter)
-  const projects = useMemo(
-    () => allProjectsRaw.filter((p) => p.status === 'active'),
-    [allProjectsRaw]
-  )
   const loadAllTeams = useProjectStore((s) => s.loadAllTeams)
   const loadAllTeamsPlans = usePlanStore((s) => s.loadAllTeams)
   const addProject = useProjectStore((s) => s.addProject)
@@ -293,6 +289,13 @@ export function Projects() {
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const rawAllNodes = usePlanStore((s) => s.nodes)
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
+  // Hide playground sessions from the projects list — sessions live in the
+  // sidebar's RECENT section. categorizeProjects splits them by the same rule
+  // the sidebar uses (playground projectType + no plan nodes = session).
+  const projects = useMemo(
+    () => categorizeProjects(allProjectsRaw, allNodes).projectsWithNodes,
+    [allProjectsRaw, allNodes]
+  )
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const teams = useTeamStore((s) => s.teams)
   const addToast = useToastStore((s) => s.add)
