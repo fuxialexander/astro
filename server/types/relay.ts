@@ -884,13 +884,33 @@ export interface FileUploadResponseMessage extends BaseMessage {
   error?: string;
 }
 
-/** Sessions list request (relay → agent) - for discovering Claude Code sessions */
+/**
+ * External agent types that Astro can discover on-disk sessions for.
+ * The agent-runner walks each provider's native session directory
+ * (~/.claude/projects, ~/.codex/sessions, ~/.pi/agent/sessions) and
+ * returns a normalized ClaudeCodeSessionInfo shape tagged with `provider`.
+ */
+export type ExternalAgentProvider = 'claude' | 'codex' | 'pi';
+
+/** Sessions list request (relay → agent) - for discovering external agent sessions */
 export interface SessionsListRequestMessage extends BaseMessage {
   type: 'sessions_list.request';
   correlationId: string;
+  /** Restrict discovery to a subset of providers. Omit for all available. */
+  providers?: ExternalAgentProvider[];
+  /** If set, only return sessions whose cwd equals this absolute path. */
+  cwd?: string;
+  /** Only return sessions modified within this many ms. Omit for the default 24h window. */
+  maxAgeMs?: number;
 }
 
-/** Claude Code session info */
+/**
+ * Normalized session info across Claude Code / Codex / Pi.
+ *
+ * `provider` and `transcriptPath` are optional for backward compatibility
+ * with older agent-runner builds: the legacy Claude walker did not set
+ * them. Every session emitted by the new discovery layer populates both.
+ */
 export interface ClaudeCodeSessionInfo {
   sessionId: string;
   summary: string;
@@ -900,6 +920,9 @@ export interface ClaudeCodeSessionInfo {
   firstPrompt?: string;
   gitBranch?: string;
   cwd?: string;
+  provider?: ExternalAgentProvider;
+  /** Absolute path to the transcript on the machine it was discovered on. */
+  transcriptPath?: string;
 }
 
 /** Sessions list response (agent → relay) */
@@ -907,6 +930,72 @@ export interface SessionsListResponseMessage extends BaseMessage {
   type: 'sessions_list.response';
   correlationId: string;
   sessions: ClaudeCodeSessionInfo[];
+  error?: string;
+}
+
+// --- Import sessions (one-time transcript copy into .astro/imports/) ---
+
+/** One session selected for import. */
+export interface ImportSessionRequestItem {
+  provider: ExternalAgentProvider;
+  sessionId: string;
+  /** Human-readable title saved into the manifest for UI provenance. */
+  title: string;
+  /** cwd at time of selection (saved into manifest; not re-validated). */
+  cwd?: string;
+  gitBranch?: string;
+  lastModified?: number;
+}
+
+/**
+ * Import sessions request (relay → agent).
+ *
+ * Copies the selected transcripts to
+ *   `<workingDirectory>/.astro/imports/raw/<provider>-<sessionId>.jsonl`
+ * and writes a `manifest.json` listing what was imported. The agent creates
+ * an empty `memory/` subdirectory so per-session summaries can be written
+ * there later by subagents during planning.
+ */
+export interface ImportSessionsRequestMessage extends BaseMessage {
+  type: 'import_sessions.request';
+  correlationId: string;
+  workingDirectory: string;
+  sessions: ImportSessionRequestItem[];
+}
+
+/** Manifest entry written to `.astro/imports/manifest.json` (mirror of agent-runner shape). */
+export interface ImportManifestEntry {
+  provider: ExternalAgentProvider;
+  sessionId: string;
+  /** Absolute source path at time of copy. */
+  originalPath: string;
+  /** Path of the copied file, relative to `.astro/imports/`. */
+  localPath: string;
+  /** Planned path for the per-session memory file (initially absent). */
+  memoryPath: string;
+  cwd?: string;
+  gitBranch?: string;
+  lastModified?: number;
+  title: string;
+}
+
+export interface ImportSessionsFailure {
+  provider: ExternalAgentProvider;
+  sessionId: string;
+  reason: string;
+}
+
+/** Import sessions response (agent → relay). */
+export interface ImportSessionsResponseMessage extends BaseMessage {
+  type: 'import_sessions.response';
+  correlationId: string;
+  ok: boolean;
+  /** Absolute path of the manifest file written, if any. */
+  manifestPath?: string;
+  /** Number of transcripts successfully copied. */
+  rawCount: number;
+  failures: ImportSessionsFailure[];
+  /** Set when the request aborted before any file was touched. */
   error?: string;
 }
 
@@ -1093,7 +1182,8 @@ export type AgentToRelayMessage =
   | GitInitResponseMessage
   | BranchListResponseMessage
   | CreateDirectoryResponseMessage
-  | SessionsListResponseMessage;
+  | SessionsListResponseMessage
+  | ImportSessionsResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -1125,6 +1215,7 @@ export type RelayToAgentMessage =
   | CreateDirectoryRequestMessage
   | GitPullRequestMessage
   | SessionsListRequestMessage
+  | ImportSessionsRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

@@ -516,6 +516,24 @@ interface AgentRunnerSessionsListResponseMessage {
   };
 }
 
+/** Agent runner's import sessions response message format */
+interface AgentRunnerImportSessionsResponseMessage {
+  type: 'import_sessions_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    ok: boolean;
+    manifestPath?: string;
+    rawCount: number;
+    failures: Array<{
+      provider: 'claude' | 'codex' | 'pi';
+      sessionId: string;
+      reason: string;
+    }>;
+    error?: string;
+  };
+}
+
 /** Agent runner's git init response message format */
 interface AgentRunnerGitInitResponseMessage {
   type: 'git_init_response';
@@ -1209,6 +1227,10 @@ export class RelayServer extends EventEmitter {
 
       case 'sessions_list_response':
         this.handleAgentRunnerSessionsListResponse(message as unknown as AgentRunnerSessionsListResponseMessage);
+        break;
+
+      case 'import_sessions_response':
+        this.handleAgentRunnerImportSessionsResponse(message as unknown as AgentRunnerImportSessionsResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -3563,8 +3585,20 @@ export class RelayServer extends EventEmitter {
    * Request a sessions list from a connected machine.
    * Routes via Redis if the machine is on another instance.
    */
-  requestSessionsList(machineId: string, correlationId: string, maxAgeMs?: number): boolean {
+  requestSessionsList(
+    machineId: string,
+    correlationId: string,
+    opts?: {
+      maxAgeMs?: number;
+      providers?: Array<'claude' | 'codex' | 'pi'>;
+      cwd?: string;
+    },
+  ): boolean {
     const connection = machineRegistry.getConnection(machineId);
+    const payload: Record<string, unknown> = { correlationId };
+    if (opts?.maxAgeMs !== undefined) payload.maxAgeMs = opts.maxAgeMs;
+    if (opts?.providers?.length) payload.providers = opts.providers;
+    if (opts?.cwd) payload.cwd = opts.cwd;
 
     // Local socket — send directly
     const socket = connection?.socket;
@@ -3572,7 +3606,7 @@ export class RelayServer extends EventEmitter {
       const msg = {
         type: 'sessions_list_request',
         timestamp: new Date().toISOString(),
-        payload: { correlationId, ...(maxAgeMs ? { maxAgeMs } : {}) },
+        payload,
       };
       socket.send(JSON.stringify(msg));
       return true;
@@ -3584,12 +3618,58 @@ export class RelayServer extends EventEmitter {
         machineId,
         correlationId,
         messageType: 'sessions_list_request',
-        payload: { correlationId, ...(maxAgeMs ? { maxAgeMs } : {}) },
+        payload,
       }).catch((err) => console.error('[relay] Redis proxy sessions_list_request failed:', err));
       return true;
     }
 
     console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for sessions list request`);
+    return false;
+  }
+
+  /**
+   * Request that a connected machine copy a set of external-agent transcripts
+   * into `<workingDirectory>/.astro/imports/`. The response is delivered via
+   * the `import_sessions:response` event with the matching correlationId.
+   */
+  requestImportSessions(
+    machineId: string,
+    correlationId: string,
+    workingDirectory: string,
+    sessions: Array<{
+      provider: 'claude' | 'codex' | 'pi';
+      sessionId: string;
+      title: string;
+      cwd?: string;
+      gitBranch?: string;
+      lastModified?: number;
+    }>,
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    const payload = { correlationId, workingDirectory, sessions };
+
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'import_sessions_request',
+        timestamp: new Date().toISOString(),
+        payload,
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'import_sessions_request',
+        payload,
+      }).catch((err) => console.error('[relay] Redis proxy import_sessions_request failed:', err));
+      return true;
+    }
+
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for import sessions request`);
     return false;
   }
 
@@ -3611,6 +3691,22 @@ export class RelayServer extends EventEmitter {
     this.emit('sessions_list:response', {
       correlationId: message.payload.correlationId,
       sessions: message.payload.sessions,
+      error: message.payload.error,
+    });
+  }
+
+  /**
+   * Handle agent runner's import_sessions_response format
+   */
+  private handleAgentRunnerImportSessionsResponse(
+    message: AgentRunnerImportSessionsResponseMessage,
+  ): void {
+    this.emit('import_sessions:response', {
+      correlationId: message.payload.correlationId,
+      ok: message.payload.ok,
+      manifestPath: message.payload.manifestPath,
+      rawCount: message.payload.rawCount,
+      failures: message.payload.failures,
       error: message.payload.error,
     });
   }
