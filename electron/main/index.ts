@@ -60,7 +60,13 @@ app.whenReady().then(async () => {
   // (see windows/main-window.ts). It talks to the remote Fly backend and
   // Supabase directly — no embedded server. Dev builds still run it so
   // `npm run electron:dev` works against the local Vite+Hono stack.
-  if (!app.isPackaged) {
+  if (app.isPackaged) {
+    console.log(
+      '[electron-main] running as thin client against',
+      process.env.ASTRO_APP_URL ?? 'https://astroanywhere.com',
+      '— no embedded server',
+    )
+  } else {
     try {
       await serverSupervisor.start()
     } catch (err) {

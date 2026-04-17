@@ -20,9 +20,18 @@ interface Props {
   paneState: PaneState
 }
 
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_./@:-]+$/.test(value)) return value
-  return `'${value.replace(/'/g, `'\\''`)}'`
+// Strict allowlist for hostnames: alnum, dot, dash, underscore, optional
+// `user@` prefix. Anything outside that means we refuse to build an ssh
+// command rather than try to escape something unexpected.
+const HOSTNAME_SAFE = /^(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9_.-]+$/
+
+/** Base64-encode a UTF-8 string using only browser-available APIs. */
+function b64(value: string): string {
+  // btoa only handles Latin-1, so round-trip through TextEncoder for safety.
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
 }
 
 export function TerminalPane({ paneState }: Props) {
@@ -45,10 +54,22 @@ export function TerminalPane({ paneState }: Props) {
     if (!isRemote || !machine) {
       return { cwd: workingDirectory || '.', initialInput: undefined as string | undefined }
     }
-    const remoteCmd = workingDirectory
-      ? `cd ${shellQuote(workingDirectory)}; exec $SHELL -l`
+    if (!HOSTNAME_SAFE.test(machine.hostname)) {
+      // Refuse rather than risk injecting a hostile hostname into a shell.
+      return { cwd: '.', initialInput: undefined as string | undefined }
+    }
+    // Build the remote command as text, base64-encode it, then decode on the
+    // far side. This avoids any quoting concerns with paths that contain
+    // backticks, `$(...)`, or single-quote sequences.
+    const remoteInner = workingDirectory
+      ? `cd -- "$ASTRO_REMOTE_CWD"; exec $SHELL -l`
       : 'exec $SHELL -l'
-    const cmd = `ssh -t ${shellQuote(machine.hostname)} ${shellQuote(remoteCmd)}`
+    const encoded = b64(remoteInner)
+    const cwdEncoded = workingDirectory ? b64(workingDirectory) : ''
+    const remoteCmd = workingDirectory
+      ? `ASTRO_REMOTE_CWD="$(printf %s ${cwdEncoded} | base64 -d)" && sh -c "$(printf %s ${encoded} | base64 -d)"`
+      : `sh -c "$(printf %s ${encoded} | base64 -d)"`
+    const cmd = `ssh -t ${machine.hostname} ${JSON.stringify(remoteCmd)}`
     return { cwd: '.', initialInput: cmd }
   }, [isRemote, machine, workingDirectory])
 

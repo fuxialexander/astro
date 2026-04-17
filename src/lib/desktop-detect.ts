@@ -35,6 +35,12 @@ export function desktopHostname(): string {
  * Compares the raw hostname and also the short name (pre-first-dot) since
  * registeredMachines often stores `laptop.local` while `os.hostname()`
  * returns `laptop`.
+ *
+ * NOTE: this is a best-effort check. Two machines with the same short name
+ * on the same network (e.g. two laptops both called `studio`) will register
+ * as equal and skip the SSH step even though the workdir isn't really here.
+ * If that becomes a concern we should move to comparing a machine-generated
+ * UUID exposed through the preload instead of a raw hostname.
  */
 export function isLocalDesktopHost(machineHostname: string | undefined): boolean {
   if (!machineHostname) return false

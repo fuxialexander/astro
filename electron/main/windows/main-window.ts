@@ -11,6 +11,7 @@
  */
 
 import { app, BrowserWindow } from 'electron'
+import path from 'node:path'
 import { windowRegistry } from './registry.js'
 import { streamBroker } from '../ipc/broker.js'
 

@@ -17,7 +17,20 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { hostname as osHostname } from 'node:os'
+
+// node:os is normally available in the preload sandbox, but keep the read
+// fully best-effort — a failure here must NOT block `window.astro` from
+// being exposed, otherwise the renderer's isDesktop() check breaks.
+function readHostname(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const os = require('node:os') as { hostname: () => string }
+    return os.hostname()
+  } catch {
+    return ''
+  }
+}
+const cachedHostname = readHostname()
 
 type StreamHandler = (payload: unknown) => void
 
@@ -82,13 +95,7 @@ const platform = {
   // Renderer uses this to decide whether a project's agent-runner lives on
   // the same machine as the Electron shell (so the terminal can just spawn
   // a local PTY) or on a remote one (so we SSH into it first).
-  hostname: (() => {
-    try {
-      return osHostname()
-    } catch {
-      return ''
-    }
-  })(),
+  hostname: cachedHostname,
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,

@@ -56,9 +56,15 @@ function isOAuthHost(u: URL): boolean {
   )
 }
 
-// Google blocks OAuth in embedded user agents that advertise "Electron".
-// Strip Electron/<ver> from the UA string so the Chromium build underneath
-// looks like stock Chrome to the OAuth providers.
+// Google (and some other OAuth providers) refuse sign-in from user agents
+// that advertise "Electron/<ver>" — their RFC 8252 enforcement treats those
+// as embedded webviews. Strip that token so the Chromium build underneath
+// looks like stock Chrome to the provider.
+//
+// Trade-off: services that legitimately want to know we're Electron (for
+// feature detection or telemetry) lose that signal. window.astro.platform
+// still identifies us to first-party code, which is what we care about.
+// If that breaks a specific integration, gate this behind an env var.
 function patchUserAgent(contents: import('electron').WebContents): void {
   const ua = contents.getUserAgent()
   const clean = ua

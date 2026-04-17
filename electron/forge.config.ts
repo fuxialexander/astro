@@ -27,8 +27,9 @@ import fs from 'node:fs'
 const repoRoot = path.resolve(__dirname, '..')
 
 // The packaged app is a thin shell over the production web app — no embedded
-// server, PGlite migrations, or bundled skills. Leaving this empty keeps the
-// .dmg small; if we ever re-add an offline mode we can ship those again here.
+// Hono backend, PGlite, or bundled skills. Native modules (node-pty, ssh2,
+// cpu-features) are still packaged via `afterCopy` + `asar.unpack` because
+// the desktop shell needs them for the local terminal/SSH flows.
 const extraResources: string[] = []
 
 // Apple signing/notarization — only attach the blocks when all three env
