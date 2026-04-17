@@ -87,7 +87,10 @@ export async function showAboutWindow(
   if (isDev) {
     await win.loadURL(`${DEV_SERVER_URL}/electron/renderers/about_window/index.html`)
   } else {
-    const indexPath = path.join(__dirname, '../../renderers/about_window/index.html')
+    const indexPath = path.join(
+      __dirname,
+      '../renderer/main_window/electron/renderers/about_window/index.html',
+    )
     await win.loadFile(indexPath)
   }
 

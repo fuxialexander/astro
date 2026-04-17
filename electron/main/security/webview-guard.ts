@@ -31,8 +31,45 @@ const ALLOWED_SCHEMES = new Set(['https:', 'astro-plugin:'])
 const DEV_HOSTS = new Set(['localhost', '127.0.0.1'])
 const isDev = !!process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL
 
+const APP_ORIGIN = (() => {
+  try {
+    return new URL(process.env.ASTRO_APP_URL ?? 'https://astroanywhere.com').origin
+  } catch {
+    return 'https://astroanywhere.com'
+  }
+})()
+
+// Any URL that can appear in a Supabase/Google/GitHub OAuth redirect chain.
+// Keep broad — Google in particular routes through several subdomains
+// (accounts, myaccount, ogs, ssl, lh3, oauth2, play, youtube) during consent.
+function isOAuthHost(u: URL): boolean {
+  const h = u.host
+  return (
+    /\.supabase\.co$/.test(h) ||
+    /(^|\.)google\.com$/.test(h) ||
+    /\.googleusercontent\.com$/.test(h) ||
+    /(^|\.)gstatic\.com$/.test(h) ||
+    /(^|\.)googleapis\.com$/.test(h) ||
+    h === 'github.com' ||
+    /\.github\.com$/.test(h) ||
+    /\.githubusercontent\.com$/.test(h)
+  )
+}
+
+// Google blocks OAuth in embedded user agents that advertise "Electron".
+// Strip Electron/<ver> from the UA string so the Chromium build underneath
+// looks like stock Chrome to the OAuth providers.
+function patchUserAgent(contents: import('electron').WebContents): void {
+  const ua = contents.getUserAgent()
+  const clean = ua
+    .replace(/\s?Electron\/[\d.]+/i, '')
+    .replace(/\s?astro\/[\d.]+/i, '')
+  if (clean !== ua) contents.setUserAgent(clean)
+}
+
 export function installWebviewGuard(): void {
   app.on('web-contents-created', (_event, contents) => {
+    patchUserAgent(contents)
     contents.on('will-attach-webview', (_e, webPreferences, params) => {
       // Force the security baseline regardless of what the renderer requested.
       webPreferences.contextIsolation = true
@@ -59,34 +96,55 @@ export function installWebviewGuard(): void {
       }
     })
 
-    // Open new windows in the user's browser, never as a child BrowserWindow.
+    // OAuth popups (Google / GitHub / Supabase) must stay inside the Electron
+    // app so the session lands in the same partition as the main window.
+    // Anything else (marketing links, docs, issue tracker) punts to the user's
+    // default browser via shell.openExternal.
     contents.setWindowOpenHandler(({ url }) => {
       try {
         const u = new URL(url)
-        if (u.protocol === 'http:' || u.protocol === 'https:') {
-          void shell.openExternal(url)
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          return { action: 'deny' }
         }
+        if (isOAuthHost(u) || u.origin === APP_ORIGIN) {
+          return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+              width: 500,
+              height: 700,
+              autoHideMenuBar: true,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+              },
+            },
+          }
+        }
+        void shell.openExternal(url)
       } catch {
         // ignore malformed URL
       }
       return { action: 'deny' }
     })
 
-    // Block in-process navigation away from the app's own origins.
-    //
-    // Production frontend origins (astroanywhere.com) are intentionally NOT
-    // allowed here: the packaged app is a file:// shell and must stay on that
-    // shell. An in-process navigation to astroanywhere.com would replace the
-    // app with the web frontend and lose the main-process bridge. External
-    // links (OAuth callbacks, marketing links) are opened in the user's
-    // browser via shell.openExternal below.
+    // Block in-process navigation away from the app's own origins. The
+    // packaged app loads https://astroanywhere.com directly (thin shell over
+    // the prod web app), so in-origin navigation there must be allowed —
+    // otherwise client-side redirects like window.location.href = '/landing/'
+    // escape to the user's default browser. External links are still punted
+    // to shell.openExternal.
     contents.on('will-navigate', (event, url) => {
       try {
         const u = new URL(url)
         const isDevServer = u.host === 'localhost:5173' || u.host === '127.0.0.1:5173'
         const isFile = u.protocol === 'file:'
         const isPlugin = u.protocol === 'astro-plugin:'
-        if (!isDevServer && !isFile && !isPlugin) {
+        const isAppOrigin = u.origin === APP_ORIGIN
+        // OAuth redirect chain (Supabase → Google/GitHub → callback) must
+        // stay in the Electron window so the returned session is written to
+        // the app's partition rather than Safari's.
+        if (!isDevServer && !isFile && !isPlugin && !isAppOrigin && !isOAuthHost(u)) {
           event.preventDefault()
           if (u.protocol === 'http:' || u.protocol === 'https:') {
             void shell.openExternal(url)

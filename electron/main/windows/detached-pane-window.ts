@@ -12,13 +12,8 @@
  */
 
 import { app, BrowserWindow } from 'electron'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { windowRegistry } from './registry.js'
 import { streamBroker } from '../ipc/broker.js'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
 
 const isDev = !app.isPackaged
 const DEV_SERVER_URL = process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:5173'
@@ -82,8 +77,11 @@ export async function createDetachedPaneWindow(
   if (isDev) {
     await win.loadURL(`${DEV_SERVER_URL}/?${search}`)
   } else {
-    const indexPath = path.join(__dirname, '../../../../dist/index.html')
-    await win.loadFile(indexPath, { search })
+    // Packaged app is a thin shell over the production web app — detached
+    // panes load the same remote origin so the React tree (with the bridged
+    // preload) runs against the same session as the main window.
+    const base = process.env.ASTRO_APP_URL ?? 'https://astroanywhere.com'
+    await win.loadURL(`${base}/?${search}`)
   }
 
   return { window: win, windowId }

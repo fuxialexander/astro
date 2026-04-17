@@ -56,27 +56,28 @@ app.whenReady().then(async () => {
   // (`server:*`) read its status lazily.
   registerAllChannels()
 
-  // Boot the server utilityProcess BEFORE the main window so the renderer
-  // never sees a flash of "API offline". The supervisor blocks until
-  // /api/health responds.
-  try {
-    await serverSupervisor.start()
-  } catch (err) {
-    console.error('[electron-main] server failed to start:', err)
-    // Fail-fast: don't show a broken main window. Quit and let the user
-    // see the error in logs (Phase 2 will show a real error dialog).
-    app.exit(1)
-    return
+  // The packaged desktop app is a thin shell over the production web app
+  // (see windows/main-window.ts). It talks to the remote Fly backend and
+  // Supabase directly — no embedded server. Dev builds still run it so
+  // `npm run electron:dev` works against the local Vite+Hono stack.
+  if (!app.isPackaged) {
+    try {
+      await serverSupervisor.start()
+    } catch (err) {
+      console.error('[electron-main] server failed to start:', err)
+      app.exit(1)
+      return
+    }
   }
 
-  await createMainWindow({ preloadDir: path.join(__dirname, '../preload') })
+  await createMainWindow({ preloadDir: app.isPackaged ? __dirname : path.join(__dirname, '../preload') })
 
   // Auto-updater — no-op in dev, polls every hour in packaged builds.
   setupAutoUpdater()
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      await createMainWindow({ preloadDir: path.join(__dirname, '../preload') })
+      await createMainWindow({ preloadDir: app.isPackaged ? __dirname : path.join(__dirname, '../preload') })
     }
   })
 })
@@ -93,7 +94,7 @@ app.on('will-quit', (event) => {
   if (cleanedUp) return
   event.preventDefault()
   void Promise.allSettled([
-    serverSupervisor.stop(),
+    app.isPackaged ? Promise.resolve() : serverSupervisor.stop(),
     pluginLoader.shutdownAllPlugins(),
   ]).finally(() => {
     cleanedUp = true

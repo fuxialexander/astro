@@ -22,16 +22,14 @@ import { MakerDeb } from '@electron-forge/maker-deb'
 import { MakerRpm } from '@electron-forge/maker-rpm'
 import { PublisherGithub } from '@electron-forge/publisher-github'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const repoRoot = path.resolve(__dirname, '..')
 
-// extraResource paths are copied verbatim into resources/ at package time.
-// env.ts reads them via path.join(process.resourcesPath, 'server'|'drizzle'|'skills').
-const extraResources: string[] = [
-  path.join(repoRoot, 'server', 'dist'), // → resources/dist (renamed below via symlink convention)
-  path.join(repoRoot, 'drizzle'),
-  path.join(repoRoot, 'skills'),
-]
+// The packaged app is a thin shell over the production web app — no embedded
+// server, PGlite migrations, or bundled skills. Leaving this empty keeps the
+// .dmg small; if we ever re-add an offline mode we can ship those again here.
+const extraResources: string[] = []
 
 // Apple signing/notarization — only attach the blocks when all three env
 // vars are present. Missing any one means "local dev build, skip signing".
@@ -60,9 +58,38 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'Astro',
     executableName: 'astro',
-    asar: true,
+    // Unpack the entire native-module directories from asar. Unlike
+    // auto-unpack-natives (which only matches `.node`), this pulls out helper
+    // executables too — node-pty ships a `spawn-helper` binary with no
+    // extension that it exec()s during fork; stuck inside asar it triggers
+    // posix_spawnp failures at runtime. VSCode does the same.
+    asar: {
+      unpack:
+        '**/{node_modules/node-pty/**,node_modules/ssh2/**,node_modules/cpu-features/**}',
+    },
     icon: path.join(repoRoot, 'electron', 'icons', 'icon'),
     extraResource: extraResources,
+    // The vite plugin bundles main.js but leaves native modules external,
+    // so we have to copy them into the packaged app's node_modules ourselves.
+    // auto-unpack-natives then picks up their .node binaries and moves them
+    // to app.asar.unpacked so Electron can dlopen them at runtime.
+    afterCopy: [
+      (buildPath, _electronVersion, _platform, _arch, callback) => {
+        const natives = ['node-pty', 'ssh2', 'cpu-features']
+        try {
+          for (const name of natives) {
+            const src = path.join(repoRoot, 'node_modules', name)
+            if (!fs.existsSync(src)) continue
+            const dest = path.join(buildPath, 'node_modules', name)
+            fs.mkdirSync(path.dirname(dest), { recursive: true })
+            fs.cpSync(src, dest, { recursive: true, dereference: true })
+          }
+          callback()
+        } catch (err) {
+          callback(err as Error)
+        }
+      },
+    ],
     ...(osxSign ? { osxSign } : {}),
     ...(osxNotarize ? { osxNotarize } : {}),
   },
@@ -114,7 +141,7 @@ const config: ForgeConfig = {
           target: 'main',
         },
         {
-          entry: 'electron/preload/index.ts',
+          entry: 'electron/preload/main.ts',
           config: 'electron/vite.preload.config.ts',
           target: 'preload',
         },

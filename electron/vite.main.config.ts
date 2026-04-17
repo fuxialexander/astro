@@ -7,9 +7,21 @@
  */
 
 import { defineConfig } from 'vite'
+import { builtinModules } from 'node:module'
+
+const nodeBuiltins = [
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+]
 
 export default defineConfig({
+  // Force Node resolution so child_process etc. aren't treated as browser stubs.
+  ssr: { target: 'node', noExternal: [] },
+  resolve: {
+    conditions: ['node'],
+  },
   build: {
+    ssr: true,
     lib: {
       entry: 'electron/main/index.ts',
       formats: ['es'],
@@ -26,9 +38,7 @@ export default defineConfig({
         '@electric-sql/pglite',
         'node-pty',
         'ssh2',
-        // Node built-ins are handled automatically by Vite's ssr target,
-        // but we're building a lib — mark the common ones explicitly.
-        /^node:/,
+        ...nodeBuiltins,
       ],
       output: {
         format: 'es',
