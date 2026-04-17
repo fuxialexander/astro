@@ -9,16 +9,16 @@ describe('hasFeature', () => {
   })
 
   it('returns the global default when no team override exists', () => {
-    // Both flags default to false in GLOBAL_DEFAULTS
-    expect(hasFeature({}, 'github-integration')).toBe(false)
-    expect(hasFeature({}, 'webhook-automation')).toBe(false)
+    // github-integration is GA (true); loop-nodes is gated (false)
+    expect(hasFeature({}, 'github-integration')).toBe(true)
+    expect(hasFeature({}, 'loop-nodes')).toBe(false)
   })
 
   it('returns the team override when present, ignoring global default', () => {
     // Team says true, global says false → true
-    expect(hasFeature({ 'github-integration': true }, 'github-integration')).toBe(true)
+    expect(hasFeature({ 'loop-nodes': true }, 'loop-nodes')).toBe(true)
 
-    // Team says false explicitly → false (even if global were true)
+    // Team says false explicitly → false (even if global is true)
     expect(hasFeature({ 'github-integration': false }, 'github-integration')).toBe(false)
   })
 
@@ -29,8 +29,8 @@ describe('hasFeature', () => {
   })
 
   it('handles null and undefined team flags gracefully', () => {
-    expect(hasFeature(null, 'github-integration')).toBe(false)
-    expect(hasFeature(undefined, 'github-integration')).toBe(false)
+    expect(hasFeature(null, 'loop-nodes')).toBe(false)
+    expect(hasFeature(undefined, 'loop-nodes')).toBe(false)
   })
 
   it('handles empty team flags (uses global defaults)', () => {
@@ -38,13 +38,11 @@ describe('hasFeature', () => {
   })
 
   it('team override takes priority over global default', () => {
-    // Even if global is false, team override true wins
-    const teamFlags = { 'github-integration': true }
-    expect(hasFeature(teamFlags, 'github-integration')).toBe(true)
+    // Global false, team override true wins
+    expect(hasFeature({ 'loop-nodes': true }, 'loop-nodes')).toBe(true)
 
-    // Even if we had a global true, team override false wins
-    const teamFlagsOff = { 'github-integration': false }
-    expect(hasFeature(teamFlagsOff, 'github-integration')).toBe(false)
+    // Global true, team override false wins
+    expect(hasFeature({ 'github-integration': false }, 'github-integration')).toBe(false)
   })
 
   it('is idempotent — calling multiple times returns same result', () => {
@@ -66,14 +64,8 @@ describe('hasFeature', () => {
 })
 
 describe('GLOBAL_DEFAULTS', () => {
-  it('contains expected initial flags', () => {
+  it('contains expected flags', () => {
     expect('github-integration' in GLOBAL_DEFAULTS).toBe(true)
-    expect('webhook-automation' in GLOBAL_DEFAULTS).toBe(true)
-  })
-
-  it('all initial flags default to false (gated, not released)', () => {
-    for (const [, value] of Object.entries(GLOBAL_DEFAULTS)) {
-      expect(value).toBe(false)
-    }
+    expect('loop-nodes' in GLOBAL_DEFAULTS).toBe(true)
   })
 })

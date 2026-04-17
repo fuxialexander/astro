@@ -27,13 +27,12 @@
  */
 export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'github-integration': true,
-  'webhook-automation': false,
   'loop-nodes': false,
   'team-machines': true,
   'delivery-branches': true,
   'parallel-execution': false,
   'inbox-home': true,
-  'import-from-history': false,
+  'import-from-history': true,
 }
 
 /**
