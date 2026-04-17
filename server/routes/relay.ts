@@ -485,8 +485,30 @@ relayRoute.get('/sessions', async (c) => {
   const machineId = c.req.query('machineId')
   const sinceParam = c.req.query('since')
   const sinceTs = sinceParam ? parseInt(sinceParam, 10) : 0
+  const cwdFilter = c.req.query('cwd') || undefined
+  if (cwdFilter !== undefined) {
+    // Must be an absolute path; we forward this verbatim to the agent-runner
+    // which uses it for session-directory matching, so don't accept anything
+    // that could masquerade as relative or a traversal vector.
+    if (!cwdFilter.startsWith('/') || cwdFilter.includes('..') || cwdFilter.length > 1000) {
+      return c.json({ error: 'cwd must be an absolute path without `..` and ≤1000 chars' }, 400)
+    }
+  }
+  const providersParam = c.req.query('providers')
+  // Accept comma-separated list; drop unknown values rather than erroring.
+  const providersFilter = providersParam
+    ? (providersParam.split(',').map((s) => s.trim()).filter((s): s is 'claude' | 'codex' | 'pi' =>
+        s === 'claude' || s === 'codex' || s === 'pi',
+      ))
+    : undefined
+  const scoped = Boolean(cwdFilter || (providersFilter && providersFilter.length))
   const TIMEOUT_MS = 15000
-  const cacheKey = user?.id || 'local'
+  // Cache key isolates scoped queries so global fan-out cache isn't polluted.
+  const cacheKey = [
+    user?.id || 'local',
+    cwdFilter ?? '',
+    providersFilter ? providersFilter.join(',') : '',
+  ].join('|')
 
   /** Helper: request sessions from a single machine */
   async function requestFromMachine(
@@ -518,7 +540,11 @@ relayRoute.get('/sessions', async (c) => {
 
       relayServer.on('sessions_list:response', handler)
 
-      const sent = relayServer.requestSessionsList(targetMachineId, correlationId, maxAgeMs)
+      const sent = relayServer.requestSessionsList(targetMachineId, correlationId, {
+        maxAgeMs,
+        providers: providersFilter,
+        cwd: cwdFilter,
+      })
       if (!sent) {
         clearTimeout(timeout)
         relayServer.removeListener('sessions_list:response', handler)
@@ -548,7 +574,10 @@ relayRoute.get('/sessions', async (c) => {
     }
 
     // ── Check cache first ──
-    const cached = sessionsCache.get(cacheKey)
+    // Scoped queries (explicit provider/cwd filter) always go fresh — they are
+    // user-driven targeted requests, and their results shouldn't be conflated
+    // with the unscoped fan-out cache.
+    const cached = scoped ? undefined : sessionsCache.get(cacheKey)
     if (cached && Date.now() - cached.fetchedAt < SESSIONS_CACHE_TTL) {
       // Serve from cache, apply since filter
       const filteredSessions = sinceTs > 0
@@ -587,8 +616,10 @@ relayRoute.get('/sessions', async (c) => {
     // Sort by lastModified descending
     allSessions.sort((a, b) => b.lastModified - a.lastModified)
 
-    // ── Update cache (store full results, filter for response) ──
-    sessionsCache.set(cacheKey, { sessions: allSessions, fetchedAt: Date.now() })
+    // ── Update cache (only for unscoped fan-out queries) ──
+    if (!scoped) {
+      sessionsCache.set(cacheKey, { sessions: allSessions, fetchedAt: Date.now() })
+    }
 
     const filteredSessions = sinceTs > 0
       ? allSessions.filter((s) => s.lastModified > sinceTs)
