@@ -1013,6 +1013,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchOrigin,
     telegramContext,
     additionalFolders,
+    importManifest: body.importManifest,
   })
 })
 
@@ -1078,6 +1079,7 @@ async function dispatchViaRelay(
     nodeMetadata?: Record<string, unknown> | null
     discoveryMode?: boolean
     additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+    importManifest?: z.infer<typeof dispatchTaskSchema>['importManifest']
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -1140,6 +1142,7 @@ async function dispatchViaRelay(
     dispatchOrigin,
     telegramContext,
     additionalFolders,
+    importManifest,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1322,7 +1325,7 @@ async function dispatchViaRelay(
   // reads it. Only assigned inside the guard after the feature-flag +
   // required-field checks pass; never trusted outside that guard.
   let importMode: 'plan' | 'playground' | undefined
-  if (body.importManifest && body.importManifest.sessions.length > 0) {
+  if (importManifest && importManifest.sessions.length > 0) {
     // Team-level feature gate — matches the frontend check in inbox-home.tsx
     // so an authenticated client can't trigger the 60s import hold / WS
     // broadcast if its team doesn't have the flag. See CLAUDE.md §Feature Flags.
@@ -1350,7 +1353,7 @@ async function dispatchViaRelay(
       )
     }
 
-    importMode = body.importManifest.mode
+    importMode = importManifest.mode
 
     const correlationId = crypto.randomUUID()
     const IMPORT_TIMEOUT_MS = 60_000
@@ -1395,7 +1398,7 @@ async function dispatchViaRelay(
     // them as filename components, but reject clearly-hostile ids here too
     // so we never even forward them over the WebSocket.
     const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/
-    const preFilteredSessions = body.importManifest.sessions.filter((s) => {
+    const preFilteredSessions = importManifest.sessions.filter((s) => {
       if (s.sessionId.length > 200) return false
       if (s.sessionId.includes('..')) return false
       return SAFE_SESSION_ID.test(s.sessionId)
