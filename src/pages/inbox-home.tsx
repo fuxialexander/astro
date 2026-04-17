@@ -373,10 +373,15 @@ export function InboxHome() {
       navigate(`/playground?projectId=${projectId}`)
     } catch (err) {
       console.error('[inbox] Failed to start imported session:', err)
+      // The error message from startSession includes per-session failure
+      // details when the server's `failures[]` is populated, so it can be
+      // longer than a typical toast — give it extra duration to read.
+      const description = err instanceof Error ? err.message : 'Could not start the imported session.'
       useToastStore.getState().add({
         type: 'error',
         title: 'Import failed',
-        description: err instanceof Error ? err.message : 'Could not start the imported session.',
+        description,
+        duration: description.length > 120 ? 15_000 : undefined,
       })
     } finally {
       setIsSubmitting(false)

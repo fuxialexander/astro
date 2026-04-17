@@ -1309,6 +1309,14 @@ pure text analysis.
 **IMPORTANT**: Use the \`Task\` tool to run summaries in parallel. Do NOT Read
 the raw JSONL files yourself — they are too large for the main context.
 
+**Fallback (only if \`Task\` is unavailable in your runtime)**: process each
+session sequentially in the main loop. For each JSONL, use Grep with
+narrow patterns (\`"role":"user"\`, \`"type":"tool_use"\`, \`"type":"file_change"\`)
+to locate key lines, then Read only those line-number ranges — never the
+whole file. Write each summary to \`memory/<provider>-<sessionId>.md\` before
+moving on. Loading a whole megabyte-scale transcript into main context will
+OOM the session; favor many small reads over one large one.
+
 ### Phase 2 — Synthesis
 
 Once every \`memory/*.md\` exists, read them all. Identify overlaps and

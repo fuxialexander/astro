@@ -1615,7 +1615,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
           const zodDetail = errorBody?.details?.[0]?.message
-          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
+          // Import failures carry a per-session breakdown; lift the first 3
+          // reasons into the thrown error so the caller's toast shows which
+          // sessions failed rather than a generic 500.
+          const importFailures = Array.isArray(errorBody?.failures) ? errorBody.failures : []
+          const importDetail = importFailures.length
+            ? `: ${importFailures.slice(0, 3).map((f: { provider?: string; sessionId?: string; reason?: string }) =>
+                `${f.provider ?? '?'}/${(f.sessionId ?? '?').slice(0, 12)}: ${f.reason ?? 'unknown'}`,
+              ).join('; ')}${importFailures.length > 3 ? ` (+${importFailures.length - 3} more)` : ''}`
+            : ''
+          const detail = zodDetail
+            ? `${errorBody?.error}: ${zodDetail}`
+            : `${errorBody?.error || ''}${importDetail}`
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 

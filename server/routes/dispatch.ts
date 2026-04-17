@@ -1306,7 +1306,10 @@ async function dispatchViaRelay(
   let importedManifestEntries:
     | import('@astro/core/db/schema.js').ProjectImportManifestEntry[]
     | null = null
-  const importMode = body.importManifest?.mode
+  // Kept at this scope because the prompt-selection block (below) also
+  // reads it. Only assigned inside the guard after the feature-flag +
+  // required-field checks pass; never trusted outside that guard.
+  let importMode: 'plan' | 'playground' | undefined
   if (body.importManifest && body.importManifest.sessions.length > 0) {
     // Team-level feature gate — matches the frontend check in inbox-home.tsx
     // so an authenticated client can't trigger the 60s import hold / WS
@@ -1334,6 +1337,8 @@ async function dispatchViaRelay(
         400,
       )
     }
+
+    importMode = body.importManifest.mode
 
     const correlationId = crypto.randomUUID()
     const IMPORT_TIMEOUT_MS = 60_000
@@ -1374,11 +1379,31 @@ async function dispatchViaRelay(
       }
     })
 
+    // Defense-in-depth: the agent-runner sanitizes sessionIds before using
+    // them as filename components, but reject clearly-hostile ids here too
+    // so we never even forward them over the WebSocket.
+    const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/
+    const preFilteredSessions = body.importManifest.sessions.filter((s) => {
+      if (s.sessionId.length > 200) return false
+      if (s.sessionId.includes('..')) return false
+      return SAFE_SESSION_ID.test(s.sessionId)
+    })
+    if (preFilteredSessions.length === 0) {
+      cleanupImportListener()
+      return c.json(
+        {
+          success: false,
+          error: 'importManifest.sessions contained no valid session IDs',
+        },
+        400,
+      )
+    }
+
     const sent = relayServer.requestImportSessions(
       machineId,
       correlationId,
       workingDirectory,
-      body.importManifest.sessions,
+      preFilteredSessions,
     )
     if (!sent) {
       cleanupImportListener()
@@ -1404,7 +1429,7 @@ async function dispatchViaRelay(
     // this DB copy is what the frontend reads back to show which sessions
     // bootstrapped the project. Fails soft — a dead DB write shouldn't
     // unwind a successful on-disk import.
-    importedManifestEntries = body.importManifest.sessions.map((s) => ({
+    importedManifestEntries = preFilteredSessions.map((s) => ({
       provider: s.provider,
       sessionId: s.sessionId,
       originalPath: '',
