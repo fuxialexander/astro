@@ -3541,7 +3541,8 @@ async function tryRecoverApproval(
 }
 
 /**
- * Request dynamic approval (called by MCP tool server)
+ * Request dynamic approval — called by the agent-runner adapter's `canUseTool`
+ * hook when it intercepts the Claude SDK's built-in `AskUserQuestion` tool.
  */
 dispatchRoute.post('/request-dynamic-approval', async (c) => {
   const { executionId, question, options } = await c.req.json<{

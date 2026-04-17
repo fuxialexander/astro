@@ -621,53 +621,20 @@ class ZoteroClient {
 }
 ```
 
-**3. MCP Tool Integration**
+**3. CLI Integration**
 
-Add Zotero tools to Astro MCP server for agents:
+Add Zotero subcommands to `packages/cli/src/commands/zotero.ts` so agents call
+them via `Bash` like every other mutation:
 
-```typescript
-// server/lib/mcp/astro-tools-server.ts
+```bash
+# Search the user's Zotero library
+astro-cli zotero search --query "<text>" [--collection <name>] [--tag <tag>]... --json
 
-// New tools:
-{
-  name: 'query_zotero_items',
-  description: 'Search Zotero library for references',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      query: { type: 'string' },
-      collection: { type: 'string' },
-      tags: { type: 'array', items: { type: 'string' } },
-      limit: { type: 'number' }
-    }
-  }
-}
+# Generate a formatted bibliography for a set of item keys
+astro-cli zotero bibliography --item <key>... --style chicago-author-date --json
 
-{
-  name: 'generate_bibliography',
-  description: 'Generate formatted bibliography',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      itemKeys: { type: 'array', items: { type: 'string' } },
-      style: { type: 'string', default: 'chicago-author-date' }
-    }
-  }
-}
-
-{
-  name: 'add_zotero_reference',
-  description: 'Add reference to Zotero library',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      itemType: { type: 'string' },
-      title: { type: 'string' },
-      creators: { type: 'array' },
-      // ... other fields
-    }
-  }
-}
+# Add a new reference to the library
+astro-cli zotero add --item-type article --title "..." --creator "Doe, Jane" ... --json
 ```
 
 **4. UI Components**

@@ -656,8 +656,7 @@ astro/
 │   │   ├── observability/         # Langfuse tracing, observation collector
 │   │   ├── db/                    # Re-export shims → @astro/core (schema, migrations, bootstrap)
 │   │   ├── skill-manager.ts       # Skill discovery + prompt injection
-│   │   ├── slurm/                 # HPC cluster support
-│   │   └── mcp/                   # MCP server (astro-tools-server.ts)
+│   │   └── slurm/                 # HPC cluster support
 │   └── types/                     # Relay protocol types
 │
 ├── packages/

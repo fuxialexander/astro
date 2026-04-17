@@ -558,12 +558,11 @@ All commands support `--json` for structured machine-readable output. `plan crea
 - **Frontend detection:** `PLAN_MUTATING_TOOLS` already includes `Bash`. When `useStreamEvents` sees a `Bash` tool_result, it triggers a plan refresh.
 - **Observable:** CLI commands appear as `tool_use` (Bash) / `tool_result` events in `streaming_events`, making them recoverable after page refresh.
 
-**Why not MCP?** The MCP server (`astro-tools-server.ts`) also has mutation tools (`create_task`, `update_task`, etc.), but:
-- MCP tools are currently excluded from plan-type tasks in `claude-sdk-adapter.ts`.
-- The MCP tools use different names (`create_task`) than the CLI (`plan create-node`), requiring frontend detection updates.
-- The CLI's `plan create` command (atomic full-plan creation with ID mapping) has no MCP equivalent.
-- Adding MCP access to plan tasks is an unnecessary config change when `Bash` already works.
-- MCP adds a server process + transport layer; CLI is a direct subprocess with no ongoing connection.
+**Why CLI (not MCP)?** An earlier design used a server-side MCP tool server for mutations. It was removed — the CLI is the single mutation surface. Rationale:
+- The CLI's `plan create` (atomic full-plan creation with ID mapping) is the natural write API.
+- `Bash` tool_use/tool_result events are already observable in `streaming_events` and drive frontend plan refreshes.
+- No extra process or transport layer — the CLI is a direct subprocess.
+- Auth and session context are injected via env vars (`ASTRO_AUTH_TOKEN`, `ASTRO_SERVER_URL`, `ASTRO_EXECUTION_ID`, `ASTRO_PROJECT_ID`) with no ongoing connection to manage.
 
 **Migration concern:** None for token usage — `plan create` accepts the same JSON the agent currently emits in text, just routed through a CLI command instead. The prompt change is: "call `astro-cli plan create --project-id {id} --json` with the plan JSON piped to stdin" instead of "emit the plan JSON in your response text."
 

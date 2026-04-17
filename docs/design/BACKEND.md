@@ -180,7 +180,7 @@ This is the full task dispatch endpoint -- the route that sends tasks to AI agen
 | POST | `/steer` | Send guidance to running agent |
 | POST | `/prune-branch` | Kill task + all downstream dependents |
 | POST | `/approve` | Respond to approval request |
-| POST | `/request-dynamic-approval` | Request dynamic approval from user (MCP tool) |
+| POST | `/request-dynamic-approval` | Request dynamic approval from user (called by the agent-runner's `canUseTool` hook when it intercepts the Claude SDK's `AskUserQuestion` tool) |
 | POST | `/reset` | Reset task execution state |
 | POST | `/cleanup` | Clean up worktree/sandbox |
 | GET | `/status` | Get dispatch engine status (queue stats, active executions) |
@@ -208,7 +208,7 @@ Key features:
 - **Image attachments**: Resolves `imageRefs` (blob UUIDs) to base64-encoded images and includes them in the dispatch payload for multimodal agent input.
 - **Execution tracking**: Stores execution context in Redis (`relay:exec:context:<executionId>`) for user-scoped SSE filtering and ownership validation.
 - **Environment config injection**: If the target machine has custom environment configuration (conda envs, module loads, etc.), it is injected into the dispatch payload.
-- **Heartbeat timeout**: An activity timer (configurable, default 12 minutes) detects stalled executions. The timer pauses when the agent is waiting for a user approval response via `ask_user_question`.
+- **Heartbeat timeout**: An activity timer (configurable, default 12 minutes) detects stalled executions. The timer pauses when the agent is waiting for a user approval response via `AskUserQuestion` (intercepted by the agent-runner's `canUseTool` hook).
 
 **Steer** (`/steer`):
 
@@ -563,7 +563,7 @@ The engine maintains two in-memory Maps that must stay in-memory:
 
 **Approval system:**
 
-The engine supports both procedure-level approvals (pause before a step) and dynamic approvals via the `ask_user_question` MCP tool. Dynamic approvals allow the agent to ask the user questions mid-execution without changing node status. Approvals wait indefinitely (no timeout) -- cleanup happens when the user responds or the execution is cancelled.
+The engine supports both procedure-level approvals (pause before a step) and dynamic approvals via the Claude SDK's built-in `AskUserQuestion` tool, intercepted by the agent-runner's `canUseTool` hook. Dynamic approvals allow the agent to ask the user questions mid-execution without changing node status. Approvals wait indefinitely (no timeout) -- cleanup happens when the user responds or the execution is cancelled.
 
 **Components** (located in `server/lib/dispatch/`, with core logic re-exported from `packages/core/`):
 

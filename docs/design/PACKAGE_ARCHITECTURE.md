@@ -155,12 +155,10 @@ packages/agent-runner/
 │   │   ├── worktree.ts      # Git worktree creation/cleanup
 │   │   ├── config.ts        # ~/.astro/ config management
 │   │   └── relay-client.ts  # WebSocket connection to relay
-│   ├── providers/
-│   │   ├── claude-code.ts   # Claude Code adapter
-│   │   ├── codex.ts         # Codex adapter
-│   │   └── types.ts         # AgentProvider interface
-│   └── mcp/
-│       └── astro-tools-server.ts  # 15 MCP tools for agent self-direction
+│   └── providers/
+│       ├── claude-code.ts   # Claude Code adapter
+│       ├── codex.ts         # Codex adapter
+│       └── types.ts         # AgentProvider interface
 └── package.json             # @astroanywhere/agent, bin: astro-agent
 ```
 

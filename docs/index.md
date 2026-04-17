@@ -89,11 +89,6 @@ The design docs in `docs/design/` are the authoritative reference for the system
 - [Realtime Sync](./features/realtime-sync.md) - Supabase Realtime integration
 - [Plugin System](./features/plugin-system.md) - Plugin architecture and API
 
-### MCP Tools
-
-- [Tools Reference](./mcp/tools-reference.md) - Complete MCP tool catalog
-- [Installation](./mcp/installation.md) - MCP installation and setup
-
 ### Integrations
 
 - [GitHub Integration](./integrations/github.md) - GitHub OAuth and API

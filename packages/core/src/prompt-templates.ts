@@ -771,6 +771,7 @@ Run \`plan verify\` first — fix any errors — then review the tree output bef
   }
 
   const importantSection = `## Important
+- **NEVER run \`astro-cli project create\`**. You are already operating inside a project (see Project ID above). Creating a new project causes two failure modes: (1) every node you create lands in the new project instead of THIS one, so the user who opened this session sees nothing; (2) the new project itself is often invisible in the sidebar's workspace filter. Always pass \`--project-id <PROJECT_ID>\` to \`plan create-node\` to add nodes to THIS project. The CLI will also refuse \`project create\` when \`ASTRO_EXECUTION_ID\` is set.
 - Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
 - Your text output is visible to the user in real-time as a chat conversation.
 - Create nodes one by one using \`astro-cli plan create-node\`. Always pass \`--json\` to get the returned node ID for use in subsequent calls.
@@ -951,6 +952,7 @@ astro-cli project update <PROJECT_ID> --name "Short Name" --icon "🎯"
 \`\`\`
 
 ### Plan Rules
+- **NEVER run \`astro-cli project create\`**. You are already operating inside a project (see Project ID above). Creating a new project causes two failure modes: (1) every node you create lands in the new project instead of THIS one, so the user who opened this session sees nothing; (2) the new project itself is often invisible in the sidebar's workspace filter. Always pass \`--project-id <PROJECT_ID>\` to \`plan create-node\` to add nodes to THIS project. The CLI will also refuse \`project create\` when \`ASTRO_EXECUTION_ID\` is set.
 - Every task MUST have \`--milestone-id\` referencing its parent milestone
 - Tasks must NOT have both \`--milestone-id M\` and \`--dependency M\` — that creates a deadlock
 - Cross-milestone dependencies route through milestone nodes (not task-to-task across milestones)
@@ -960,7 +962,7 @@ astro-cli project update <PROJECT_ID> --name "Short Name" --icon "🎯"
 - Target each task at ~20 min of expert work. Descriptions should be concrete briefs
 - The final milestone must include a terminal review/delivery node
 - After creating all nodes, run \`plan verify\` then \`plan tree\` to validate
-- Rename the project with a short descriptive name (2–5 words) and fitting emoji
+- Rename the existing project (do NOT create a new one) with \`astro-cli project update <PROJECT_ID> --name "..." --icon "..."\`
 
 ## Your Output
 Your text output is visible to the user in real-time as a chat conversation. Be concise and focused.`
