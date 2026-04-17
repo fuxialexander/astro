@@ -198,11 +198,8 @@ const INTERNAL_TEAMS: string[] = [
  * default to true), remove it from here.
  */
 const INTERNAL_FLAGS: Record<string, boolean> = {
-  'webhook-automation': true,
   'loop-nodes': true,
-
   'parallel-execution': true,
-  'import-from-history': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────
