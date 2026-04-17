@@ -14,6 +14,13 @@ out/
 .next/
 .nuxt/
 .cache/
+# electron-forge vite plugin output (main, preload, renderer bundles)
+.vite/
+# tsc incremental build metadata
+*.tsbuildinfo
+# esbuild / other tool caches
+.turbo/
+.swc/
 
 # Environment variables
 .env
