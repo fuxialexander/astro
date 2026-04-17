@@ -460,6 +460,7 @@ async function start() {
         'file_upload:response',
         'create_directory:response',
         'sessions_list:response',
+        'import_sessions:response',
         'repo_setup:response',
         'repo_detect:response',
         'slash_commands:response',

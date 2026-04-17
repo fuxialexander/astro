@@ -1233,6 +1233,18 @@ export class RelayServer extends EventEmitter {
         this.handleAgentRunnerImportSessionsResponse(message as unknown as AgentRunnerImportSessionsResponseMessage);
         break;
 
+      // Defensive: also handle the dot-notation form declared in
+      // ImportSessionsResponseMessage. Today the agent-runner sends the
+      // underscore form above; the dot form exists so any future
+      // intermediary (MCP bridge, synthetic server message) gets routed.
+      case 'import_sessions.response':
+        this.handleAgentRunnerImportSessionsResponse({
+          type: 'import_sessions_response',
+          timestamp: (message as { timestamp?: string }).timestamp ?? new Date().toISOString(),
+          payload: message as unknown as AgentRunnerImportSessionsResponseMessage['payload'],
+        });
+        break;
+
       // Session attachment messages (MCP bridge)
       case 'session.attach':
         this.handleSessionAttach(socket, message as SessionAttachMessage).catch((err) => {

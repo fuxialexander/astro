@@ -25,6 +25,7 @@ describe('SessionsListRequestMessage (scoping fields)', () => {
   it('accepts an unfiltered request (legacy shape)', () => {
     const msg: SessionsListRequestMessage = {
       type: 'sessions_list.request',
+      timestamp: new Date(),
       correlationId: 'corr-1',
     };
     expect(msg.providers).toBeUndefined();
@@ -34,6 +35,7 @@ describe('SessionsListRequestMessage (scoping fields)', () => {
   it('accepts providers + cwd + maxAgeMs filters', () => {
     const msg: SessionsListRequestMessage = {
       type: 'sessions_list.request',
+      timestamp: new Date(),
       correlationId: 'corr-2',
       providers: ['claude', 'codex', 'pi'],
       cwd: '/Users/alice/app',
@@ -81,6 +83,7 @@ describe('SessionsListResponseMessage (mixed providers)', () => {
   it('carries a list tagged with different providers', () => {
     const resp: SessionsListResponseMessage = {
       type: 'sessions_list.response',
+      timestamp: new Date(),
       correlationId: 'corr-3',
       sessions: [
         { provider: 'claude', sessionId: 's1', summary: '', lastModified: 0, fileSize: 0 },
@@ -96,6 +99,7 @@ describe('ImportSessionsRequestMessage', () => {
   it('carries a workingDirectory and a list of sessions with titles', () => {
     const req: ImportSessionsRequestMessage = {
       type: 'import_sessions.request',
+      timestamp: new Date(),
       correlationId: 'corr-4',
       workingDirectory: '/Users/alice/app',
       sessions: [
@@ -112,6 +116,7 @@ describe('ImportSessionsResponseMessage', () => {
   it('reports success with raw count and empty failures', () => {
     const resp: ImportSessionsResponseMessage = {
       type: 'import_sessions.response',
+      timestamp: new Date(),
       correlationId: 'corr-5',
       ok: true,
       manifestPath: '/Users/alice/app/.astro/imports/manifest.json',
@@ -125,6 +130,7 @@ describe('ImportSessionsResponseMessage', () => {
   it('carries per-session failures when partial', () => {
     const resp: ImportSessionsResponseMessage = {
       type: 'import_sessions.response',
+      timestamp: new Date(),
       correlationId: 'corr-6',
       ok: true,
       rawCount: 1,
@@ -137,6 +143,7 @@ describe('ImportSessionsResponseMessage', () => {
   it('carries a hard error + empty rawCount when the whole import aborts', () => {
     const resp: ImportSessionsResponseMessage = {
       type: 'import_sessions.response',
+      timestamp: new Date(),
       correlationId: 'corr-7',
       ok: false,
       rawCount: 0,

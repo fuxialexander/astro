@@ -486,6 +486,14 @@ relayRoute.get('/sessions', async (c) => {
   const sinceParam = c.req.query('since')
   const sinceTs = sinceParam ? parseInt(sinceParam, 10) : 0
   const cwdFilter = c.req.query('cwd') || undefined
+  if (cwdFilter !== undefined) {
+    // Must be an absolute path; we forward this verbatim to the agent-runner
+    // which uses it for session-directory matching, so don't accept anything
+    // that could masquerade as relative or a traversal vector.
+    if (!cwdFilter.startsWith('/') || cwdFilter.includes('..') || cwdFilter.length > 1000) {
+      return c.json({ error: 'cwd must be an absolute path without `..` and ≤1000 chars' }, 400)
+    }
+  }
   const providersParam = c.req.query('providers')
   // Accept comma-separated list; drop unknown values rather than erroring.
   const providersFilter = providersParam
