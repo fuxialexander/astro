@@ -11,6 +11,7 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'delivery-branches': true,
   'parallel-execution': false,
   'inbox-home': true,
+  'import-from-history': false,
 }
 
 /**

@@ -1,45 +1,58 @@
 /**
- * Claude Code Sessions Store
+ * External Agent Sessions Store
  *
- * Fetches and caches Claude Code sessions from connected machines
- * via GET /api/relay/sessions.
+ * Fetches and caches on-disk sessions from connected machines across
+ * Claude Code, Codex, and Pi via GET /api/relay/sessions. Supports
+ * optional `providers` and `cwd` filters for scoped discovery (used by
+ * the inbox "Import from history" picker).
  *
- * Uses stale-while-revalidate pattern:
- * - Shows cached sessions immediately
- * - Refreshes in background with delta updates (only fetching sessions modified since last load)
- * - Merges new/updated sessions into the cached list
+ * Uses stale-while-revalidate:
+ *   - Shows cached sessions immediately.
+ *   - Refreshes in background with delta updates (only fetching sessions
+ *     modified since last load) when no filters are active.
+ *   - Scoped loads (providers / cwd) bypass the cache and the SWR delta
+ *     path entirely so the picker sees fresh, narrowly-scoped results.
  */
 
 import { create } from "zustand"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
+import type { ExternalAgentProvider, ExternalAgentSession } from "@/types/imports"
 
-export interface ClaudeCodeSession {
-  sessionId: string
-  summary: string
-  lastModified: number
-  fileSize: number
-  customTitle?: string
-  firstPrompt?: string
-  gitBranch?: string
+/**
+ * @deprecated Use `ExternalAgentSession` from `@/types/imports`. Retained
+ * as a structural alias so existing call sites continue to compile. This
+ * alias will be removed after the "Import from history" feature ships.
+ */
+export type ClaudeCodeSession = ExternalAgentSession
+
+export type { ExternalAgentSession } from "@/types/imports"
+
+export interface LoadSessionsOptions {
+  /** Restrict to a subset of providers. Omit for all supported providers. */
+  providers?: ExternalAgentProvider[]
+  /** If set, only sessions whose cwd equals this absolute path are returned. */
   cwd?: string
-  machineId: string
-  machineName: string
 }
 
-interface ClaudeSessionsState {
-  sessions: ClaudeCodeSession[]
+interface ExternalSessionsState {
+  sessions: ExternalAgentSession[]
   loading: boolean
-  /** True when refreshing in background (cached data still visible) */
+  /** True when refreshing in background (cached data still visible). */
   refreshing: boolean
   error: string | null
   lastLoadedAt: number | null
-  loadSessions: () => Promise<void>
+  /**
+   * Load sessions. Call with no args for the normal stale-while-revalidate
+   * fan-out; pass `{providers, cwd}` for a scoped, always-fresh load
+   * (e.g. from the Import-from-history picker).
+   */
+  loadSessions: (opts?: LoadSessionsOptions) => Promise<void>
 }
 
 /** Merge delta sessions into existing cached list. New/updated sessions replace old ones by sessionId+machineId. */
-function mergeSessions(existing: ClaudeCodeSession[], delta: ClaudeCodeSession[]): ClaudeCodeSession[] {
-  const map = new Map<string, ClaudeCodeSession>()
+function mergeSessions(existing: ExternalAgentSession[], delta: ExternalAgentSession[]): ExternalAgentSession[] {
+  const map = new Map<string, ExternalAgentSession>()
   for (const s of existing) {
     map.set(`${s.machineId}:${s.sessionId}`, s)
   }
@@ -49,22 +62,28 @@ function mergeSessions(existing: ClaudeCodeSession[], delta: ClaudeCodeSession[]
   return Array.from(map.values()).sort((a, b) => b.lastModified - a.lastModified)
 }
 
-export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => ({
+/**
+ * @deprecated Use `useExternalSessionsStore`. This name is retained for
+ * backward compatibility with existing call sites.
+ */
+export const useClaudeSessionsStore = create<ExternalSessionsState>((set, get) => ({
   sessions: [],
   loading: false,
   refreshing: false,
   error: null,
   lastLoadedAt: null,
 
-  loadSessions: async () => {
+  loadSessions: async (opts?: LoadSessionsOptions) => {
     const { lastLoadedAt, loading, sessions } = get()
     if (loading) return
 
-    // Debounce: skip if loaded within last 5 seconds
-    if (lastLoadedAt && Date.now() - lastLoadedAt < 5000) return
+    const scoped = Boolean(opts?.providers?.length || opts?.cwd)
 
-    const hasCachedData = sessions.length > 0
-    // If we have cached data, show it immediately and refresh in background
+    // Debounce only unscoped loads — scoped requests are user-driven and
+    // should always hit the backend.
+    if (!scoped && lastLoadedAt && Date.now() - lastLoadedAt < 5000) return
+
+    const hasCachedData = !scoped && sessions.length > 0
     if (hasCachedData) {
       set({ refreshing: true, error: null })
     } else {
@@ -76,10 +95,12 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
       const headers: HeadersInit = { "Content-Type": "application/json" }
       if (token) headers["Authorization"] = `Bearer ${token}`
 
-      // If we have cached data, request only sessions modified since last load (delta)
-      const url = hasCachedData && lastLoadedAt
-        ? apiUrl(`/api/relay/sessions?since=${lastLoadedAt}`)
-        : apiUrl("/api/relay/sessions")
+      const params = new URLSearchParams()
+      if (hasCachedData && lastLoadedAt) params.set("since", String(lastLoadedAt))
+      if (opts?.providers?.length) params.set("providers", opts.providers.join(","))
+      if (opts?.cwd) params.set("cwd", opts.cwd)
+      const qs = params.toString()
+      const url = apiUrl(qs ? `/api/relay/sessions?${qs}` : "/api/relay/sessions")
 
       const response = await fetch(url, { headers })
       if (!response.ok) {
@@ -87,7 +108,7 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
       }
 
       const data = await response.json() as {
-        sessions: ClaudeCodeSession[]
+        sessions: ExternalAgentSession[]
         errors: Array<{ machineId: string; machineName?: string; error: string }>
         delta?: boolean
       }
@@ -105,9 +126,9 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
           : `${total} machines unreachable — ${parts.join("; ")}`
       }
 
-      // Delta merge or full replace
+      // Scoped loads always replace; unscoped loads delta-merge when possible.
       const currentSessions = get().sessions
-      const merged = data.delta
+      const merged = !scoped && data.delta
         ? mergeSessions(currentSessions, data.sessions)
         : data.sessions
 
@@ -115,7 +136,7 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
         sessions: merged,
         loading: false,
         refreshing: false,
-        lastLoadedAt: Date.now(),
+        lastLoadedAt: scoped ? lastLoadedAt : Date.now(),
         error: errorMsg,
       })
     } catch (err) {
@@ -127,3 +148,6 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
     }
   },
 }))
+
+/** Preferred hook name going forward; `useClaudeSessionsStore` is a deprecated alias. */
+export const useExternalSessionsStore = useClaudeSessionsStore

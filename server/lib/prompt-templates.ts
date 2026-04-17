@@ -14,6 +14,7 @@ export {
   buildSummaryPrompt,
   buildInteractivePlanPrompt,
   buildUnifiedPlaygroundPrompt,
+  buildImportFromHistoryPrompt,
   sanitizeGitHubName,
   sanitizeGitBranch,
   formatMachineInstruction,
@@ -30,4 +31,5 @@ export type {
   TaskExecutionContext,
   TaskChatContext,
   RefinementInput,
+  ImportedSessionEntry,
 } from '../../packages/core/src/prompt-templates.js'

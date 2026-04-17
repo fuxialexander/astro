@@ -2,6 +2,19 @@ import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, pr
 import { sql, isNull } from 'drizzle-orm'
 import type { GitHubSyncSettings } from '../types.js'
 
+/** One-time import provenance, persisted on `projects.importedFromSessions`. */
+export interface ProjectImportManifestEntry {
+  provider: 'claude' | 'codex' | 'pi'
+  sessionId: string
+  originalPath: string
+  localPath: string
+  memoryPath: string
+  cwd?: string
+  gitBranch?: string
+  lastModified?: number
+  title: string
+}
+
 // ── Projects ──────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -40,6 +53,8 @@ export const projects = pgTable('projects', {
   githubRepoId: integer('github_repo_id'),
   references: jsonb('references').default([]),
   githubSyncSettings: jsonb('github_sync_settings').$type<GitHubSyncSettings>(),
+  /** Manifest of external agent sessions imported to bootstrap the project. Null for projects not created via "Import from history". */
+  importedFromSessions: jsonb('imported_from_sessions').$type<ProjectImportManifestEntry[] | null>(),
   projectBranch: text('project_branch'),
   projectPrUrl: text('project_pr_url'),
   projectPrNumber: integer('project_pr_number'),
