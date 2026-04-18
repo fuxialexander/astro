@@ -1329,10 +1329,18 @@ async function dispatchViaRelay(
     // Team-level feature gate — matches the frontend check in inbox-home.tsx
     // so an authenticated client can't trigger the 60s import hold / WS
     // broadcast if its team doesn't have the flag. See CLAUDE.md §Feature Flags.
+    const [importProjectRow] = await db
+      .select({ teamId: projects.teamId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1)
+    if (!importProjectRow) {
+      return c.json({ success: false, error: 'Project not found for import gate' }, 404)
+    }
     const [importTeamRow] = await db
       .select({ featureFlags: teams.featureFlags })
       .from(teams)
-      .where(eq(teams.id, dbProject.teamId))
+      .where(eq(teams.id, importProjectRow.teamId))
       .limit(1)
     if (!hasFeature(importTeamRow?.featureFlags ?? null, 'import-from-history')) {
       return c.json(

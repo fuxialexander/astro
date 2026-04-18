@@ -14,10 +14,12 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BookOpen,
+  ChevronsUpDown,
   FolderOpen,
   GitBranch,
   Laptop,
   Loader2,
+  Search,
   Terminal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -36,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
@@ -113,6 +116,20 @@ const PROVIDER_BADGE: Record<ExternalAgentSession["provider"], string> = {
   pi: "pi",
 }
 
+/**
+ * Case-insensitive token match: every whitespace-separated token in the query
+ * must appear somewhere in the haystack. Good enough for cwd paths and session
+ * titles without pulling in a fuzzy-search dependency.
+ */
+function tokenMatch(haystack: string, query: string): boolean {
+  if (!query) return true
+  const h = haystack.toLowerCase()
+  for (const tok of query.toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (!h.includes(tok)) return false
+  }
+  return true
+}
+
 export function ImportFromHistoryDialog({
   open,
   onOpenChange,
@@ -136,6 +153,9 @@ export function ImportFromHistoryDialog({
   /** Cutoff for the date filter. Refreshed whenever dateWindow changes or the
    *  dialog opens so the computation stays out of render (react-hooks/purity). */
   const [cutoff, setCutoff] = useState<number>(0)
+  const [cwdOpen, setCwdOpen] = useState(false)
+  const [cwdQuery, setCwdQuery] = useState("")
+  const [sessionQuery, setSessionQuery] = useState("")
 
   // Load sessions when the dialog opens; load all (no scoping) so the cwd
   // dropdown can show every cwd the walker found on the selected machine.
@@ -157,6 +177,8 @@ export function ImportFromHistoryDialog({
       setDateWindow("7d")
       const defaultWindow = DATE_WINDOW_MS["7d"]
       setCutoff(defaultWindow ? Date.now() - defaultWindow : 0)
+      setCwdQuery("")
+      setSessionQuery("")
     }
     prevOpen.current = open
   }, [open, seedMachineId, seedWorkingDir, seedGoal, seedPlanMode])
@@ -203,6 +225,11 @@ export function ImportFromHistoryDialog({
       .sort((a, b) => b.lastModified - a.lastModified)
   }, [machineId, sessionsByMachine])
 
+  const filteredCwds = useMemo(
+    () => availableCwds.filter((c) => tokenMatch(c.cwd, cwdQuery)),
+    [availableCwds, cwdQuery],
+  )
+
   const filteredSessions = useMemo(() => {
     if (!machineId || !cwd) return []
     const bucket = sessionsByMachine.get(machineId)
@@ -210,8 +237,9 @@ export function ImportFromHistoryDialog({
     return bucket.sessions
       .filter((s) => (s.cwd || "(unknown)") === cwd)
       .filter((s) => !cutoff || s.lastModified >= cutoff)
+      .filter((s) => tokenMatch(`${bestTitle(s)} ${s.gitBranch ?? ""}`, sessionQuery))
       .sort((a, b) => b.lastModified - a.lastModified)
-  }, [machineId, cwd, cutoff, sessionsByMachine])
+  }, [machineId, cwd, cutoff, sessionsByMachine, sessionQuery])
 
   const selectAll = () => {
     const next = new Set<string>()
@@ -276,7 +304,7 @@ export function ImportFromHistoryDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-w-0">
           {/* Step 1 — machine */}
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs text-muted-foreground">Step 1 — Machine</Label>
@@ -306,33 +334,83 @@ export function ImportFromHistoryDialog({
             </Select>
           </div>
 
-          {/* Step 2 — cwd */}
+          {/* Step 2 — cwd (searchable) */}
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs text-muted-foreground">Step 2 — Working directory</Label>
-            <Select
-              value={cwd ?? ""}
-              onValueChange={setCwd}
-              disabled={!machineId}
-            >
-              <SelectTrigger className="max-w-xl">
-                <SelectValue
-                  placeholder={machineId ? "Select a directory" : "Choose a machine first"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCwds.map((c) => (
-                  <SelectItem key={c.cwd} value={c.cwd} disabled={c.cwd === "(unknown)"}>
-                    <span className="flex items-center gap-2">
-                      <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="font-mono text-xs truncate max-w-[380px]">{c.cwd}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        ({c.count} session{c.count === 1 ? "" : "s"})
-                      </span>
+            <Popover open={cwdOpen} onOpenChange={setCwdOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  disabled={!machineId}
+                  className="max-w-xl justify-between font-normal"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="font-mono text-xs truncate">
+                      {cwd ?? (machineId ? "Select a directory" : "Choose a machine first")}
                     </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    {cwd && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        ({availableCwds.find((c) => c.cwd === cwd)?.count ?? 0} sessions)
+                      </span>
+                    )}
+                  </span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[min(640px,calc(100vw-2rem))] p-0"
+              >
+                <div className="flex items-center gap-2 border-b px-3 py-2">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                  <input
+                    autoFocus
+                    value={cwdQuery}
+                    onChange={(e) => setCwdQuery(e.target.value)}
+                    placeholder="Search directories…"
+                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                <div className="max-h-[260px] overflow-y-auto py-1">
+                  {filteredCwds.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      No matching directories.
+                    </div>
+                  ) : (
+                    filteredCwds.map((c) => {
+                      const disabled = c.cwd === "(unknown)"
+                      const isSelected = c.cwd === cwd
+                      return (
+                        <button
+                          key={c.cwd}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => {
+                            setCwd(c.cwd)
+                            setCwdOpen(false)
+                            setCwdQuery("")
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-accent/50",
+                            disabled && "opacity-50 cursor-not-allowed",
+                            isSelected && "bg-accent/60",
+                          )}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="font-mono text-xs truncate flex-1 min-w-0">{c.cwd}</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            {c.count} session{c.count === 1 ? "" : "s"}
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Step 3 — sessions */}
@@ -365,7 +443,18 @@ export function ImportFromHistoryDialog({
                 </Select>
               </div>
             </div>
-            <div className="rounded-md border border-border bg-muted/20 max-h-[220px] overflow-y-auto">
+            {machineId && cwd && (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/10 px-2 py-1">
+                <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                <input
+                  value={sessionQuery}
+                  onChange={(e) => setSessionQuery(e.target.value)}
+                  placeholder="Search sessions by title or branch…"
+                  className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            )}
+            <div className="rounded-md border border-border bg-muted/20 max-h-[220px] overflow-y-auto overflow-x-hidden min-w-0">
               {!machineId || !cwd ? (
                 <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
                   Pick a machine and working directory first.
@@ -377,7 +466,7 @@ export function ImportFromHistoryDialog({
               ) : filteredSessions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-2 text-xs text-muted-foreground">
                   <Terminal className="h-4 w-4" />
-                  No sessions in this window.
+                  {sessionQuery ? "No sessions match your search." : "No sessions in this window."}
                 </div>
               ) : (
                 <ul className="divide-y divide-border">
@@ -386,11 +475,18 @@ export function ImportFromHistoryDialog({
                     const isOn = selected.has(key)
                     return (
                       <li key={key}>
-                        <button
-                          type="button"
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => toggle(key)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              toggle(key)
+                            }
+                          }}
                           className={cn(
-                            "w-full flex items-start gap-3 px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors",
+                            "w-full flex items-start gap-3 px-3 py-2 text-left text-sm cursor-pointer hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                             isOn && "bg-accent/50",
                           )}
                         >
@@ -415,7 +511,7 @@ export function ImportFromHistoryDialog({
                               </span>
                             )}
                           </div>
-                        </button>
+                        </div>
                       </li>
                     )
                   })}
@@ -451,7 +547,7 @@ export function ImportFromHistoryDialog({
           {/* Goal */}
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs text-muted-foreground">
-              Goal (optional) — focuses the synthesis
+              Goal (optional) — tells the agent what you want to do with imported sessions
             </Label>
             <Textarea
               value={goal}
