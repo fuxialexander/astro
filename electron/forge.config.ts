@@ -70,6 +70,15 @@ const config: ForgeConfig = {
     },
     icon: path.join(repoRoot, 'electron', 'icons', 'icon'),
     extraResource: extraResources,
+    // @electron/universal merges the per-arch packaged apps and bails on any
+    // file that differs between x64 and arm64 without a rule saying which
+    // arch it belongs to. node-pty / ssh2 / cpu-features ship arch-specific
+    // prebuilds, so we route them through x64ArchFiles. Keep this glob in
+    // sync with `asar.unpack` above and the `afterCopy` natives list below.
+    osxUniversal: {
+      x64ArchFiles: '**/node_modules/{node-pty,ssh2,cpu-features}/**',
+      mergeASARs: false,
+    },
     // The vite plugin bundles main.js but leaves native modules external,
     // so we have to copy them into the packaged app's node_modules ourselves.
     // auto-unpack-natives then picks up their .node binaries and moves them
