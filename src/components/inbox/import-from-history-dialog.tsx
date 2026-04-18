@@ -287,7 +287,7 @@ export function ImportFromHistoryDialog({
                 setCwd(undefined)
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="max-w-md">
                 <SelectValue placeholder={loading ? "Loading machines…" : "Select a machine"} />
               </SelectTrigger>
               <SelectContent>
@@ -314,7 +314,7 @@ export function ImportFromHistoryDialog({
               onValueChange={setCwd}
               disabled={!machineId}
             >
-              <SelectTrigger>
+              <SelectTrigger className="max-w-xl">
                 <SelectValue
                   placeholder={machineId ? "Select a directory" : "Choose a machine first"}
                 />
