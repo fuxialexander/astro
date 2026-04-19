@@ -205,8 +205,5 @@
     "vitest": "^4.0.18",
     "wait-on": "^9.0.4",
     "wrangler": "^4.71.0"
-  },
-  "optionalDependencies": {
-    "electron-webauthn-mac": "^1.0.0"
   }
 }

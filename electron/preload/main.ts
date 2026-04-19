@@ -112,36 +112,16 @@ const platform = {
 // NOTE: window.astro is set by contextBridge below — the injected script runs
 // after this block since script injection is synchronous but contextBridge
 // exposure happens before page scripts execute.
-{
-  const patch = document.createElement('script')
-  patch.textContent = `(function(){
-  if(!window.PublicKeyCredential)return;
-  PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable=function(){
-    return Promise.resolve(true);
-  };
-  var _origCreate=navigator.credentials.create.bind(navigator.credentials);
-  var _origGet=navigator.credentials.get.bind(navigator.credentials);
-  navigator.credentials.create=function(options){
-    if(options&&options.publicKey&&window.astro){
-      return window.astro.invoke('webauthn:create',options.publicKey);
-    }
-    return _origCreate(options);
-  };
-  navigator.credentials.get=function(options){
-    if(options&&options.publicKey&&window.astro){
-      return window.astro.invoke('webauthn:get',options.publicKey);
-    }
-    return _origGet(options);
-  };
-})();`
-  document.documentElement.prepend(patch)
-  patch.remove()
-}
 
 contextBridge.exposeInMainWorld('astro', {
   platform,
   invoke: (channel: string, payload: unknown) => ipcRenderer.invoke(channel, payload),
   streams: { subscribe },
+  onAuthCallback: (handler: (tokens: { accessToken: string; refreshToken: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, tokens: { accessToken: string; refreshToken: string }) => handler(tokens)
+    ipcRenderer.on('auth:callback', listener)
+    return () => ipcRenderer.removeListener('auth:callback', listener)
+  },
 })
 
 // Type augmentation for the renderer side. Mirrors what's exposed above —
@@ -152,6 +132,9 @@ declare global {
       platform: typeof platform
       invoke: (channel: string, payload: unknown) => Promise<unknown>
       streams: { subscribe: typeof subscribe }
+      onAuthCallback: (
+        handler: (tokens: { accessToken: string; refreshToken: string }) => void,
+      ) => () => void
     }
   }
 }

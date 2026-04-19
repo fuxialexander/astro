@@ -51,6 +51,9 @@ interface RawBridge {
     os: NodeJS.Platform
     versions: { electron: string; chrome: string; node: string }
   }
+  onAuthCallback(
+    handler: (tokens: { accessToken: string; refreshToken: string }) => void,
+  ): () => void
 }
 
 function bridge(): RawBridge {
@@ -238,6 +241,11 @@ export const desktopBridge = {
   },
 
   platform: () => bridge().platform,
+
+  auth: {
+    onCallback: (handler: (tokens: { accessToken: string; refreshToken: string }) => void) =>
+      bridge().onAuthCallback(handler),
+  },
 }
 
 export type DesktopBridge = typeof desktopBridge

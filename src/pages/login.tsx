@@ -6,10 +6,12 @@ import { startRegistration, startAuthentication, browserSupportsWebAuthn, platfo
 import { apiUrl } from "@/lib/api-url"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
+import { isDesktop } from "@/lib/desktop-detect"
+import { desktopBridge } from "@/lib/desktop-bridge"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail, Github } from "lucide-react"
+import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail, Github, ExternalLink } from "lucide-react"
 
 type AuthStep = "email" | "name" | "authenticating" | "registering" | "magic_link_sent"
 
@@ -38,6 +40,8 @@ function getFriendlyErrorMessage(message: string): string {
   return i18n.t('auth:errors.generic')
 }
 
+const isElectron = typeof window !== 'undefined' && isDesktop()
+
 export function Login() {
   const { t } = useTranslation('auth')
   const navigate = useNavigate()
@@ -49,6 +53,10 @@ export function Login() {
   const redirectParam = searchParams.get('redirect')
   const stateFrom = (location.state as { from?: { pathname: string } })?.from?.pathname
   const from = redirectParam || stateFrom || "/dashboard"
+
+  // When this page is loaded in the system browser by Electron, we redirect
+  // back to the app via astro:// deep link instead of navigating within React.
+  const fromElectron = searchParams.get('from') === 'electron'
 
   const devMode = isLocalMode()
 
@@ -120,8 +128,17 @@ export function Login() {
       }
     }
 
+    if (fromElectron) {
+      const supabase = getSupabase()
+      const { data } = await supabase!.auth.getSession()
+      const s = data.session
+      if (s) {
+        window.location.href = `astro://auth/callback?access_token=${encodeURIComponent(s.access_token)}&refresh_token=${encodeURIComponent(s.refresh_token)}`
+        return
+      }
+    }
     navigate(from, { replace: true })
-  }, [email, from, navigate])
+  }, [email, from, fromElectron, navigate])
 
   // Check if user exists and proceed with appropriate flow
   const handleEmailSubmit = useCallback(async () => {
@@ -279,6 +296,14 @@ export function Login() {
         return
       }
 
+      if (fromElectron) {
+        const { data } = await supabase!.auth.getSession()
+        const s = data.session
+        if (s) {
+          window.location.href = `astro://auth/callback?access_token=${encodeURIComponent(s.access_token)}&refresh_token=${encodeURIComponent(s.refresh_token)}`
+          return
+        }
+      }
       navigate(from, { replace: true })
     } catch (err) {
       if (err instanceof Error) {
@@ -294,7 +319,7 @@ export function Login() {
       setStep("name")
       setLoading(false)
     }
-  }, [email, name, from, navigate, authenticateUser])
+  }, [email, name, from, fromElectron, navigate, authenticateUser])
 
   // Send magic link email for cross-device login
   const handleMagicLink = useCallback(async () => {
@@ -390,9 +415,10 @@ export function Login() {
     }
   }, [handleRegister])
 
-  // Check if platform authenticator is available (Face ID/Touch ID/Windows Hello)
+  // Check if platform authenticator is available (Face ID/Touch ID/Windows Hello).
+  // In Electron we skip this — auth happens in the system browser instead.
   useEffect(() => {
-    if (isLocalMode()) return
+    if (isLocalMode() || isElectron) return
 
     async function checkPlatformAuth() {
       if (!browserSupportsWebAuthn()) {
@@ -411,6 +437,20 @@ export function Login() {
 
     checkPlatformAuth()
   }, [])
+
+  // In Electron: listen for the auth:callback IPC event fired after the system
+  // browser redirects back via astro://auth/callback and the main process
+  // forwards the tokens here.
+  useEffect(() => {
+    if (!isElectron) return
+    const unsub = desktopBridge.auth.onCallback(async ({ accessToken, refreshToken }) => {
+      const supabase = getSupabase()
+      if (!supabase) return
+      const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+      if (!error) navigate(from, { replace: true })
+    })
+    return unsub
+  }, [from, navigate])
 
   // If session already exists (e.g. login just completed and component remounted),
   // redirect immediately instead of briefly flashing the login form.
@@ -492,48 +532,98 @@ export function Login() {
         {/* Email Step */}
         {step === "email" && (
           <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-                {t('email')}
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={handleEmailKeyDown}
+            {isElectron ? (
+              // In Electron the embedded Chromium doesn't support Touch ID.
+              // Open the system browser (Safari/Chrome) where it works natively;
+              // tokens come back via astro:// deep link.
+              <Button
+                className="w-full"
+                size="lg"
+                onClick={() => desktopBridge.editor.openExternal('https://astroanywhere.com/login?from=electron')}
                 disabled={loading}
-                autoComplete="email webauthn"
-                autoFocus
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {t('pressEnterToContinue')}
-              </p>
-            </div>
-
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handleEmailSubmit}
-              disabled={loading || !email || platformAuthAvailable === false}
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowRight className="mr-2 h-4 w-4" />
-              )}
-              {t('continue')}
-            </Button>
-
-            {platformAuthAvailable === false && (
-              <p className="text-xs text-muted-foreground text-center">
-                {t('passkeyRequiresBiometrics')}
-              </p>
-            )}
-
-            {platformAuthAvailable === false && email && (
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Sign in with browser
+              </Button>
+            ) : (
               <>
+                <div>
+                  <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
+                    {t('email')}
+                  </label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={handleEmailKeyDown}
+                    disabled={loading}
+                    autoComplete="email webauthn"
+                    autoFocus
+                  />
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {t('pressEnterToContinue')}
+                  </p>
+                </div>
+
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleEmailSubmit}
+                  disabled={loading || !email || platformAuthAvailable === false}
+                >
+                  {loading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                  )}
+                  {t('continue')}
+                </Button>
+
+                {platformAuthAvailable === false && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    {t('passkeyRequiresBiometrics')}
+                  </p>
+                )}
+
+                {platformAuthAvailable === false && email && (
+                  <>
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t" />
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-background px-2 text-muted-foreground">or</span>
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      variant="outline"
+                      onClick={handleMagicLink}
+                      disabled={loading}
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      {t('signInWithEmailLink')}
+                    </Button>
+                  </>
+                )}
+
+                {platformAuthAvailable !== false && email && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleMagicLink}
+                    disabled={loading}
+                  >
+                    <Mail className="mr-2 h-4 w-4" />
+                    {t('signInWithEmailLinkInstead')}
+                  </Button>
+                )}
+
+                {/* OAuth separator and buttons */}
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
                     <span className="w-full border-t" />
@@ -542,80 +632,47 @@ export function Login() {
                     <span className="bg-background px-2 text-muted-foreground">or</span>
                   </div>
                 </div>
+
                 <Button
                   className="w-full"
                   size="lg"
                   variant="outline"
-                  onClick={handleMagicLink}
+                  onClick={handleGoogleLogin}
                   disabled={loading}
                 >
-                  <Mail className="mr-2 h-4 w-4" />
-                  {t('signInWithEmailLink')}
+                  <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                  {t('continueWithGoogle')}
+                </Button>
+
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                  onClick={handleGitHubLogin}
+                  disabled={loading}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  {t('continueWithGitHub')}
                 </Button>
               </>
             )}
-
-            {platformAuthAvailable !== false && email && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={handleMagicLink}
-                disabled={loading}
-              >
-                <Mail className="mr-2 h-4 w-4" />
-                {t('signInWithEmailLinkInstead')}
-              </Button>
-            )}
-
-            {/* OAuth separator and buttons */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">or</span>
-              </div>
-            </div>
-
-            <Button
-              className="w-full"
-              size="lg"
-              variant="outline"
-              onClick={handleGoogleLogin}
-              disabled={loading}
-            >
-              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
-              </svg>
-              {t('continueWithGoogle')}
-            </Button>
-
-            <Button
-              className="w-full"
-              size="lg"
-              variant="outline"
-              onClick={handleGitHubLogin}
-              disabled={loading}
-            >
-              <Github className="mr-2 h-4 w-4" />
-              {t('continueWithGitHub')}
-            </Button>
           </div>
         )}
 
