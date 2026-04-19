@@ -19,7 +19,7 @@ const isDev = !app.isPackaged
 // down; open up connect-src/script-src enough for the real app to work.
 const PROD_CSP = [
   "default-src 'self' https://astroanywhere.com",
-  "script-src 'self' 'unsafe-inline' https://astroanywhere.com https://static.cloudflareinsights.com",
+  "script-src 'self' 'unsafe-inline' https://astroanywhere.com https://static.cloudflareinsights.com https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://astroanywhere.com https://fonts.googleapis.com",
   "connect-src 'self' https://astroanywhere.com https://*.astroanywhere.com wss://*.astroanywhere.com https://*.supabase.co wss://*.supabase.co https://cloudflareinsights.com https://*.cloudflareinsights.com https://api.unpaywall.org https://api.zotero.org https://api.crossref.org https://fonts.googleapis.com https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",

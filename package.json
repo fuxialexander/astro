@@ -117,6 +117,7 @@
     "date-fns": "^4.1.0",
     "driver.js": "^1.4.0",
     "drizzle-orm": "^0.45.1",
+    "electron-webauthn-mac": "^1.0.0",
     "fuse.js": "^7.1.0",
     "hono": "^4.12.5",
     "hono-rate-limiter": "^0.5.3",

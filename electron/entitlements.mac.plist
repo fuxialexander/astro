@@ -16,5 +16,11 @@
   <true/>
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
+  <key>com.apple.security.device.biometric</key>
+  <true/>
+  <key>com.apple.developer.associated-domains</key>
+  <array>
+    <string>webcredentials:astroanywhere.com</string>
+  </array>
 </dict>
 </plist>

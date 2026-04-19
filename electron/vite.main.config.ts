@@ -16,7 +16,9 @@ const nodeBuiltins = [
 
 export default defineConfig({
   // Force Node resolution so child_process etc. aren't treated as browser stubs.
-  ssr: { target: 'node', noExternal: [] },
+  // noExternal: true bundles all node_modules into the output (native modules
+  // that can't be bundled are still excluded via rollupOptions.external below).
+  ssr: { target: 'node', noExternal: true },
   resolve: {
     conditions: ['node'],
   },
@@ -38,6 +40,7 @@ export default defineConfig({
         '@electric-sql/pglite',
         'node-pty',
         'ssh2',
+        'electron-webauthn-mac',
         ...nodeBuiltins,
       ],
       output: {

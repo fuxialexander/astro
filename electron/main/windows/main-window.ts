@@ -58,6 +58,12 @@ export async function createMainWindow(options: CreateMainWindowOptions): Promis
     win.show()
   })
 
+  // Strip "Electron/X.X.X" from the UA so passkey/WebAuthn libraries
+  // (e.g. Supabase auth-ui) don't reject us as an unrecognised platform.
+  // The preload still exposes window.astro for desktop-specific panes.
+  const ua = win.webContents.getUserAgent().replace(/\s*Electron\/[\d.]+/, '')
+  win.webContents.setUserAgent(ua)
+
   if (isDev) {
     await win.loadURL(DEV_SERVER_URL)
     win.webContents.openDevTools({ mode: 'detach' })

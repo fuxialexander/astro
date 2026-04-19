@@ -59,6 +59,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'Astro',
     executableName: 'astro',
+    appBundleId: 'com.astroanywhere.app',
     // Unpack the entire native-module directories from asar. Unlike
     // auto-unpack-natives (which only matches `.node`), this pulls out helper
     // executables too — node-pty ships a `spawn-helper` binary with no
@@ -66,7 +67,7 @@ const config: ForgeConfig = {
     // posix_spawnp failures at runtime. VSCode does the same.
     asar: {
       unpack:
-        '**/{node_modules/node-pty/**,node_modules/ssh2/**,node_modules/cpu-features/**}',
+        '**/{node_modules/node-pty/**,node_modules/ssh2/**,node_modules/cpu-features/**,node_modules/electron-webauthn-mac/**}',
     },
     icon: path.join(repoRoot, 'electron', 'icons', 'icon'),
     extraResource: extraResources,
@@ -85,7 +86,7 @@ const config: ForgeConfig = {
     // to app.asar.unpacked so Electron can dlopen them at runtime.
     afterCopy: [
       (buildPath, _electronVersion, _platform, _arch, callback) => {
-        const natives = ['node-pty', 'ssh2', 'cpu-features']
+        const natives = ['node-pty', 'ssh2', 'cpu-features', 'electron-webauthn-mac']
         try {
           for (const name of natives) {
             const src = path.join(repoRoot, 'node_modules', name)

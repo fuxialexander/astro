@@ -132,6 +132,7 @@ dist
 public/*
 !public/landing/
 !public/locales/
+!public/.well-known/
 !public/favicon.ico
 !public/icon.png
 !public/icon-*.png
