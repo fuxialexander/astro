@@ -28,18 +28,50 @@ import { setupAutoUpdater } from './updater.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Single-instance lock — running a second copy focuses the existing window.
+// Register astro:// as a deep-link protocol so macOS routes
+// astro://auth/callback back to this app after browser login.
+app.setAsDefaultProtocolClient('astro')
+
+// Single-instance lock — running a second copy focuses the existing window
+// and forwards any deep-link URL via the second-instance event.
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     const main = windowRegistry.get('main')
     if (main) {
       if (main.isMinimized()) main.restore()
       main.focus()
     }
+    // Windows/Linux: deep link arrives as a CLI arg, not open-url
+    const url = argv.find((a) => a.startsWith('astro://'))
+    if (url) handleDeepLink(url)
   })
+}
+
+// macOS: deep link arrives as an open-url event.
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleDeepLink(url)
+})
+
+function handleDeepLink(url: string): void {
+  if (!url.startsWith('astro://auth/callback')) return
+  try {
+    const parsed = new URL(url)
+    const accessToken = parsed.searchParams.get('access_token')
+    const refreshToken = parsed.searchParams.get('refresh_token')
+    if (!accessToken || !refreshToken) return
+    const win = windowRegistry.get('main')
+    win?.webContents.send('auth:callback', { accessToken, refreshToken })
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  } catch {
+    // malformed URL — ignore
+  }
 }
 
 // Pin secure webPreferences on every <webview> attached anywhere in the app.

@@ -40,7 +40,6 @@ export default defineConfig({
         '@electric-sql/pglite',
         'node-pty',
         'ssh2',
-        'electron-webauthn-mac',
         ...nodeBuiltins,
       ],
       output: {
