@@ -67,6 +67,7 @@ export function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
+  const [waitingForBrowser, setWaitingForBrowser] = useState(false)
 
   // Authenticate existing user (called from handleEmailSubmit)
   // NOTE: Does NOT manage loading state - caller manages it
@@ -497,7 +498,9 @@ export function Login() {
           <img src="/icon-192.png" alt="Astro" className="mx-auto mb-4 h-12 w-12 rounded-xl" />
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {step === "email" && t('enterEmailToContinue')}
+            {step === "email" && (isElectron
+              ? (waitingForBrowser ? "Complete sign-in in your browser" : "Sign in to continue")
+              : t('enterEmailToContinue'))}
             {step === "name" && (isReturningUser ? t('welcomeBackRegisterPasskey') : t('welcomeCreateAccount'))}
             {step === "authenticating" && t('authenticating')}
             {step === "registering" && t('creatingAccount')}
@@ -547,15 +550,37 @@ export function Login() {
               // In Electron the embedded Chromium doesn't support Touch ID.
               // Open the system browser (Safari/Chrome) where it works natively;
               // tokens come back via astro:// deep link.
-              <Button
-                className="w-full"
-                size="lg"
-                onClick={() => desktopBridge.editor.openExternal('https://astroanywhere.com/login?from=electron')}
-                disabled={loading}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Sign in with browser
-              </Button>
+              waitingForBrowser ? (
+                <div className="space-y-4 text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                    <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Waiting for sign-in to complete in your browser…
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setWaitingForBrowser(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={() => {
+                    setWaitingForBrowser(true)
+                    desktopBridge.editor.openExternal('https://astroanywhere.com/login?from=electron')
+                  }}
+                  disabled={loading}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Sign in with browser
+                </Button>
+              )
             ) : (
               <>
                 <div>
