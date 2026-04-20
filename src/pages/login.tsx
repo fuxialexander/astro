@@ -452,13 +452,23 @@ export function Login() {
     return unsub
   }, [from, navigate])
 
-  // If session already exists (e.g. login just completed and component remounted),
-  // redirect immediately instead of briefly flashing the login form.
+  // If session already exists, redirect immediately.
+  // When opened from Electron (?from=electron), send tokens back via deep link
+  // instead of navigating within the browser — handles the "already logged in" case.
   useEffect(() => {
-    if (session && !devMode) {
-      navigate(from, { replace: true })
+    if (!session || devMode) return
+    if (fromElectron) {
+      const supabase = getSupabase()
+      supabase?.auth.getSession().then(({ data }) => {
+        const s = data.session
+        if (s) {
+          window.location.href = `astro://auth/callback?access_token=${encodeURIComponent(s.access_token)}&refresh_token=${encodeURIComponent(s.refresh_token)}`
+        }
+      })
+      return
     }
-  }, [session, devMode, from, navigate])
+    navigate(from, { replace: true })
+  }, [session, devMode, from, fromElectron, navigate])
 
   // In dev mode, redirect to app immediately (no auth needed)
   useEffect(() => {
@@ -471,8 +481,9 @@ export function Login() {
     navigate(from, { replace: true })
   }, [from, navigate])
 
-  // Already authenticated — show nothing while the redirect effect fires
-  if (session && !devMode) {
+  // Already authenticated — show nothing while the redirect effect fires.
+  // fromElectron: don't short-circuit; let the effect above send the deep link.
+  if (session && !devMode && !fromElectron) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background" />
     )
