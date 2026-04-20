@@ -21,7 +21,7 @@ export default defineConfig({
     rollupOptions: {
       external: ['electron', /^node:/],
     },
-    minify: false,
-    sourcemap: true,
+    minify: true,
+    sourcemap: false,
   },
 })

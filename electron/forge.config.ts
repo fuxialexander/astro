@@ -137,10 +137,10 @@ const config: ForgeConfig = {
         new PublisherGithub({
           repository: {
             owner: 'astro-anywhere',
-            name: 'astro',
+            name: 'astro-desktop',
           },
-          prerelease: true,
-          draft: true,
+          prerelease: false,
+          draft: false,
         }),
       ]
     : [],
