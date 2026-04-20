@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react"
+import { useEffect, useCallback, useRef, useState } from "react"
 import { Outlet } from "react-router"
 import { PanelRightClose, PanelLeft, Search } from "lucide-react"
 /**
@@ -22,6 +22,7 @@ import { requestNotificationPermission } from "@/lib/notifications"
 import { useUIStore } from "@/stores/ui-store"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { isDesktop } from "@/lib/desktop-detect"
+import { desktopBridge } from "@/lib/desktop-bridge"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
 import { useParams } from "react-router"
@@ -94,10 +95,16 @@ export function AppLayout() {
 
   const desktop = isDesktop()
   const hasCwd = !!project?.workingDirectory
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
 
   useEffect(() => {
     requestNotificationPermission()
   }, [])
+
+  useEffect(() => {
+    if (!desktop) return
+    return desktopBridge.updater.onReady(({ version }) => setUpdateVersion(version))
+  }, [desktop])
 
   useEffect(() => {
     if (!desktop) return
@@ -363,6 +370,29 @@ export function AppLayout() {
       <WelcomeProfileDialog />
       <ProductTour />
       <ToastContainer />
+
+      {/* Update banner — appears at the bottom when electron-updater has
+          downloaded a new version and is ready to install. */}
+      {updateVersion && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg text-sm">
+          <span className="text-muted-foreground">
+            Astro {updateVersion} is ready to install.
+          </span>
+          <button
+            onClick={() => desktopBridge.updater.install()}
+            className="font-medium text-primary hover:underline"
+          >
+            Restart now
+          </button>
+          <button
+            onClick={() => setUpdateVersion(null)}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -54,6 +54,7 @@ interface RawBridge {
   onAuthCallback(
     handler: (tokens: { accessToken: string; refreshToken: string }) => void,
   ): () => void
+  onUpdateReady(handler: (info: { version: string }) => void): () => void
 }
 
 function bridge(): RawBridge {
@@ -245,6 +246,12 @@ export const desktopBridge = {
   auth: {
     onCallback: (handler: (tokens: { accessToken: string; refreshToken: string }) => void) =>
       bridge().onAuthCallback(handler),
+  },
+
+  updater: {
+    onReady: (handler: (info: { version: string }) => void) =>
+      bridge().onUpdateReady(handler),
+    install: () => bridge().invoke<{ ok: true }>('updater:install', {}),
   },
 }
 

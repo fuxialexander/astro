@@ -19,6 +19,7 @@ import { registerWindowsChannels } from './windows.js'
 import { registerServerChannels } from './server.js'
 import { registerPluginChannels } from './plugin.js'
 import { registerLayoutChannels } from './layout.js'
+import { registerUpdaterChannels } from './updater.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -37,4 +38,5 @@ export function registerAllChannels(): void {
   registerServerChannels()
   registerPluginChannels() // stub until Phase 4
   registerLayoutChannels()
+  registerUpdaterChannels()
 }

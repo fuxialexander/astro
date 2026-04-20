@@ -112,6 +112,11 @@ contextBridge.exposeInMainWorld('astro', {
     ipcRenderer.on('auth:callback', listener)
     return () => ipcRenderer.removeListener('auth:callback', listener)
   },
+  onUpdateReady: (handler: (info: { version: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, info: { version: string }) => handler(info)
+    ipcRenderer.on('updater:ready', listener)
+    return () => ipcRenderer.removeListener('updater:ready', listener)
+  },
 })
 
 // Type augmentation for the renderer side. Mirrors what's exposed above —
@@ -125,6 +130,7 @@ declare global {
       onAuthCallback: (
         handler: (tokens: { accessToken: string; refreshToken: string }) => void,
       ) => () => void
+      onUpdateReady: (handler: (info: { version: string }) => void) => () => void
     }
   }
 }
