@@ -60,7 +60,6 @@ const config: ForgeConfig = {
     name: 'Astro',
     executableName: 'astro',
     appBundleId: 'com.astroanywhere.app',
-    provisioningProfile: path.join(repoRoot, 'electron', 'Astro.provisionprofile'),
     protocols: [{ name: 'Astro', schemes: ['astro'] }],
     // Unpack the entire native-module directories from asar. Unlike
     // auto-unpack-natives (which only matches `.node`), this pulls out helper

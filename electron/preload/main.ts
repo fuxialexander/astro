@@ -103,16 +103,6 @@ const platform = {
   },
 }
 
-// Override navigator.credentials in the main world before any page scripts run.
-// Electron's embedded Chromium doesn't wire up the macOS platform authenticator
-// (Touch ID / iCloud Keychain). We route create/get through the main process
-// via electron-webauthn-mac which calls Apple's AuthenticationServices directly.
-// Script element injection is required because contextIsolation: true prevents
-// direct modification of main-world globals from the preload isolated world.
-// NOTE: window.astro is set by contextBridge below — the injected script runs
-// after this block since script injection is synchronous but contextBridge
-// exposure happens before page scripts execute.
-
 contextBridge.exposeInMainWorld('astro', {
   platform,
   invoke: (channel: string, payload: unknown) => ipcRenderer.invoke(channel, payload),
