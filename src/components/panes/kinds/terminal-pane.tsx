@@ -116,7 +116,7 @@ export function TerminalPane({ paneState }: Props) {
         cwd={cwd}
         active
         initialInput={initialInput}
-        onSpawnError={isRemote ? handleSpawnError : undefined}
+        onSpawnError={isRemote && initialInput ? handleSpawnError : undefined}
       />
     </div>
   )

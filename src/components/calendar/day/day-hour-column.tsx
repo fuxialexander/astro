@@ -2,7 +2,7 @@ import { useRef, useCallback } from 'react'
 import type { CalendarEvent, CreateDraftKind } from '../types'
 import { useCalendarStore } from '@/stores/calendar-store'
 import { DayEventChip } from './day-event-chip'
-import { assignLanes, HOUR_HEIGHT } from './lane-utils'
+import { assignLanes, mergeProjectEvents, HOUR_HEIGHT } from './lane-utils'
 import { useCalendarDrag } from '@/hooks/use-calendar-drag'
 import { EventTooltip } from '../shared/event-tooltip'
 import { cn } from '@/lib/utils'
@@ -46,7 +46,8 @@ export function DayHourColumn({ dateStr, events, isToday, defaultDraftKind = 'ta
   })
 
   const timed = events.filter((e) => !e.allDay)
-  const laned = assignLanes(timed)
+  const merged = mergeProjectEvents(timed)
+  const laned = assignLanes(merged)
   const nowMin = isToday ? nowMinutes() : -1
   const nowTop = (nowMin / 60) * HOUR_HEIGHT
 

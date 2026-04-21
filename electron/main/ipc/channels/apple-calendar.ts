@@ -159,11 +159,13 @@ async function listEventsViaAppleScript(from: string, to: string): Promise<Apple
     return events
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('Not authorized') || msg.includes('1743') || msg.includes('access')) {
+    // TCC error codes: 1743 = "not authorized to send Apple events to Calendar"
+    if (msg.includes('Not authorized') || msg.includes('1743') || msg.includes('not allowed to send') || msg.includes('NSAppleEventsUsageDescription')) {
       return null // permission denied signal
     }
+    // Other errors (Calendar.app not running, timeout, etc.) — not a permission issue
     console.error('[apple-calendar] AppleScript error:', msg)
-    return null
+    return []
   }
 }
 

@@ -1,10 +1,11 @@
 import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '../types'
+import type { MergedCalendarEvent } from './lane-utils'
 import { EventTooltip } from '../shared/event-tooltip'
 import { minuteOfDay, durationMinutes, HOUR_HEIGHT } from './lane-utils'
 
 interface DayEventChipProps {
-  event: CalendarEvent
+  event: CalendarEvent | MergedCalendarEvent
   lane: number
   laneCount: number
   className?: string
@@ -23,6 +24,9 @@ export function DayEventChip({ event, lane, laneCount, className }: DayEventChip
     ? (event.raw as { calendarColor?: string } | undefined)?.calendarColor
     : undefined
 
+  const mergedCount = (event as MergedCalendarEvent).mergedCount ?? 1
+  const isMerged = mergedCount > 1
+
   return (
     <EventTooltip event={event}>
       <div
@@ -34,8 +38,8 @@ export function DayEventChip({ event, lane, laneCount, className }: DayEventChip
           'cal-chip absolute overflow-hidden',
           event.color !== 'external' && `cal-chip-${event.color}`,
           event.color === 'external' && 'cal-chip-external',
-          event.isCompleted && 'opacity-60',
-          event.isCancelled && 'opacity-40 line-through',
+          event.isCompleted && !isMerged && 'opacity-60',
+          event.isCancelled && !isMerged && 'opacity-40 line-through',
           className,
         )}
         style={{
@@ -46,8 +50,13 @@ export function DayEventChip({ event, lane, laneCount, className }: DayEventChip
           ...(externalColor ? { borderLeftColor: externalColor, color: externalColor } : {}),
         }}
       >
-        <span className="block truncate leading-tight">
-          {event.title}
+        <span className="flex items-center gap-1 leading-tight min-w-0">
+          <span className="truncate">{event.title}</span>
+          {isMerged && (
+            <span className="shrink-0 rounded px-1 py-px text-[9px] font-semibold bg-black/10 leading-none">
+              {mergedCount}
+            </span>
+          )}
         </span>
         {height > 28 && (
           <span className="block text-[10px] opacity-70 truncate">

@@ -5,6 +5,8 @@ import { useScheduleStore } from '@/stores/schedule-store'
 import { initCalendarProviders } from '@/lib/calendar-providers'
 import { addDays, parseDate, fmtDate } from '@/lib/timeline-utils'
 import { AlertCircle } from 'lucide-react'
+import { desktopBridge } from '@/lib/desktop-bridge'
+import { isDesktop } from '@/lib/desktop-detect'
 
 function getLoadRange(focusedDate: string): { from: string; to: string } {
   const d = parseDate(focusedDate)
@@ -48,6 +50,14 @@ export function CalendarPage() {
             Calendar access is denied. To enable Apple Calendar events, go to{' '}
             <strong>System Settings → Privacy & Security → Calendars</strong> and allow Astro.
           </span>
+          {isDesktop() && (
+            <button
+              className="ml-2 underline underline-offset-2 whitespace-nowrap hover:opacity-70"
+              onClick={() => void desktopBridge.editor.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars')}
+            >
+              Open Settings
+            </button>
+          )}
         </div>
       )}
       <CalendarView />
