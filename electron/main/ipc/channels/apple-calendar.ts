@@ -67,6 +67,21 @@ async function runAppleScript(script: string, timeoutMs = 15000): Promise<string
   return stdout.trim()
 }
 
+/**
+ * Produce a valid AppleScript string literal for arbitrary user input.
+ * AppleScript has no backslash escapes inside string literals; double-quotes
+ * must be expressed via concatenation with the built-in `quote` constant.
+ * Control characters that could break script structure are stripped.
+ */
+function asString(value: string): string {
+  // Strip control characters (newlines, tabs, etc.) that could break the script
+  // eslint-disable-next-line no-control-regex
+  const safe = value.replace(/[\x00-\x1f\x7f]/g, ' ')
+  const parts = safe.split('"')
+  if (parts.length === 1) return `"${safe}"`
+  return parts.map(p => `"${p}"`).join(' & quote & ')
+}
+
 async function listEventsViaAppleScript(from: string, to: string): Promise<AppleCalendarEvent[] | null> {
   // AppleScript to list events across all calendars in a date range.
   // Returns pipe-delimited records: uid|summary|startDate|endDate|allDay|description|location|url|calName|calId
@@ -189,19 +204,19 @@ async function createEventViaAppleScript(req: {
   notes?: string
 }): Promise<{ id: string; ok: boolean }> {
   const calRef = req.calendarName
-    ? `first calendar whose name is "${req.calendarName.replace(/"/g, '\\"')}"`
+    ? `first calendar whose name is ${asString(req.calendarName)}`
     : 'first calendar'
   const startD = new Date(req.startDate)
   const endD = new Date(req.endDate)
   const startStr = startD.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })
   const endStr = endD.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })
-  const notes = req.notes ? `\nset description of newEvent to "${req.notes.replace(/"/g, '\\"')}"` : ''
+  const notesLine = req.notes ? `\nset description of newEvent to ${asString(req.notes)}` : ''
   const allDay = req.allDay ? '\nset allday event of newEvent to true' : ''
 
   const script = `
     tell application "Calendar"
       set targetCal to ${calRef}
-      set newEvent to make new event at end of events of targetCal with properties {summary:"${req.title.replace(/"/g, '\\"')}", start date:date "${startStr}", end date:date "${endStr}"}${notes}${allDay}
+      set newEvent to make new event at end of events of targetCal with properties {summary:${asString(req.title)}, start date:date "${startStr}", end date:date "${endStr}"}${notesLine}${allDay}
       set evId to uid of newEvent
       return evId
     end tell

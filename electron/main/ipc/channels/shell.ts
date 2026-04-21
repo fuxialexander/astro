@@ -17,7 +17,7 @@
 import { writeFileSync, chmodSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { exec } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { shell } from 'electron'
 import { defineHandler } from '../registry.js'
 import * as schema from '../schema/shell.js'
@@ -59,9 +59,8 @@ function openOnLinux(command: string): void {
 }
 
 function openOnWindows(command: string): void {
-  // Escape double-quotes inside the command for cmd.exe
-  const escaped = command.replace(/"/g, '\\"')
-  exec(`start cmd.exe /k "${escaped}"`)
+  // Use execFile with an argument array to avoid cmd.exe metacharacter injection
+  execFile('cmd.exe', ['/k', command])
 }
 
 function openSystemTerminal(command: string): void {
