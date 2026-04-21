@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { lookupIdentifier } from '../lib/references/translation-client.js'
 import { enrichAbstracts } from '../lib/references/crossref-enrichment.js'
@@ -8,6 +9,35 @@ import { teamReferences, planNodes, projects } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { toBibTeX, parseBibTeX } from '@astro/core'
 import type { Reference } from '@astro/core/types'
+
+const referenceSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  authors: z.array(z.string()),
+  year: z.number().optional(),
+  journal: z.string().optional(),
+  venue: z.string().optional(),
+  volume: z.string().optional(),
+  issue: z.string().optional(),
+  pages: z.string().optional(),
+  publisher: z.string().optional(),
+  entryType: z.string().optional(),
+  doi: z.string().optional(),
+  pmid: z.string().optional(),
+  arxivId: z.string().optional(),
+  url: z.string().optional(),
+  pdfUrl: z.string().optional(),
+  pdfPath: z.string().optional(),
+  pdfDownloaded: z.boolean().optional(),
+  abstract: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+  source: z.enum(['manual', 'doi', 'zotero', 'bibtex', 'crossref']).optional(),
+  zoteroKey: z.string().optional(),
+  isOpenAccess: z.boolean().optional(),
+  oaSource: z.string().optional(),
+  addedAt: z.string().optional(),
+})
 
 const referencesRoute = new Hono()
 referencesRoute.use('/*', requireAuth)
@@ -33,8 +63,12 @@ referencesRoute.post('/', async (c) => {
   const teamId = user.teamId
   if (!teamId) return c.json({ error: 'No active team' }, 400)
 
-  const body = await c.req.json().catch(() => null) as Reference | null
-  if (!body?.title || !body?.authors) return c.json({ error: 'Missing required fields' }, 400)
+  const raw = await c.req.json().catch(() => null)
+  const parsed = referenceSchema.safeParse(raw)
+  if (!parsed.success || !parsed.data.title || !parsed.data.authors) {
+    return c.json({ error: 'Missing required fields' }, 400)
+  }
+  const body = parsed.data as Reference
 
   const [row] = await db
     .insert(teamReferences)
@@ -51,8 +85,10 @@ referencesRoute.put('/:id', async (c) => {
   const id = c.req.param('id')
   if (!teamId) return c.json({ error: 'No active team' }, 400)
 
-  const body = await c.req.json().catch(() => null) as Reference | null
-  if (!body) return c.json({ error: 'Invalid body' }, 400)
+  const raw = await c.req.json().catch(() => null)
+  const parsed = referenceSchema.safeParse(raw)
+  if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+  const body = parsed.data as Reference
 
   const [row] = await db
     .update(teamReferences)
