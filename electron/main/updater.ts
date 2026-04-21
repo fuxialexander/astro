@@ -94,3 +94,13 @@ export function installUpdate(): void {
   }
   _autoUpdater.quitAndInstall()
 }
+
+export function checkForUpdates(): void {
+  if (!_autoUpdater) {
+    console.warn('[updater] checkForUpdates called before autoUpdater was ready')
+    return
+  }
+  void _autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => {
+    console.warn('[updater] manual check failed:', err)
+  })
+}

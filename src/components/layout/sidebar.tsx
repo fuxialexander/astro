@@ -455,6 +455,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         )}>
           <WorkspaceSwitcher iconOnly={!collapsed} collapsed={collapsed} />
           {!collapsed && <div className="flex-1" />}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => navigate("/onboarding")} className={cn("flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors", location.pathname === "/onboarding" && "text-primary bg-primary/10")}>
+                <Lightbulb className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side={collapsed ? "right" : "bottom"}>Workflow guide</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-tour-id="search" onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
+                <Search className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side={collapsed ? "right" : "bottom"}>Search ({isMac ? "⌘" : "Ctrl+"}K)</TooltipContent>
+          </Tooltip>
           {!collapsed && (
             <div
               className={cn(
