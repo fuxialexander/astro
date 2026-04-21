@@ -7,6 +7,7 @@
  */
 
 import type { Reference, CitationStyle } from './types'
+import { buildCiteKeyMap } from './cite-key'
 
 /** Format author list for display: "Smith, J., Jones, A. B., & Lee, C." */
 function formatAuthorsAPA(authors: string[]): string {
@@ -191,7 +192,7 @@ export function renderInlineCitations(
   references: Reference[],
   style: CitationStyle,
 ): string {
-  const refMap = new Map(references.map(r => [r.id, r]))
+  const refMap = buildCiteKeyMap(references)
   const orderedKeys: string[] = []
 
   // Build ordered list for numbered styles

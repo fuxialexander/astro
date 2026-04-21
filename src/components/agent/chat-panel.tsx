@@ -108,7 +108,7 @@ const ChatInputArea = memo(forwardRef<ChatInputHandle, ChatInputAreaProps>(funct
         references={references}
         value={input}
         onChange={setInput}
-        placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
+        placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas... (@ for files · type [@ to cite a paper from your reference library)"}
         rows={3}
         onSubmit={handleSend}
         className="w-full rounded-lg border border-border/20 bg-muted/30 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors min-h-[72px]"
@@ -338,11 +338,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const resolvedMachineId = useProjectMachineId(project)
 
   // Reference store — bibliographic references for [@key] citations
-  const loadReferences = useReferenceStore((s) => s.loadReferences)
-  const projectReferences = useReferenceStore((s) => s.referencesByProject.get(projectId) || [])
+  const loadLibrary = useReferenceStore((s) => s.loadLibrary)
+  const projectReferences = useReferenceStore((s) => s.library)
   useEffect(() => {
-    loadReferences(projectId)
-  }, [projectId, loadReferences])
+    void loadLibrary()
+  }, [loadLibrary])
 
   // Plan context — shared hook
   const { planNodes, planNodeContext, planEdgeContext } = usePlanContext(projectId)

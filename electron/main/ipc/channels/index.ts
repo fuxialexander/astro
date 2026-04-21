@@ -20,6 +20,7 @@ import { registerServerChannels } from './server.js'
 import { registerPluginChannels } from './plugin.js'
 import { registerLayoutChannels } from './layout.js'
 import { registerUpdaterChannels } from './updater.js'
+import { registerZoteroChannels } from './zotero.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -39,4 +40,5 @@ export function registerAllChannels(): void {
   registerPluginChannels() // stub until Phase 4
   registerLayoutChannels()
   registerUpdaterChannels()
+  registerZoteroChannels()
 }

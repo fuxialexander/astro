@@ -15,6 +15,8 @@ import {
   Link2,
   Check,
   RotateCcw,
+  ChevronDown,
+  BookOpen,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -25,6 +27,7 @@ import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { useProjectStore } from "@/stores/project-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useReferenceStore } from "@/stores/reference-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
@@ -33,7 +36,167 @@ import { dataClient } from "@/lib/data-client"
 import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
+import { downloadBibTeX } from "@/lib/export/download-bibtex"
+import { downloadDocx } from "@/lib/export/download-docx"
 import type { Project } from "@/types"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+
+// ── DraftPaperDialog ──────────────────────────────────────────────────
+export function DraftPaperDialog({
+  open,
+  onOpenChange,
+  project,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  project: Project
+}) {
+  const addNode = usePlanStore((s) => s.addNode)
+  const [outputFormat, setOutputFormat] = useState<"md" | "pandoc" | "latex" | "docx">("md")
+  const [citationStyle, setCitationStyle] = useState<"apa" | "chicago" | "nature" | "ieee">("apa")
+  const [filename, setFilename] = useState("paper.md")
+
+  const defaultFilename: Record<typeof outputFormat, string> = {
+    md: "paper.md",
+    pandoc: "paper.md",
+    latex: "paper.tex",
+    docx: "paper.docx",
+  }
+
+  // Keep filename in sync with format choice when user hasn't manually edited it
+  const prevFormatRef = useRef(outputFormat)
+  useEffect(() => {
+    if (prevFormatRef.current !== outputFormat) {
+      prevFormatRef.current = outputFormat
+      setFilename(defaultFilename[outputFormat])
+    }
+  }, [outputFormat])
+
+  const handleGenerate = () => {
+    const CITATION_STYLE = citationStyle.toUpperCase()
+    const FILENAME = filename.trim() || defaultFilename[outputFormat]
+    const PROJECT_ID = project.id
+
+    const formatInstructions: Record<typeof outputFormat, string> = {
+      md: `Write plain Markdown. Use # / ## / ### headings for sections. Replace [@key] markers with author-date inline citations (e.g. (Smith, 2024)) and append a ## References section with a numbered bibliography list.`,
+      pandoc: `Write Pandoc-flavored Markdown. Keep [@key] citation markers exactly as-is — pandoc-citeproc will resolve them. Add a YAML front matter block at the top:
+---
+title: "${project.name ?? "Research Paper"}"
+bibliography: references.bib
+csl: ${citationStyle}.csl
+---
+Also run \`astro-cli reference export --project ${PROJECT_ID} --output references.bib\` to write the .bib file alongside the paper. Do NOT manually format the bibliography — pandoc handles it.`,
+      latex: `Write a complete LaTeX document using the article class. Use \\\\cite{key} for citations (preserve the cite key from [@key] markers). Include a \\\\bibliography{references} command at the end. Also run \`astro-cli reference export --project ${PROJECT_ID} --output references.bib\` to write the BibTeX file. Use standard packages: geometry, hyperref, natbib (for ${citationStyle === "ieee" ? "numbered" : "author-year"} style).`,
+      docx: `Write plain Markdown first to a temp file, then convert to DOCX using: pandoc -o ${FILENAME} --bibliography references.bib --citeproc <tempfile>. Alternatively write directly as Markdown with resolved citations. Replace [@key] with proper ${CITATION_STYLE} inline citations and append a References section.`,
+    }
+
+    const promptText = `You are writing a research paper for this project. Follow these steps:
+
+1. Run \`astro-cli project notes --project ${PROJECT_ID} --json\` to get all task notes and project description as structured data.
+2. Run \`astro-cli reference export --project ${PROJECT_ID}\` to get the BibTeX bibliography (save as references.bib if needed by the format).
+3. Run \`astro-cli reference list --json\` to get reference metadata for inline citations.
+
+Synthesize the notes into a complete research paper with these sections:
+- Abstract (2-3 sentences summarizing the research)
+- Introduction (background, motivation, research questions — draw from project description and early planning notes)
+- Methods (experimental design, tools, analyses — draw from task descriptions)
+- Results (findings, outputs, figures — draw from completed task notes; embed figures with paths to output files/images)
+- Discussion (interpretation, limitations, future work)
+- References
+
+Format instructions: ${formatInstructions[outputFormat]}
+
+Output file: ${FILENAME}
+
+Write the complete paper to ${FILENAME} in the project working directory.`
+
+    const nodeId = crypto.randomUUID()
+    addNode({
+      id: nodeId,
+      projectId: project.id,
+      title: `Draft paper: ${project.name ?? "project"}`,
+      type: "task",
+      status: "planned",
+      description: promptText,
+      parentId: null,
+      dependencies: [],
+      verification: "auto",
+      position: { x: 0, y: 0 },
+      priority: "medium",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            Draft Paper
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Output Format</label>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={outputFormat}
+              onChange={(e) => setOutputFormat(e.target.value as "md" | "pandoc" | "latex" | "docx")}
+            >
+              <option value="md">Markdown (.md)</option>
+              <option value="pandoc">Pandoc Markdown + .bib (pandoc-citeproc)</option>
+              <option value="latex">LaTeX (.tex) + BibTeX</option>
+              <option value="docx">Word Document (.docx)</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Citation Style</label>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={citationStyle}
+              onChange={(e) => setCitationStyle(e.target.value as "apa" | "chicago" | "nature" | "ieee")}
+            >
+              <option value="apa">APA</option>
+              <option value="chicago">Chicago</option>
+              <option value="nature">Nature</option>
+              <option value="ieee">IEEE</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Output Filename</label>
+            <input
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              type="text"
+              value={filename}
+              onChange={(e) => setFilename(e.target.value)}
+              placeholder={defaultFilename[outputFormat]}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleGenerate}>
+            <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+            Generate
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 const healthLabels: Record<string, string> = {
   on_track: "On Track",
@@ -57,6 +220,7 @@ export function OverviewTab({
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const projectReferences = useReferenceStore((s) => s.library)
   const updateProject = useProjectStore((s) => s.updateProject)
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const addActivity = useActivityStore((s) => s.addActivity)
@@ -89,6 +253,9 @@ export function OverviewTab({
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const [sharing, setSharing] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [draftPaperOpen, setDraftPaperOpen] = useState(false)
+  const [exportingDocx, setExportingDocx] = useState(false)
   const descriptionEditorRef = useRef<RichTextEditorRef>(null)
   const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Editor state is now managed by EditorOpenControls component
@@ -145,6 +312,7 @@ export function OverviewTab({
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       <ActivityDialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen} projectId={project.id} />
       <LabelManagerDialog open={labelManagerOpen} onOpenChange={setLabelManagerOpen} projectId={project.id} />
+      <DraftPaperDialog open={draftPaperOpen} onOpenChange={setDraftPaperOpen} project={project} />
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
@@ -154,7 +322,8 @@ export function OverviewTab({
             ref={descriptionEditorRef}
             content={descriptionDraft}
             onChange={handleDescriptionChange}
-            placeholder="Describe your project — goals, context, and key details. Paste or drop images..."
+            placeholder="Describe your project — goals, context, and key details. Type [@ to cite a paper from your reference library. Paste or drop images..."
+            references={projectReferences}
             onImageUpload={handleDescriptionImageUpload}
             className="min-h-[200px]"
             toolbarExtra={
@@ -195,16 +364,60 @@ export function OverviewTab({
 
         {/* Export & Share */}
         <div className="flex items-center gap-2">
-          <button
-            className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
-            onClick={() => {
-              const bundle = exportProject(project.id)
-              downloadBundle(bundle)
-            }}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </button>
+          <div className="relative">
+            <button
+              className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+              onClick={() => setExportMenuOpen(v => !v)}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {exportMenuOpen && (
+              <div
+                className="absolute left-0 top-full mt-1 z-50 w-44 bg-background border rounded-lg shadow-lg py-1 text-xs"
+                onMouseLeave={() => setExportMenuOpen(false)}
+              >
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/60 text-left"
+                  onClick={() => {
+                    setExportMenuOpen(false)
+                    const bundle = exportProject(project.id)
+                    downloadBundle(bundle)
+                  }}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Project bundle (.json)
+                </button>
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/60 text-left"
+                  onClick={() => {
+                    setExportMenuOpen(false)
+                    void downloadBibTeX(project.id)
+                  }}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  References (.bib)
+                </button>
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/60 text-left disabled:opacity-50"
+                  disabled={exportingDocx}
+                  onClick={async () => {
+                    setExportMenuOpen(false)
+                    setExportingDocx(true)
+                    try {
+                      await downloadDocx(project.id, 'apa', project.name ?? 'document')
+                    } finally {
+                      setExportingDocx(false)
+                    }
+                  }}
+                >
+                  {exportingDocx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  Word document (.docx)
+                </button>
+              </div>
+            )}
+          </div>
           <button
             className={cn(
               "flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs transition-colors",
@@ -236,6 +449,15 @@ export function OverviewTab({
             {shareCopied ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
             {shareCopied ? "Copied!" : "Share"}
           </button>
+          {project.discoveryMode && (
+            <button
+              className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+              onClick={() => setDraftPaperOpen(true)}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Draft Paper
+            </button>
+          )}
         </div>
       </div>
 

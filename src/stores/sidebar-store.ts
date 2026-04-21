@@ -48,6 +48,7 @@ interface SidebarStore {
   reorderPinnedItems: (startIndex: number, endIndex: number) => void
   reorderProjectOrder: (fromId: string, toId: string) => void
   toggleInitiativeCollapse: (initiativeId: string) => void
+  setAllInitiativesCollapsed: (allIds: string[], collapsed: boolean) => void
   resetToDefault: () => void
   subscribeToChanges: () => () => void
   checkAutoReveal: (counts: AutoRevealCounts) => void
@@ -60,6 +61,7 @@ const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Inbox", label: "Dashboard", visible: true, protected: true },
   { id: "active", to: "/active", icon: "Activity", label: "Active", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "Folder", label: "Projects", visible: true, protected: true },
+  { id: "sessions", to: "/sessions", icon: "FlaskConical", label: "Sessions", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
   { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false },
   { id: "references", to: "/references", icon: "BookOpen", label: "References", visible: true, protected: false },
@@ -228,6 +230,11 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
     if (collapsed.has(initiativeId)) collapsed.delete(initiativeId)
     else collapsed.add(initiativeId)
     set({ collapsedInitiatives: collapsed })
+    get().save()
+  },
+
+  setAllInitiativesCollapsed: (allIds: string[], collapsed: boolean) => {
+    set({ collapsedInitiatives: collapsed ? new Set(allIds) : new Set() })
     get().save()
   },
 

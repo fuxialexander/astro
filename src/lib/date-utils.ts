@@ -16,7 +16,9 @@ export function formatDate(dateStr: string | undefined): string {
 /** "Jan 5" — short date without year */
 export function formatShortDate(dateStr?: string): string {
   if (!dateStr) return ""
-  const d = new Date(dateStr + "T00:00:00Z")
+  const normalized = dateStr.includes("T") ? dateStr : dateStr + "T00:00:00Z"
+  const d = new Date(normalized)
+  if (isNaN(d.getTime())) return ""
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
 }
 

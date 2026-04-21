@@ -78,7 +78,7 @@ export function MachineWorkdirPill({ project, onClick }: MachineWorkdirPillProps
           {defaultMachine && (
             <>
               <Monitor className="h-3 w-3 shrink-0" />
-              <span>{(defaultMachine.name || "unknown").slice(0, 3)}</span>
+              <span>{defaultMachine.name || "unknown"}</span>
               <span className="opacity-30">·</span>
             </>
           )}

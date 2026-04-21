@@ -3,7 +3,7 @@ import { driver, type DriveStep } from "driver.js"
 import "driver.js/dist/driver.css"
 import { isLocalMode } from "@/lib/app-mode"
 
-const TOUR_COMPLETED_KEY = "astro-tour-completed"
+const TOUR_COMPLETED_KEY = "astro-tour-completed-v2"
 
 export function ProductTour() {
   const started = useRef(false)
@@ -17,35 +17,19 @@ export function ProductTour() {
 
     const steps: DriveStep[] = [
       {
-        element: '[data-tour-id="environments"]',
+        element: '[data-tour-id="search"]',
         popover: {
-          title: "Environments",
+          title: "Search & Command Palette",
           description:
-            "Connect your machines here. Each machine runs an agent runner that executes AI tasks in any working directory.",
+            "Press ⌘K (or Ctrl+K) to instantly navigate anywhere, search projects, tasks, and references, or run commands. The fastest way to get around.",
         },
       },
       {
-        element: '[data-tour-id="plan"]',
+        element: '[data-tour-id="dashboard"]',
         popover: {
-          title: "Plan & Project",
+          title: "Dashboard",
           description:
-            "Start here to create a new project. Describe your goal and Astro will break it into a dependency graph of tasks that can be dispatched to your machines.",
-        },
-      },
-      {
-        element: '[data-tour-id="playground"]',
-        popover: {
-          title: "Playground",
-          description:
-            "Run single-session jobs without creating a full project. Great for quick experiments, one-off tasks, and trying things out.",
-        },
-      },
-      {
-        element: '[data-tour-id="active"]',
-        popover: {
-          title: "Active Jobs Hub",
-          description:
-            "Monitor all running tasks in one place. See live LLM output, send follow-up messages, and jump into any active session.",
+            "Your home base. See recent projects, pending approvals, and a summary of what's happening across all your work.",
         },
       },
       {
@@ -53,7 +37,39 @@ export function ProductTour() {
         popover: {
           title: "Projects",
           description:
-            "All your projects and their plan graphs live here.",
+            "All your projects and their plan graphs live here. Each project breaks down a goal into a dependency graph of tasks that can be dispatched to your machines.",
+        },
+      },
+      {
+        element: '[data-tour-id="sessions"]',
+        popover: {
+          title: "Sessions",
+          description:
+            "Run single-session AI jobs without creating a full project. Great for quick experiments, one-off tasks, and trying things out.",
+        },
+      },
+      {
+        element: '[data-tour-id="active"]',
+        popover: {
+          title: "Active Jobs",
+          description:
+            "Monitor all running tasks in one place. See live AI output, send follow-up messages, and jump into any active session.",
+        },
+      },
+      {
+        element: '[data-tour-id="references"]',
+        popover: {
+          title: "References",
+          description:
+            "Manage your knowledge base — papers, documents, and web pages. References can be cited in tasks and plans to give your AI agents richer context.",
+        },
+      },
+      {
+        element: '[data-tour-id="environments"]',
+        popover: {
+          title: "Environments",
+          description:
+            "Connect your machines here. Each machine runs an agent runner that executes AI tasks in any working directory — local, HPC, or cloud.",
         },
       },
     ]
@@ -73,7 +89,7 @@ export function ProductTour() {
           popover: {
             title: "Community",
             description:
-              "Browse and fork plans shared by other users.",
+              "Browse and fork plans shared by other users. Find proven approaches for common goals and remix them for your own projects.",
           },
         },
       )

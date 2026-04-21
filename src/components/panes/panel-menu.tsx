@@ -18,6 +18,35 @@ import { useUIStore } from '@/stores/ui-store'
 import { isDesktop } from '@/lib/desktop-detect'
 import { PANEL_META, getAvailablePanels } from './panel-meta'
 
+/** Split a shortcut string like "⇧⌘E" into individual key tokens. */
+function splitShortcut(shortcut: string): string[] {
+  const keys: string[] = []
+  let i = 0
+  while (i < shortcut.length) {
+    const cp = shortcut.codePointAt(i)!
+    const ch = String.fromCodePoint(cp)
+    keys.push(ch)
+    i += ch.length
+  }
+  return keys
+}
+
+function ShortcutKeys({ shortcut }: { shortcut: string }) {
+  const keys = splitShortcut(shortcut)
+  return (
+    <span className="flex items-center gap-0.5 ml-auto pl-2 shrink-0">
+      {keys.map((key, i) => (
+        <kbd
+          key={i}
+          className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded font-mono text-[10px] font-medium leading-none text-muted-foreground/70 bg-muted/60 border border-border/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+        >
+          {key}
+        </kbd>
+      ))}
+    </span>
+  )
+}
+
 interface PanelMenuProps {
   disabled?: boolean
   hasCwd?: boolean
@@ -101,17 +130,7 @@ export function PanelMenu({ disabled, hasCwd = false }: PanelMenuProps) {
               {active && (
                 <Check className="h-3.5 w-3.5 shrink-0 text-foreground" strokeWidth={2.25} />
               )}
-              {meta.shortcut && (
-                <span
-                  className={cn(
-                    'ml-auto font-mono text-[10.5px] tracking-tight',
-                    'text-muted-foreground/60',
-                    active ? 'pl-1.5' : 'pl-3',
-                  )}
-                >
-                  {meta.shortcut}
-                </span>
-              )}
+              {meta.shortcut && <ShortcutKeys shortcut={meta.shortcut} />}
             </DropdownMenuItem>
           )
         })}

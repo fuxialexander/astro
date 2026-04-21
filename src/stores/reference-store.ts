@@ -1,240 +1,385 @@
 /**
- * Reference store — manages bibliographic references per project.
+ * Reference store — manages the global team-level reference library.
  *
- * References are stored in the project's `references` JSONB field.
- * This store provides CRUD + search for inline citation workflows.
+ * References are stored in the `team_references` table (not per-project).
+ * Per-project "ownership" is derived dynamically by scanning citation
+ * markers ([@key]) in project content and plan node descriptions.
  */
 
 import { create } from 'zustand'
-import { useProjectStore } from '@/stores/project-store'
+import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
+import { extractCiteKeys } from '@/lib/citation/parser'
+import { getCiteKey } from '@/lib/citation/cite-key'
 import type { Reference, CitationStyle } from '@/lib/citation/types'
+import type { PlanNode, Project } from '@/types'
 
-interface ReferenceState {
-  /** References indexed by project ID */
-  referencesByProject: Map<string, Reference[]>
-  /** Loading state per project */
-  loading: Map<string, boolean>
-  /** Currently selected citation style (persisted in localStorage) */
-  citationStyle: CitationStyle
+// ── Internal fetch helpers ────────────────────────────────────────────
 
-  // Actions
-  /** Load references for a project from the project store */
-  loadReferences: (projectId: string) => void
-  /** Search references by query (title, author, year) */
-  searchReferences: (projectId: string, query: string) => Reference[]
-  /** Get all references for a project */
-  getReferences: (projectId: string) => Reference[]
-  /** Get a single reference by cite key */
-  getReference: (projectId: string, citeKey: string) => Reference | undefined
-  /** Add a reference to a project */
-  addReference: (projectId: string, ref: Reference) => Promise<void>
-  /** Update a reference */
-  updateReference: (projectId: string, ref: Reference) => Promise<void>
-  /** Remove a reference by cite key */
-  removeReference: (projectId: string, citeKey: string) => Promise<void>
-  /** Import references from BibTeX string */
-  importBibTeX: (projectId: string, bibtex: string) => Promise<number>
-  /** Set the citation style */
-  setCitationStyle: (style: CitationStyle) => void
+function getActiveTeamId(): string | null {
+  return localStorage.getItem('activeTeamId')
 }
 
-/** Generate a cite key from author + year: "Smith2024", "SmithJones2023" */
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const token = await getAccessToken()
+  const headers: HeadersInit = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const teamId = getActiveTeamId()
+  if (teamId) headers['X-Team-Id'] = teamId
+  return headers
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(apiUrl(url), { ...init, headers: { ...headers, ...init?.headers } })
+  if (!res.ok) {
+    try {
+      const body = await res.json() as { error?: string }
+      if (body?.error) throw new Error(body.error)
+    } catch (e) {
+      if (e instanceof Error && e.message !== `${res.status} ${res.statusText}`) throw e
+    }
+    throw new Error(`${res.status} ${res.statusText}`)
+  }
+  return res.json() as Promise<T>
+}
+
+// ── BibTeX / NBIB parsers ─────────────────────────────────────────────
+
+/** Generate a cite key from author + year: "smith2024" */
 function generateCiteKey(ref: Omit<Reference, 'id'>): string {
   const firstAuthor = ref.authors[0]?.split(',')[0]?.split(' ').pop() || 'unknown'
   const base = `${firstAuthor.toLowerCase()}${ref.year}`
   return base.replace(/[^a-z0-9-]/gi, '')
 }
 
-/** Simple BibTeX parser — handles common entry types */
-function parseBibTeX(bibtex: string): Omit<Reference, 'id'>[] {
-  const results: Omit<Reference, 'id'>[] = []
-  // Match @type{key, ... }
-  const entryRegex = /@(\w+)\s*\{([^,]*),([^@]*)\}/g
-  let match: RegExpExecArray | null
+/** Strip LaTeX commands from a string (e.g. {\'o} → o, {\v Z} → Z) */
+function stripLatex(s: string): string {
+  return s
+    .replace(/\{\\[^}]*\}/g, m => {
+      // Extract the last alphabetical character in the command as best-effort
+      const ch = m.match(/[a-zA-Z](?=[^a-zA-Z]*\})$/)
+      return ch ? ch[0] : ''
+    })
+    .replace(/\{([^{}]*)\}/g, '$1') // remove remaining brace groups
+    .trim()
+}
 
-  while ((match = entryRegex.exec(bibtex)) !== null) {
-    const entryType = match[1].toLowerCase()
-    if (entryType === 'string' || entryType === 'comment' || entryType === 'preamble') continue
+/** Extract a brace-balanced value from str starting at index i (i points at '{') */
+function extractBraceValue(str: string, i: number): { value: string; end: number } {
+  let depth = 0
+  let start = -1
+  let j = i
+  while (j < str.length) {
+    if (str[j] === '{') { if (depth === 0) start = j + 1; depth++ }
+    else if (str[j] === '}') { depth--; if (depth === 0) return { value: str.slice(start, j), end: j + 1 } }
+    j++
+  }
+  return { value: str.slice(start === -1 ? i : start), end: str.length }
+}
 
-    const fieldsStr = match[3]
-    const fields: Record<string, string> = {}
-
-    // Parse field = {value} or field = "value"
-    const fieldRegex = /(\w+)\s*=\s*[{"]([^}"]*)[}"]/g
-    let fieldMatch: RegExpExecArray | null
-    while ((fieldMatch = fieldRegex.exec(fieldsStr)) !== null) {
-      fields[fieldMatch[1].toLowerCase()] = fieldMatch[2].trim()
+/** Parse BibTeX field string into key→value map, handling nested braces and bare values */
+function parseBibFields(fieldsStr: string): Record<string, string> {
+  const fields: Record<string, string> = {}
+  let i = 0
+  while (i < fieldsStr.length) {
+    // Skip whitespace and commas
+    while (i < fieldsStr.length && /[\s,]/.test(fieldsStr[i])) i++
+    if (i >= fieldsStr.length) break
+    // Field name
+    const nameMatch = fieldsStr.slice(i).match(/^(\w+)\s*=\s*/)
+    if (!nameMatch) break
+    const fieldName = nameMatch[1].toLowerCase()
+    i += nameMatch[0].length
+    if (i >= fieldsStr.length) break
+    // Field value
+    let value = ''
+    if (fieldsStr[i] === '{') {
+      const result = extractBraceValue(fieldsStr, i)
+      value = result.value
+      i = result.end
+    } else if (fieldsStr[i] === '"') {
+      const end = fieldsStr.indexOf('"', i + 1)
+      value = end === -1 ? fieldsStr.slice(i + 1) : fieldsStr.slice(i + 1, end)
+      i = end === -1 ? fieldsStr.length : end + 1
+    } else {
+      // Bare value (number or macro like `jan`)
+      const bare = fieldsStr.slice(i).match(/^([^\s,}]+)/)
+      if (bare) { value = bare[1]; i += bare[0].length }
     }
+    fields[fieldName] = value.trim()
+  }
+  return fields
+}
 
+type ParsedRef = Omit<Reference, 'id'> & { citeKey: string }
+
+/** Parse BibTeX into Reference objects, preserving Better BibTeX cite keys */
+function parseBibTeX(bibtex: string): ParsedRef[] {
+  const results: ParsedRef[] = []
+  let i = 0
+  while (i < bibtex.length) {
+    const atIdx = bibtex.indexOf('@', i)
+    if (atIdx === -1) break
+    const typeMatch = bibtex.slice(atIdx).match(/^@(\w+)\s*\{/)
+    if (!typeMatch) { i = atIdx + 1; continue }
+    const entryType = typeMatch[1].toLowerCase()
+    const openBrace = atIdx + typeMatch[0].length - 1
+    // Find matching close brace
+    let depth = 1, j = openBrace + 1
+    while (j < bibtex.length && depth > 0) {
+      if (bibtex[j] === '{') depth++
+      else if (bibtex[j] === '}') depth--
+      j++
+    }
+    const entryContent = bibtex.slice(openBrace + 1, j - 1)
+    i = j
+    if (entryType === 'string' || entryType === 'comment' || entryType === 'preamble') continue
+    const commaIdx = entryContent.indexOf(',')
+    if (commaIdx === -1) continue
+    const citeKey = entryContent.slice(0, commaIdx).trim()
+    if (!citeKey) continue
+    const fields = parseBibFields(entryContent.slice(commaIdx + 1))
     const authors = (fields.author || 'Unknown')
       .split(/\s+and\s+/)
-      .map(a => a.trim())
+      .map(a => stripLatex(a).trim())
       .filter(Boolean)
-
     results.push({
-      title: fields.title || 'Untitled',
+      citeKey,
+      title: stripLatex(fields.title || 'Untitled'),
       authors,
       year: parseInt(fields.year || '0', 10),
       venue: fields.journal || fields.booktitle || fields.publisher,
       doi: fields.doi,
       url: fields.url,
-      abstract: fields.abstract,
+      abstract: fields.abstract ? stripLatex(fields.abstract) : undefined,
       entryType,
       volume: fields.volume,
       issue: fields.number,
       pages: fields.pages,
       publisher: fields.publisher,
+      source: 'bibtex',
+    })
+  }
+  return results
+}
+
+/** Parse NBIB/MEDLINE format */
+function parseNBIB(text: string): Omit<Reference, 'id'>[] {
+  const results: Omit<Reference, 'id'>[] = []
+  const records = text.split(/^ER\s*-/m).filter(r => r.trim())
+
+  for (const record of records) {
+    const fields: Record<string, string[]> = {}
+    for (const line of record.split('\n')) {
+      const m = line.match(/^([A-Z]{2,4})\s*-\s*(.+)/)
+      if (!m) continue
+      const tag = m[1].trim()
+      if (!fields[tag]) fields[tag] = []
+      fields[tag].push(m[2].trim())
+    }
+
+    const title = fields['TI']?.[0] || fields['BTI']?.[0]
+    if (!title) continue
+
+    const authors = (fields['AU'] || fields['FAU'] || []).filter(Boolean)
+    const dpRaw = fields['DP']?.[0] || fields['PDAT']?.[0] || ''
+    const yearMatch = dpRaw.match(/(\d{4})/)
+    const year = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear()
+    const doiLine = [...(fields['LID'] || []), ...(fields['AID'] || [])].find(l => l.toLowerCase().includes('doi'))
+    const doi = doiLine ? doiLine.replace(/\s*\[doi\]/i, '').trim() : undefined
+    const pmid = fields['PMID']?.[0]
+
+    results.push({
+      title,
+      authors: authors.length > 0 ? authors : ['Unknown'],
+      year,
+      venue: fields['JT']?.[0] || fields['TA']?.[0],
+      volume: fields['VI']?.[0],
+      issue: fields['IP']?.[0],
+      pages: fields['PG']?.[0],
+      doi,
+      pmid,
+      abstract: fields['AB']?.join(' ').trim() || undefined,
+      url: doi ? `https://doi.org/${doi}` : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : undefined,
+      source: 'bibtex',
+      entryType: 'article',
     })
   }
 
   return results
 }
 
-/** Persist references back to the project store (via JSONB field) */
-async function persistReferences(projectId: string, refs: Reference[]) {
-  try {
-    // Use the project store's update method to persist via dataClient
-    const { updateProject } = useProjectStore.getState()
-    await updateProject(projectId, { references: refs })
-  } catch (err) {
-    console.error('[reference-store] Failed to persist references:', err)
-    throw err
-  }
+// ── Store interface ───────────────────────────────────────────────────
+
+interface ReferenceState {
+  /** Global reference library for the active team */
+  library: Reference[]
+  /** Whether the library has been loaded */
+  loaded: boolean
+  /** Loading in progress */
+  loading: boolean
+  /** Currently selected citation style (persisted in localStorage) */
+  citationStyle: CitationStyle
+
+  // Actions
+  /** Load the global library from the server */
+  loadLibrary: () => Promise<void>
+  /** Get all references (global library) — projectId ignored, kept for call-site compat */
+  getReferences: (projectId?: string) => Reference[]
+  /** Search the global library */
+  searchReferences: (query: string) => Reference[]
+  /** Get a single reference by cite key or id */
+  getReference: (citeKey: string) => Reference | undefined
+  /** Add a reference to the global library */
+  addReference: (ref: Reference) => Promise<void>
+  /** Update a reference */
+  updateReference: (ref: Reference) => Promise<void>
+  /** Remove a reference by id */
+  removeReference: (id: string) => Promise<void>
+  /** Import references from BibTeX string */
+  importBibTeX: (bibtex: string) => Promise<number>
+  /** Import references from NBIB string */
+  importNBIB: (nbib: string) => Promise<number>
+  /** Import a list of pre-parsed references */
+  importReferences: (refs: Omit<Reference, 'id'>[]) => Promise<number>
+  /** Get cite keys used in a project's content (plan nodes + project description) */
+  getCitedKeysForProject: (projectId: string, nodes: PlanNode[], project: Project) => Set<string>
+  /** Get references cited in a project */
+  getReferencesForProject: (projectId: string, nodes: PlanNode[], project: Project) => Reference[]
+  /** Set the citation style */
+  setCitationStyle: (style: CitationStyle) => void
 }
 
 export const useReferenceStore = create<ReferenceState>((set, get) => ({
-  referencesByProject: new Map(),
-  loading: new Map(),
+  library: [],
+  loaded: false,
+  loading: false,
   citationStyle: (typeof localStorage !== 'undefined'
     ? (localStorage.getItem('astro:citation-style') as CitationStyle) || 'apa'
     : 'apa') as CitationStyle,
 
-  loadReferences: (projectId) => {
-    const projects = useProjectStore.getState().projects
-    const project = projects.find(p => p.id === projectId)
-    if (!project) return
-
-    set(state => {
-      const loading = new Map(state.loading)
-      loading.set(projectId, true)
-      return { loading }
-    })
-
-    // References are stored in the project's JSONB `references` field
-    const refs = Array.isArray(project.references) ? project.references : []
-
-    set(state => {
-      const referencesByProject = new Map(state.referencesByProject)
-      const loading = new Map(state.loading)
-      referencesByProject.set(projectId, refs)
-      loading.set(projectId, false)
-      return { referencesByProject, loading }
-    })
+  loadLibrary: async () => {
+    if (get().loading || get().loaded) return
+    set({ loading: true })
+    try {
+      const data = await fetchJson<{ references: Reference[] }>('/api/references')
+      console.log('[reference-store] Loaded', data.references?.length ?? 0, 'references')
+      set({ library: data.references || [], loaded: true, loading: false })
+    } catch (err) {
+      console.error('[reference-store] Failed to load library:', err)
+      set({ loading: false })
+    }
   },
 
-  searchReferences: (projectId, query) => {
-    const refs = get().referencesByProject.get(projectId) || []
-    if (!query.trim()) return refs.slice(0, 20)
+  getReferences: (_projectId?: string) => {
+    // projectId param kept for call-site compatibility; returns full global library.
+    // Use getReferencesForProject() for a filtered per-project view.
+    return get().library
+  },
 
+  searchReferences: (query) => {
+    const refs = get().library
+    if (!query.trim()) return refs.slice(0, 20)
     const q = query.toLowerCase()
-    return refs.filter(ref =>
-      ref.title.toLowerCase().includes(q) ||
-      ref.authors?.some(a => a.toLowerCase().includes(q)) ||
-      String(ref.year).includes(q) ||
-      ref.id.toLowerCase().includes(q) ||
-      (ref.venue?.toLowerCase().includes(q)) ||
-      (ref.tags?.some(t => t.toLowerCase().includes(q)))
+    return refs.filter(r =>
+      r.title.toLowerCase().includes(q) ||
+      r.authors?.some(a => a.toLowerCase().includes(q)) ||
+      String(r.year).includes(q) ||
+      r.id?.toLowerCase().includes(q) ||
+      r.venue?.toLowerCase().includes(q) ||
+      r.tags?.some(t => t.toLowerCase().includes(q))
     ).slice(0, 20)
   },
 
-  getReferences: (projectId) => {
-    return get().referencesByProject.get(projectId) || []
+  getReference: (citeKey) => {
+    const refs = get().library
+    return refs.find(r => r.id === citeKey || getCiteKey(r) === citeKey)
   },
 
-  getReference: (projectId, citeKey) => {
-    const refs = get().referencesByProject.get(projectId) || []
-    return refs.find(r => r.id === citeKey)
-  },
-
-  addReference: async (projectId, ref) => {
-    const refs = [...(get().referencesByProject.get(projectId) || [])]
-    // Prevent duplicates
-    if (refs.some(r => r.id === ref.id)) {
-      throw new Error(`Reference with key "${ref.id}" already exists`)
-    }
-    refs.push(ref)
-
-    set(state => {
-      const referencesByProject = new Map(state.referencesByProject)
-      referencesByProject.set(projectId, refs)
-      return { referencesByProject }
+  addReference: async (ref) => {
+    const data = await fetchJson<{ reference: Reference }>('/api/references', {
+      method: 'POST',
+      body: JSON.stringify(ref),
     })
-
-    await persistReferences(projectId, refs)
+    set(s => ({ library: [...s.library, data.reference] }))
   },
 
-  updateReference: async (projectId, ref) => {
-    const refs = (get().referencesByProject.get(projectId) || []).map(r =>
-      r.id === ref.id ? ref : r
-    )
-
-    set(state => {
-      const referencesByProject = new Map(state.referencesByProject)
-      referencesByProject.set(projectId, refs)
-      return { referencesByProject }
+  updateReference: async (ref) => {
+    const data = await fetchJson<{ reference: Reference }>(`/api/references/${ref.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(ref),
     })
-
-    await persistReferences(projectId, refs)
+    set(s => ({ library: s.library.map(r => r.id === ref.id ? data.reference : r) }))
   },
 
-  removeReference: async (projectId, citeKey) => {
-    const refs = (get().referencesByProject.get(projectId) || []).filter(r => r.id !== citeKey)
-
-    set(state => {
-      const referencesByProject = new Map(state.referencesByProject)
-      referencesByProject.set(projectId, refs)
-      return { referencesByProject }
-    })
-
-    await persistReferences(projectId, refs)
+  removeReference: async (id) => {
+    await fetchJson<{ ok: boolean }>(`/api/references/${id}`, { method: 'DELETE' })
+    set(s => ({ library: s.library.filter(r => r.id !== id) }))
   },
 
-  importBibTeX: async (projectId, bibtex) => {
+  importBibTeX: async (bibtex) => {
     const parsed = parseBibTeX(bibtex)
-    const existing = get().referencesByProject.get(projectId) || []
-    const existingKeys = new Set(existing.map(r => r.id))
-
-    let count = 0
-    const newRefs = [...existing]
-
-    for (const entry of parsed) {
-      const key = generateCiteKey(entry)
-      // Deduplicate keys
-      let suffix = 0
-      let uniqueKey = key
-      while (existingKeys.has(uniqueKey)) {
-        suffix++
-        // a–z for the first 26 collisions (97='a' … 122='z'), then numeric
-        // to avoid producing non-letter ASCII (`{`, `|`, `}`, ...) for
-        // prolific authors.
-        uniqueKey =
-          suffix <= 26
-            ? `${key}${String.fromCharCode(96 + suffix)}`
-            : `${key}_${suffix}`
-      }
-      existingKeys.add(uniqueKey)
-      newRefs.push({ ...entry, id: uniqueKey })
-      count++
-    }
-
-    set(state => {
-      const referencesByProject = new Map(state.referencesByProject)
-      referencesByProject.set(projectId, newRefs)
-      return { referencesByProject }
+    if (parsed.length === 0) return 0
+    // Pass cite keys straight through — server handles upsert and dedup
+    const withKeys = parsed.map(({ citeKey, ...ref }) => ({
+      ...ref,
+      id: (citeKey || generateCiteKey(ref)).replace(/[^a-z0-9_:-]/gi, ''),
+    } as Reference))
+    const data = await fetchJson<{ references: Reference[]; imported: number; updated: number }>(
+      '/api/references/import',
+      { method: 'POST', body: JSON.stringify({ references: withKeys, mode: 'upsert' }) },
+    )
+    set(s => {
+      const updatedMap = new Map(data.references.map(r => [r.id, r]))
+      const merged = s.library.map(r => updatedMap.get(r.id) ?? r)
+      const existingIds = new Set(s.library.map(r => r.id))
+      const newRefs = data.references.filter(r => !existingIds.has(r.id))
+      return { library: [...merged, ...newRefs] }
     })
+    return data.imported
+  },
 
-    await persistReferences(projectId, newRefs)
-    return count
+  importNBIB: async (nbib) => {
+    const parsed = parseNBIB(nbib)
+    return get().importReferences(parsed)
+  },
+
+  importReferences: async (refs) => {
+    if (refs.length === 0) return 0
+    const withKeys = refs.map(ref => ({ ...ref, id: generateCiteKey(ref) } as Reference))
+    const data = await fetchJson<{ references: Reference[]; imported: number; updated: number }>(
+      '/api/references/import',
+      { method: 'POST', body: JSON.stringify({ references: withKeys, mode: 'upsert' }) },
+    )
+    set(s => {
+      const updatedMap = new Map(data.references.map(r => [r.id, r]))
+      const merged = s.library.map(r => updatedMap.get(r.id) ?? r)
+      const existingIds = new Set(s.library.map(r => r.id))
+      const newRefs = data.references.filter(r => !existingIds.has(r.id))
+      return { library: [...merged, ...newRefs] }
+    })
+    return data.imported
+  },
+
+  getCitedKeysForProject: (projectId, nodes, project) => {
+    const keys = new Set<string>()
+    // Scan project description
+    for (const k of extractCiteKeys(project.description || '')) keys.add(k)
+    // Scan plan nodes belonging to this project
+    for (const node of nodes) {
+      if (node.projectId !== projectId) continue
+      const content = [node.description || '', ((node as unknown) as Record<string, unknown>).content as string || ''].join(' ')
+      for (const k of extractCiteKeys(content)) keys.add(k)
+    }
+    return keys
+  },
+
+  getReferencesForProject: (projectId, nodes, project) => {
+    const keys = get().getCitedKeysForProject(projectId, nodes, project)
+    if (keys.size === 0) return []
+    const lib = get().library
+    return lib.filter(r => keys.has(r.id) || keys.has(getCiteKey(r)))
   },
 
   setCitationStyle: (style) => {

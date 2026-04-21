@@ -19,6 +19,8 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { ExamplePickerDialog, type ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useReferenceStore } from "@/stores/reference-store"
+import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -41,6 +43,7 @@ import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { useBranchList } from "@/hooks/use-branch-list"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
+import { InboxTour } from "@/components/inbox-tour"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -84,6 +87,8 @@ export function InboxHome() {
   // skill.md state
   const [visionDoc, setVisionDoc] = useState("")
   const [skillsOpen, setSkillsOpen] = useState(false)
+
+  const globalReferences = useReferenceStore((s) => s.library)
 
   // Attachment state
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; url: string; mimeType: string; size: number }>>([])
@@ -491,6 +496,7 @@ export function InboxHome() {
 
   return (
     <div className="@container flex flex-col gap-8 p-6 @2xl:px-10 @2xl:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
+      <InboxTour />
       {/* Greeting */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl @xl:text-[28px] font-secondary font-light tracking-wide leading-tight">
@@ -518,26 +524,19 @@ export function InboxHome() {
               </span>
             </div>
           )}
-          <textarea
+          <FileCompletionTextarea
+            projectId=""
+            references={globalReferences}
             value={planGoal}
-            onChange={(e) => setPlanGoal(e.target.value)}
+            onChange={setPlanGoal}
+            onSubmit={() => handleSubmit()}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSubmit()
-              }
               if (e.key === "Tab" && e.shiftKey) {
                 e.preventDefault()
                 setPlanMode((v) => !v)
               }
             }}
-            onPaste={(e) => {
-              const files = e.clipboardData?.files
-              if (!files || files.length === 0) return
-              e.preventDefault()
-              uploadFiles(Array.from(files))
-            }}
-            placeholder="Describe what you want to do, or say 'help me plan to ...' to generate a structured plan"
+            placeholder="Describe what you want to do, or say 'help me plan to ...' to generate a structured plan (@ for files · type [@ to cite a paper from your reference library)"
             rows={3}
             className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
           />
@@ -712,6 +711,7 @@ export function InboxHome() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
+                      data-tour-id="plan-mode"
                       onClick={() => setPlanMode(!planMode)}
                       className={cn(
                         "flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer",
@@ -735,6 +735,7 @@ export function InboxHome() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
+                      data-tour-id="discovery-mode"
                       onClick={() => setDiscoveryMode(!discoveryMode)}
                       className={cn(
                         "flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer",

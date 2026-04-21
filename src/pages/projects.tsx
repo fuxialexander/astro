@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, Plus, Rocket, FlaskConical, Users, Trash2, Download, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X } from "lucide-react"
+import { Folder, Plus, Rocket, FlaskConical, Users, Trash2, Download, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, X, Microscope } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
@@ -160,6 +160,9 @@ function getProjectColumns(
           )}
           {(p.projectType === "github" || p.repository) && (
             <Github className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+          )}
+          {p.discoveryMode && (
+            <Microscope className="h-3.5 w-3.5 text-emerald-500/70 shrink-0" />
           )}
         </div>
       ),
@@ -1006,6 +1009,9 @@ export function Projects() {
                         <h3 className="font-semibold text-base truncate">{p.name}</h3>
                         {(p.projectType === "github" || p.repository) && (
                           <Github className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        )}
+                        {p.discoveryMode && (
+                          <Microscope className="h-3.5 w-3.5 text-emerald-500/70 shrink-0" />
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -8,6 +8,7 @@
 
 import type { Reference } from './types'
 import { extractCiteKeys } from './parser'
+import { buildCiteKeyMap, getCiteKey } from './cite-key'
 
 /**
  * Build a citation context block for injection into system prompts.
@@ -21,7 +22,7 @@ export function buildCitationContext(
   const keys = extractCiteKeys(message)
   if (keys.length === 0) return ''
 
-  const refMap = new Map(references.map(r => [r.id, r]))
+  const refMap = buildCiteKeyMap(references)
   const citedRefs = keys
     .map(key => refMap.get(key))
     .filter((r): r is Reference => r !== undefined)
@@ -30,13 +31,14 @@ export function buildCitationContext(
 
   const entries = citedRefs.map(ref => {
     const parts: string[] = []
-    parts.push(`  - **[@${ref.id}]**: "${ref.title}"`)
+    parts.push(`  - **[@${getCiteKey(ref)}]**: "${ref.title}"`)
     parts.push(`    Authors: ${ref.authors.join(', ')}`)
     parts.push(`    Year: ${ref.year}`)
     if (ref.venue) parts.push(`    Venue: ${ref.venue}`)
     if (ref.doi) parts.push(`    DOI: ${ref.doi}`)
     if (ref.abstract) parts.push(`    Abstract: ${ref.abstract}`)
     if (ref.url) parts.push(`    URL: ${ref.url}`)
+    if (ref.notes?.trim()) parts.push(`    Notes: ${ref.notes.trim()}`)
     return parts.join('\n')
   })
 

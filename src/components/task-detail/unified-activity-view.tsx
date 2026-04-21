@@ -39,6 +39,7 @@ import { projectWorktreePath, resolveFilePathForBrowsing } from "./file-path-uti
 import { useAutoScroll } from "@/hooks/use-auto-scroll"
 import { useChatSession } from "@/hooks/use-chat-session"
 import { useActivityFeed } from "@/hooks/use-activity-feed"
+import { useReferenceStore } from "@/stores/reference-store"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
 
@@ -117,6 +118,7 @@ export function UnifiedActivityView({
   }, [])
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const projectReferences = useReferenceStore((s) => s.library)
   const githubOwner = project?.githubOwner
   const githubRepo = project?.githubRepo
 
@@ -664,15 +666,16 @@ export function UnifiedActivityView({
           machineId={machineId || project?.defaultMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
+          references={projectReferences}
           value={input}
           onChange={setInput}
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
             isCompletedExecution
-              ? "Continue working on this task... (type @ to reference files)"
+              ? "Continue working on this task... (@ for files · type [@ to cite a paper from your reference library)"
               : canSteer
-              ? "Steer the agent... (type @ to reference files)"
-              : "Ask about this task... (type @ to reference files)"
+              ? "Steer the agent... (@ for files · type [@ to cite a paper from your reference library)"
+              : "Ask about this task... (@ for files · type [@ to cite a paper from your reference library)"
           }
           rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"

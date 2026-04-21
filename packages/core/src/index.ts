@@ -10,6 +10,8 @@ export * from './types/device-auth.js'
 
 // Utilities
 export * from './error-utils.js'
+export * from './bibtex-writer.js'
+export * from './bibtex-parser.js'
 export {
   convertToSshUrl,
   convertToHttpsUrl,

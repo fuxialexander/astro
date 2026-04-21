@@ -33,6 +33,7 @@ import { useSkillStore } from "@/stores/skill-store"
 import { useExampleStore } from "@/stores/example-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useReferenceStore } from "@/stores/reference-store"
 import { setActiveTeamId } from "@/lib/data-client"
 import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
 import { PluginLoader } from "@/components/plugin-loader"
@@ -63,6 +64,8 @@ import { ShareImport } from "@/pages/share-import"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 import { References } from "@/pages/references"
+import { Sessions } from "@/pages/sessions"
+import { OnboardingWorkflows } from "@/pages/onboarding-workflows"
 
 const LazyInboxHome = lazy(() => import("@/pages/inbox-home").then((m) => ({ default: m.InboxHome })))
 
@@ -156,6 +159,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const fetchGitHubAppInstallations = useGitHubAppStore((s) => s.fetchInstallations)
+  const loadReferenceLibrary = useReferenceStore((s) => s.loadLibrary)
   const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -218,6 +222,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!skillsLoaded) loadSkills()
     if (!templatesLoaded) loadTemplates()
     if (!agentLoaded) loadAgent()
+    void loadReferenceLibrary()
 
     connectRealtime()
 
@@ -408,6 +413,8 @@ export default function App() {
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="active" element={<ActiveTasks />} />
 
+                <Route path="onboarding" element={<OnboardingWorkflows />} />
+                <Route path="sessions" element={<Sessions />} />
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />

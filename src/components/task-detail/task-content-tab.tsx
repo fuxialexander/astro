@@ -9,6 +9,7 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
 import { useContentSaveStore } from '@/stores/content-save-store'
+import { useReferenceStore } from '@/stores/reference-store'
 import { dataClient } from '@/lib/data-client'
 import { fileToBase64, resolveEditorContent } from '@/lib/html-utils'
 import { cn } from '@/lib/utils'
@@ -29,6 +30,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const profile = useUserProfileStore((s) => s.profile)
   const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
+  const projectReferences = useReferenceStore((s) => s.library)
   const editorRef = useRef<RichTextEditorRef>(null)
   const mountedRef = useRef(true)
 
@@ -230,8 +232,9 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
               ref={editorRef}
               content={draftContent}
               onChange={handleContentChange}
-              placeholder="Add task instructions, notes, and details. Use @ to mention tasks. Paste or drop images..."
+              placeholder="Add task instructions, notes, and details. Use @ to mention tasks, type [@ to cite a paper from your reference library. Paste or drop images..."
               mentionItems={mentionItems}
+              references={projectReferences}
               onImageUpload={handleImageUpload}
               className={cn(
                 'min-h-[300px]',
