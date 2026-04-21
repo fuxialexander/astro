@@ -37,6 +37,7 @@ interface ReferenceListProps {
   onAddReference?: (reference: Reference) => void
   onDeleteReference?: (id: string) => void
   className?: string
+  hideHeader?: boolean
 }
 
 // ── Hover tooltip for truncated cells ────────────────────────────────
@@ -78,6 +79,7 @@ function Cell({ text, className }: { text: string; className?: string }) {
 export function ReferenceList({
   references,
   onUpdateReference,
+  hideHeader,
   onAddReference,
   onDeleteReference,
   className,
@@ -232,7 +234,7 @@ export function ReferenceList({
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       {/* Header */}
-      <div className="flex items-center justify-between gap-2">
+      {!hideHeader && <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold flex items-center gap-1.5 shrink-0">
           <BookOpen className="h-4 w-4" />
           References
@@ -300,7 +302,7 @@ export function ReferenceList({
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* DOI Import Input */}
       {showDoiInput && (

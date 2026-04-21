@@ -8,6 +8,7 @@ import { useReferenceStore } from '@/stores/reference-store'
 import { useTeamStore } from '@/stores/team-store'
 import { ReferenceList } from '@/components/references/reference-list'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isDesktop } from '@/lib/desktop-detect'
 import { desktopBridge } from '@/lib/desktop-bridge'
 import type { Reference } from '@/types'
@@ -26,8 +27,8 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
   const [text, setText] = useState('')
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [zoteroStatus, setZoteroStatus] = useState<'idle' | 'detecting' | 'found' | 'notfound'>('idle')
-  const [zoteroBibTeX, setZoteroBibTeX] = useState<string>('')
+  const [zoteroStatus, setZoteroStatus] = useState<'idle' | 'detecting' | 'found' | 'notfound' | 'importing'>('idle')
+  const [zoteroBibTeX] = useState<string>('')
   const [zoteroCount, setZoteroCount] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { importBibTeX, importNBIB } = useReferenceStore()
@@ -68,25 +69,26 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
     }
   }, [mode, text, importBibTeX, importNBIB, zoteroBibTeX, onImported, onClose])
 
-  const detectZotero = useCallback(async () => {
+  const detectAndImportZotero = useCallback(async () => {
     if (!desktop) return
     setZoteroStatus('detecting')
+    setError(null)
     try {
       const result = await desktopBridge.invoke<{ found: boolean; bibtex?: string }>('zotero:scan', {})
-      if (result.found && result.bibtex) {
-        const count = (result.bibtex.match(/@\w+\{/g) ?? []).length
-        setZoteroBibTeX(result.bibtex)
-        setZoteroCount(count)
-        setZoteroStatus('found')
-      } else {
-        setZoteroStatus('notfound')
-      }
-    } catch {
+      if (!result.found || !result.bibtex) { setZoteroStatus('notfound'); return }
+      const count = (result.bibtex.match(/@\w+\{/g) ?? []).length
+      setZoteroCount(count)
+      setZoteroStatus('importing')
+      const imported = await importBibTeX(result.bibtex)
+      onImported(imported)
+      onClose()
+    } catch (err) {
       setZoteroStatus('notfound')
+      setError(err instanceof Error ? err.message : 'Zotero import failed')
     }
-  }, [desktop])
+  }, [desktop, importBibTeX, onImported, onClose])
 
-  const canImport = (mode === 'bibtex' || mode === 'nbib') ? text.trim().length > 0 : mode === 'zotero' && zoteroBibTeX.length > 0
+  const canImport = (mode === 'bibtex' || mode === 'nbib') && text.trim().length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -107,11 +109,14 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
           {([
             { id: 'bibtex', label: 'BibTeX', icon: FileText },
             { id: 'nbib', label: 'PubMed / NBIB', icon: FileText },
-            ...(desktop ? [{ id: 'zotero', label: 'Zotero', icon: Database }] : []),
+            ...(desktop ? [{ id: 'zotero', label: 'Import from Zotero', icon: Database }] : []),
           ] as { id: ImportMode; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setMode(id)}
+              onClick={() => {
+                setMode(id)
+                if (id === 'zotero' && zoteroStatus === 'idle') detectAndImportZotero()
+              }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
                 mode === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
@@ -151,31 +156,16 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
           )}
           {mode === 'zotero' && (
             <div className="flex flex-col items-center justify-center h-40 gap-3">
-              {zoteroStatus === 'idle' && (
-                <>
-                  <Database className="h-8 w-8 text-muted-foreground/40" />
-                  <p className="text-xs text-muted-foreground text-center">
-                    Detect your local Zotero library and import all references.
-                  </p>
-                  <Button size="sm" onClick={detectZotero}>
-                    <Database className="h-3.5 w-3.5 mr-1.5" />
-                    Detect Zotero Library
-                  </Button>
-                </>
-              )}
-              {zoteroStatus === 'detecting' && (
+              {(zoteroStatus === 'idle' || zoteroStatus === 'detecting') && (
                 <div className="flex items-center gap-2 text-muted-foreground text-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Scanning for Zotero database...
+                  Scanning for Zotero library…
                 </div>
               )}
-              {zoteroStatus === 'found' && (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm font-medium">
-                    <Database className="h-4 w-4" />
-                    Found {zoteroCount} references in Zotero
-                  </div>
-                  <p className="text-xs text-muted-foreground">All will be imported to your library.</p>
+              {zoteroStatus === 'importing' && (
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Importing {zoteroCount} references…
                 </div>
               )}
               {zoteroStatus === 'notfound' && (
@@ -184,7 +174,7 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
                   <p className="text-xs text-muted-foreground/70 text-center">
                     Make sure Zotero is installed and has been opened at least once.
                   </p>
-                  <Button size="sm" variant="outline" onClick={detectZotero}>Try again</Button>
+                  <Button size="sm" variant="outline" onClick={detectAndImportZotero}>Try again</Button>
                 </div>
               )}
             </div>
@@ -196,10 +186,12 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t bg-muted/20">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleImport} disabled={!canImport || importing}>
-            {importing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
-            Import
-          </Button>
+          {mode !== 'zotero' && (
+            <Button size="sm" onClick={handleImport} disabled={!canImport || importing}>
+              {importing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
+              Import
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -224,6 +216,7 @@ export function References() {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const autoSelectedRef = useRef(false)
 
   // Load library on mount / team change
   useEffect(() => {
@@ -243,12 +236,13 @@ export function References() {
     }))
     .filter(({ refs }) => refs.length > 0)
 
-  // Auto-select first project with citations
+  // Auto-select first project with citations on initial load only
   useEffect(() => {
-    if (!selectedProjectId && projectsWithCitations.length > 0) {
+    if (!autoSelectedRef.current && projectsWithCitations.length > 0) {
+      autoSelectedRef.current = true
       setSelectedProjectId(projectsWithCitations[0].project.id)
     }
-  }, [projectsWithCitations.length, selectedProjectId])
+  }, [projectsWithCitations.length])
 
   const selectedProject = projects.find(p => p.id === selectedProjectId)
   const selectedRefs = selectedProject
@@ -315,30 +309,42 @@ export function References() {
     <div className="flex h-full overflow-hidden">
       {/* Left sidebar: projects with citations */}
       <aside className="w-56 shrink-0 border-r flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b flex items-center justify-between">
+        <div className="px-4 h-14 border-b flex items-center justify-between shrink-0">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Projects
+            Library
           </h2>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              onClick={() => void downloadBibTeX(selectedProjectId ?? undefined)}
-              title={selectedProjectId ? 'Export project BibTeX' : 'Export all BibTeX'}
-            >
-              <Download className="h-3 w-3" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              onClick={() => setImportOpen(true)}
-              title="Import references"
-            >
-              <Upload className="h-3 w-3" />
-            </Button>
-          </div>
+          <TooltipProvider delayDuration={300}>
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => void downloadBibTeX(selectedProjectId ?? undefined)}
+                  >
+                    <Download className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {selectedProjectId ? 'Export project BibTeX' : 'Export all BibTeX'}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => setImportOpen(true)}
+                  >
+                    <Upload className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Import references</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
 
         <div className="flex-1 overflow-y-auto py-1">
@@ -392,11 +398,9 @@ export function References() {
           ) : selectedProject ? (
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <h3 className="text-sm font-medium">
-                  Citations in <span className="font-semibold">{selectedProject.name}</span>
-                </h3>
+                <h3 className="text-base font-semibold">{selectedProject.name}</h3>
                 <span className="text-xs text-muted-foreground">
-                  {selectedRefs.length} reference{selectedRefs.length !== 1 ? 's' : ''}
+                  {selectedRefs.length} cited reference{selectedRefs.length !== 1 ? 's' : ''}
                 </span>
               </div>
               {selectedRefs.length === 0 ? (
@@ -413,6 +417,7 @@ export function References() {
                   onAddReference={addReference}
                   onUpdateReference={handleUpdate}
                   onDeleteReference={removeReference}
+                  hideHeader
                 />
               )}
             </div>

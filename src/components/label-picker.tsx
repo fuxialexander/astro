@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Check, Settings } from "lucide-react"
+import { useState, useRef } from "react"
+import { Check, Settings, Tag } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import type { Label } from "@/types"
@@ -10,7 +10,9 @@ interface LabelPickerProps {
   disabled?: boolean
   onChange: (labelIds: string[]) => void
   onManageLabels?: () => void
-  displayMode?: "dots" | "badges"
+  displayMode?: "dots" | "badges" | "icon"
+  openOnHover?: boolean
+  triggerClassName?: string
 }
 
 export function LabelPicker({
@@ -20,9 +22,20 @@ export function LabelPicker({
   onChange,
   onManageLabels,
   displayMode = "dots",
+  openOnHover,
+  triggerClassName,
 }: LabelPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+  }
+
+  const scheduleClose = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 200)
+  }
 
   const nodeLabels = labelIds
     .map((id) => allLabels.find((l) => l.id === id))
@@ -31,7 +44,17 @@ export function LabelPicker({
   if (allLabels.length === 0 && !onManageLabels) return null
 
   const trigger =
-    displayMode === "dots" ? (
+    displayMode === "icon" ? (
+      <div className="relative inline-flex items-center justify-center">
+        <Tag className={cn("h-3.5 w-3.5", nodeLabels.length > 0 ? "text-foreground" : "text-muted-foreground/40")} />
+        {nodeLabels.length > 0 && (
+          <span
+            className="absolute -top-1 -right-1 h-2 w-2 rounded-full border border-background"
+            style={{ backgroundColor: nodeLabels[0].color }}
+          />
+        )}
+      </div>
+    ) : displayMode === "dots" ? (
       <div className="flex items-center gap-1 min-h-[20px]">
         {nodeLabels.length > 0 ? (
           nodeLabels.map((label) => (
@@ -71,13 +94,17 @@ export function LabelPicker({
       ? allLabels.filter((l) => l.name.toLowerCase().includes(search.toLowerCase()))
       : allLabels
 
+  const defaultTriggerClass = "inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
+
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch("") }}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
-          onClick={(e) => e.stopPropagation()}
+          className={triggerClassName ?? defaultTriggerClass}
+          onClick={(e) => { e.stopPropagation(); if (!openOnHover) setOpen(!open) }}
+          onMouseEnter={() => { if (openOnHover) { cancelClose(); setOpen(true) } }}
+          onMouseLeave={() => { if (openOnHover) scheduleClose() }}
         >
           {trigger}
         </button>
@@ -86,6 +113,8 @@ export function LabelPicker({
         align="start"
         className="w-44 p-1"
         onClick={(e) => e.stopPropagation()}
+        onMouseEnter={() => { if (openOnHover) cancelClose() }}
+        onMouseLeave={() => { if (openOnHover) scheduleClose() }}
       >
         <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Labels</p>
         {allLabels.length > 5 && (

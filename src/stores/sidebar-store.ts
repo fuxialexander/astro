@@ -38,6 +38,8 @@ interface SidebarStore {
   projectOrder: string[]
   isEditing: boolean
   loaded: boolean
+  autoCollapse: boolean
+  setAutoCollapse: (v: boolean) => void
   load: () => Promise<void>
   save: () => Promise<void>
   setEditing: (editing: boolean) => void
@@ -62,6 +64,8 @@ const defaultItems: SidebarItem[] = [
   { id: "active", to: "/active", icon: "Activity", label: "Active", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "Folder", label: "Projects", visible: true, protected: true },
   { id: "sessions", to: "/sessions", icon: "FlaskConical", label: "Sessions", visible: true, protected: false },
+  { id: "scheduled", to: "/scheduled", icon: "Calendar", label: "Scheduled", visible: true, protected: false },
+  { id: "calendar", to: "/calendar", icon: "CalendarDays", label: "Calendar", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
   { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false },
   { id: "references", to: "/references", icon: "BookOpen", label: "References", visible: true, protected: false },
@@ -113,6 +117,14 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   projectOrder: [],
   isEditing: false,
   loaded: false,
+  autoCollapse: typeof localStorage !== 'undefined'
+    ? localStorage.getItem('sidebar-auto-collapse') !== 'false'
+    : true,
+
+  setAutoCollapse: (v: boolean) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('sidebar-auto-collapse', String(v))
+    set({ autoCollapse: v })
+  },
 
   load: async () => {
     const loadFromProfile = (profile: { sidebarConfig?: SidebarItem[]; pinnedSidebarItems?: PinnedSidebarItem[]; collapsedInitiatives?: string[]; projectOrder?: string[] } | null) => {

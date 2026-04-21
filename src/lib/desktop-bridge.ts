@@ -87,6 +87,11 @@ export const desktopBridge = {
       bridge().invoke<{
         matches: Array<{ path: string; name: string; type: 'file' | 'directory' }>
       }>('fs:search', req),
+    searchContent: (req: { root: string; pattern: string; caseSensitive?: boolean; maxMatchesPerFile?: number; limit?: number }) =>
+      bridge().invoke<{
+        matches: Array<{ path: string; lineNo: number; line: string; matchStart: number; matchEnd: number }>
+        error?: string
+      }>('fs:search-content', req),
   },
 
   git: {
@@ -113,6 +118,13 @@ export const desktopBridge = {
       bridge().invoke<{ ok: true }>('git:checkout', { cwd, ref }),
     commit: (cwd: string, message: string, files?: string[]) =>
       bridge().invoke<{ commitHash: string }>('git:commit', { cwd, message, files }),
+  },
+
+  shell: {
+    openTerminal: (command: string) =>
+      bridge().invoke<{ ok: true }>('shell:open-terminal', { command }),
+    openPath: (path: string) =>
+      bridge().invoke<{ ok: true; error?: string }>('shell:open-path', { path }),
   },
 
   terminal: {
@@ -241,6 +253,29 @@ export const desktopBridge = {
       bridge().invoke<{ ok: true }>('layout:save', req),
   },
 
+  calendar: {
+    listEvents: (from: string, to: string) =>
+      bridge().invoke<{
+        events: Array<{
+          id: string; calendarId: string; calendarName: string; calendarColor: string | null
+          title: string; startDate: string; endDate: string; allDay: boolean
+          notes: string | null; location: string | null; url: string | null; isRecurring: boolean
+        }>
+        source: 'applescript' | 'ics-fallback'
+        permissionDenied: boolean
+      }>('apple-calendar:list-events', { from, to }),
+    listCalendars: () =>
+      bridge().invoke<{
+        calendars: Array<{ id: string; name: string; color: string | null; isSubscribed: boolean; isWritable: boolean }>
+      }>('apple-calendar:list-calendars', {}),
+    createEvent: (req: { calendarName?: string; title: string; startDate: string; endDate: string; allDay?: boolean; notes?: string }) =>
+      bridge().invoke<{ id: string; ok: boolean }>('apple-calendar:create-event', req),
+    updateEvent: (req: { eventId: string; calendarId: string; title?: string; startDate?: string; endDate?: string; notes?: string }) =>
+      bridge().invoke<{ ok: boolean }>('apple-calendar:update-event', req),
+    deleteEvent: (eventId: string, calendarId: string) =>
+      bridge().invoke<{ ok: boolean }>('apple-calendar:delete-event', { eventId, calendarId }),
+  },
+
   /** Generic invoke — use typed helpers above whenever possible */
   invoke: <T = unknown>(channel: string, payload: unknown): Promise<T> =>
     bridge().invoke<T>(channel, payload),
@@ -256,6 +291,32 @@ export const desktopBridge = {
     onReady: (handler: (info: { version: string }) => void) =>
       bridge().onUpdateReady(handler),
     install: () => bridge().invoke<{ ok: true }>('updater:install', {}),
+  },
+
+  agent: {
+    binaryPaths: () =>
+      bridge().invoke<{
+        bundledAgentPath: string
+        bundledCliPath: string
+        installedAgentPath: string | null
+        installedCliPath: string | null
+      }>('agent:binary-paths', {}),
+    setupStatus: () =>
+      bridge().invoke<{
+        installed: boolean
+        binDir: string
+        agentPath: string | null
+        cliPath: string | null
+        pathConfigured: boolean
+      }>('agent:setup-status', {}),
+    setup: () =>
+      bridge().invoke<{
+        ok: true
+        agentPath: string
+        cliPath: string
+        binDir: string
+        shellProfilesUpdated: string[]
+      }>('agent:setup', {}),
   },
 }
 

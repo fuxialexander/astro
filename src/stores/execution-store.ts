@@ -21,6 +21,7 @@ import { useTeamStore } from "./team-store"
 import { useUserProfileStore } from "./user-profile-store"
 import { useRealtimeStore } from "./realtime-store"
 import { useWorkspaceFilterStore } from "./workspace-filter-store"
+import { useScheduleStore } from "./schedule-store"
 
 /** Returns true for regular task execution node IDs (not ephemeral session/playground nodes). */
 function isExecutionNodeId(nodeId: string): boolean {
@@ -167,6 +168,7 @@ export interface ExecutionOptions {
   /** Selected compute backend (direct, slurm, docker, k8s-exec) */
   computeBackend?: string
   model?: string
+  effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh'
   maxTurns?: number
   /** Whether to use git worktree isolation (defaults to true in agent runner) */
   useWorktree?: boolean
@@ -601,6 +603,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const settings = useSettingsStore.getState()
       const effectiveProvider = options?.preferredProvider || settings.defaultProvider || undefined
       const effectiveModel = options?.model || settings.getModelForProvider(effectiveProvider) || undefined
+      const effectiveEffort = options?.effort || settings.modelEffort || undefined
 
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
@@ -617,6 +620,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           preferredProvider: effectiveProvider,
           targetMachineId: effectiveTargetMachineId,
           model: effectiveModel,
+          effort: effectiveEffort,
           maxTurns: options?.maxTurns,
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
@@ -871,9 +875,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const projectEdges = planStore.edges.filter(isLive)
 
     // Find all nodes that are ready to execute (no unmet dependencies, status is "planned")
+    // Exclude scheduled nodes — they run on their own cron trigger, not batch dispatch
+    const scheduleStore = useScheduleStore.getState()
     const liveNodes = planStore.nodes.filter(isLive)
     const readyNodes = projectNodes.filter((n) => {
       if (n.status !== "planned") return false
+      if (scheduleStore.isNodeScheduled(n.id)) return false
       return canExecuteNode(n, liveNodes, projectEdges).ready
     })
 
@@ -2128,11 +2135,14 @@ function dispatchNextBatchWave(projectId: string) {
   )
 
   // Find nodes that are "planned" and now have all dependencies met
+  // Exclude scheduled nodes — they run on their own cron trigger
+  const scheduleStore = useScheduleStore.getState()
   const liveNodes = planStore.nodes.filter(isLive)
   const liveEdges = planStore.edges.filter(isLive)
   const newlyReady = projectNodes.filter((n) => {
     if (n.status !== "planned") return false
     if (batch.dispatchedNodeIds.has(n.id)) return false
+    if (scheduleStore.isNodeScheduled(n.id)) return false
     return canExecuteNode(n, liveNodes, liveEdges).ready
   })
 

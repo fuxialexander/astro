@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { lookupIdentifier } from '../lib/references/translation-client.js'
 import { enrichAbstracts } from '../lib/references/crossref-enrichment.js'
@@ -8,6 +9,35 @@ import { teamReferences, planNodes, projects } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { toBibTeX, parseBibTeX } from '@astro/core'
 import type { Reference } from '@astro/core/types'
+
+const referenceSchema = z.object({
+  id: z.string().max(200),
+  title: z.string().max(2000),
+  authors: z.array(z.string().max(500)).max(100),
+  year: z.number().optional(),
+  journal: z.string().max(500).optional(),
+  venue: z.string().max(500).optional(),
+  volume: z.string().max(100).optional(),
+  issue: z.string().max(100).optional(),
+  pages: z.string().max(100).optional(),
+  publisher: z.string().max(500).optional(),
+  entryType: z.string().max(100).optional(),
+  doi: z.string().max(200).optional(),
+  pmid: z.string().max(50).optional(),
+  arxivId: z.string().max(50).optional(),
+  url: z.string().max(2000).optional(),
+  pdfUrl: z.string().max(2000).optional(),
+  pdfPath: z.string().max(2000).optional(),
+  pdfDownloaded: z.boolean().optional(),
+  abstract: z.string().max(50_000).optional(),
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  notes: z.string().max(10_000).optional(),
+  source: z.enum(['manual', 'doi', 'zotero', 'bibtex', 'crossref']).optional(),
+  zoteroKey: z.string().max(200).optional(),
+  isOpenAccess: z.boolean().optional(),
+  oaSource: z.string().max(200).optional(),
+  addedAt: z.string().max(100).optional(),
+})
 
 const referencesRoute = new Hono()
 referencesRoute.use('/*', requireAuth)
@@ -33,8 +63,12 @@ referencesRoute.post('/', async (c) => {
   const teamId = user.teamId
   if (!teamId) return c.json({ error: 'No active team' }, 400)
 
-  const body = await c.req.json().catch(() => null) as Reference | null
-  if (!body?.title || !body?.authors) return c.json({ error: 'Missing required fields' }, 400)
+  const raw = await c.req.json().catch(() => null)
+  const parsed = referenceSchema.safeParse(raw)
+  if (!parsed.success || !parsed.data.title || !parsed.data.authors) {
+    return c.json({ error: 'Missing required fields' }, 400)
+  }
+  const body = parsed.data as Reference
 
   const [row] = await db
     .insert(teamReferences)
@@ -51,8 +85,10 @@ referencesRoute.put('/:id', async (c) => {
   const id = c.req.param('id')
   if (!teamId) return c.json({ error: 'No active team' }, 400)
 
-  const body = await c.req.json().catch(() => null) as Reference | null
-  if (!body) return c.json({ error: 'Invalid body' }, 400)
+  const raw = await c.req.json().catch(() => null)
+  const parsed = referenceSchema.safeParse(raw)
+  if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+  const body = parsed.data as Reference
 
   const [row] = await db
     .update(teamReferences)
@@ -90,6 +126,7 @@ referencesRoute.post('/import', async (c) => {
   } | null
   if (!body?.references?.length) return c.json({ error: 'No references provided' }, 400)
   if (body.references.length > 500) return c.json({ error: 'Too many references; split into batches of 500 or fewer' }, 400)
+  if (JSON.stringify(body.references).length > 5_000_000) return c.json({ error: 'References payload too large (max 5 MB)' }, 413)
 
   const mode = body.mode ?? 'insert'
 
@@ -210,7 +247,7 @@ referencesRoute.get('/export', async (c) => {
 
     const nodes = await db.select({ description: planNodes.description, content: planNodes.content })
       .from(planNodes)
-      .where(and(eq(planNodes.projectId, projectId), eq(planNodes.teamId, teamId)))
+      .where(eq(planNodes.projectId, projectId))
 
     const keys = new Set<string>()
     for (const k of extractCiteKeys(project.description ?? '')) keys.add(k)
@@ -398,6 +435,85 @@ referencesRoute.post('/lookup', async (c) => {
     )
   }
   return c.json({ items: result.items, identifier: result.identifier, source: result.source })
+})
+
+/**
+ * GET /api/references/pdf-proxy?url=<encoded>
+ *
+ * Fetches a remote PDF and strips X-Frame-Options / CSP frame-ancestors so it
+ * can be displayed inside an iframe. Restricted to authenticated users only.
+ * Basic SSRF guard: only http/https URLs pointing to non-private hosts allowed.
+ */
+referencesRoute.get('/pdf-proxy', async (c) => {
+  const raw = c.req.query('url')
+  if (!raw) return c.json({ error: 'Missing url parameter' }, 400)
+
+  let target: URL
+  try {
+    target = new URL(raw)
+  } catch {
+    return c.json({ error: 'Invalid URL' }, 400)
+  }
+
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    return c.json({ error: 'Only http/https URLs are allowed' }, 400)
+  }
+
+  // Reject RFC-1918 / loopback addresses
+  const host = target.hostname.toLowerCase()
+  const isPrivate =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.') ||
+    host.endsWith('.local')
+  if (isPrivate) return c.json({ error: 'Private addresses not allowed' }, 400)
+
+  try {
+    const upstream = await fetch(target.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Astro/1.0; +https://astroanywhere.com)',
+        'Accept': 'application/pdf,*/*',
+      },
+      redirect: 'follow',
+    })
+
+    if (!upstream.ok) {
+      return c.json({ error: `Upstream returned ${upstream.status}` }, 502)
+    }
+
+    const contentType = upstream.headers.get('content-type') ?? 'application/pdf'
+
+    // Reject HTML responses — these are "preparing to download" interstitial pages
+    // that contain JS which would hijack window.top.location and navigate our app.
+    if (contentType.includes('text/html')) {
+      return c.json({ error: 'upstream_html', message: 'Upstream returned an HTML page instead of a PDF. The PDF may require a direct browser download.' }, 422)
+    }
+
+    // Stream the body while stripping frame-blocking headers
+    const responseHeaders = new Headers()
+    responseHeaders.set('Content-Type', contentType)
+    responseHeaders.set('Content-Disposition', 'inline')
+    // Explicitly allow framing from our own origin
+    responseHeaders.set('X-Frame-Options', 'SAMEORIGIN')
+    responseHeaders.delete('content-security-policy')
+
+    const cl = upstream.headers.get('content-length')
+    const MAX_PDF_SIZE = 50 * 1024 * 1024 // 50 MB
+    if (cl && parseInt(cl, 10) > MAX_PDF_SIZE) {
+      return c.json({ error: 'PDF too large (max 50 MB)' }, 413)
+    }
+    if (cl) responseHeaders.set('Content-Length', cl)
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Fetch failed' }, 502)
+  }
 })
 
 export { referencesRoute }
