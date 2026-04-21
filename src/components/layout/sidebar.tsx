@@ -591,7 +591,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       <div className="shrink-0" style={shouldCollapseNav && !collapsed ? { minHeight: '3.5rem' } : undefined}>
         {/* Hover zone: nav items + customize button collapse/expand together */}
         <div
-          className={cn(shouldCollapseNav && !collapsed && "relative z-10")}
+          className={cn(shouldCollapseNav && !collapsed && "relative z-10 w-full")}
           onMouseEnter={() => !collapsed && setNavHovered(true)}
           onMouseLeave={() => setNavHovered(false)}
         >
@@ -603,8 +603,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   "flex flex-col py-2",
                   collapsed ? "items-center" : "px-4",
                   shouldCollapseNav && !collapsed && cn(
-                    "absolute top-0 left-0 right-0",
-                    navHovered && "bg-card border-x border-b border-border/50 rounded-b-[10px] shadow-md",
+                    "absolute top-0 left-0 right-0 w-full",
+                    navHovered && "bg-card border-b border-border/50 rounded-b-[10px] shadow-md",
                   ),
                 )}
               >
