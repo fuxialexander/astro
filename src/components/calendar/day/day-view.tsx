@@ -35,27 +35,8 @@ export function DayView({ focusedDate }: DayViewProps) {
     el.scrollTop = (targetMinutes / 60) * HOUR_HEIGHT
   }, [focusedDate])
 
-  // Format the date header
-  const dateLabel = new Date(`${focusedDate}T12:00:00Z`).toLocaleDateString([], {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-
   return (
     <div className="flex flex-col h-full">
-      {/* Day header */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0">
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-foreground">{dateLabel}</span>
-          {isToday && <span className="text-xs text-primary font-medium">Today</span>}
-        </div>
-        <div className="ml-auto text-xs text-muted-foreground">
-          {events.length} event{events.length !== 1 ? 's' : ''}
-        </div>
-      </div>
-
       {/* All-day row */}
       <div className="flex shrink-0">
         <div style={{ width: 44 }} className="border-b border-border" />
@@ -63,7 +44,7 @@ export function DayView({ focusedDate }: DayViewProps) {
       </div>
 
       {/* Time grid */}
-      <div ref={scrollRef} className="flex flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start">
         <TimeRuler hourHeight={HOUR_HEIGHT} />
         <DayHourColumn
           dateStr={focusedDate}

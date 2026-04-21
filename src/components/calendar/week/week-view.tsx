@@ -79,7 +79,7 @@ export function WeekView({ focusedDate }: WeekViewProps) {
       </div>
 
       {/* Time grid */}
-      <div ref={scrollRef} className="flex flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start">
         <TimeRuler hourHeight={HOUR_HEIGHT} />
         {weekDays.map((day) => {
           const events = byDay.get(day) ?? []

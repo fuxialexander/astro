@@ -27,7 +27,7 @@ export function MonthEventPill({ event }: MonthEventPillProps) {
         )}
         style={externalColor ? { borderLeftColor: externalColor, color: externalColor } : undefined}
       >
-        {event.kind === 'milestone' ? '◆ ' : ''}{event.title}
+        {event.title}
       </div>
     </EventTooltip>
   )

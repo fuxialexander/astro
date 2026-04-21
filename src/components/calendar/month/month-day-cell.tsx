@@ -1,7 +1,5 @@
-import { useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '../types'
-import { useCalendarStore } from '@/stores/calendar-store'
 import { MonthHeatOverlay } from './month-heat-overlay'
 import { MonthEventPill } from './month-event-pill'
 
@@ -13,6 +11,7 @@ interface MonthDayCellProps {
   heatIntensity: number
   isToday: boolean
   isOutsideMonth: boolean
+  isDragSelected?: boolean
   onDayClick: (dateStr: string) => void
 }
 
@@ -22,10 +21,9 @@ export function MonthDayCell({
   heatIntensity,
   isToday,
   isOutsideMonth,
+  isDragSelected,
   onDayClick,
 }: MonthDayCellProps) {
-  const setCreateDraft = useCalendarStore((s) => s.setCreateDraft)
-
   const dayNum = new Date(`${dateStr}T12:00:00Z`).getUTCDate()
 
   // Month view: only show deadlines, milestones, external events (not execution times)
@@ -38,29 +36,15 @@ export function MonthDayCell({
   const overflowCount = visibleEvents.length > MAX_PILLS ? visibleEvents.length - MAX_PILLS + 1 : 0
   const shown = overflowCount > 0 ? visibleEvents.slice(0, MAX_PILLS - 1) : visibleEvents
 
-  const handleCellMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if ((e.target as HTMLElement).closest('[data-event], button')) return
-      const anchorRect = e.currentTarget.getBoundingClientRect()
-      setCreateDraft({
-        startAt: `${dateStr}T00:00:00.000Z`,
-        endAt: `${dateStr}T23:59:00.000Z`,
-        kind: 'milestone',
-        anchorRect,
-        isMultiDay: false,
-      })
-    },
-    [dateStr, setCreateDraft],
-  )
-
   return (
     <div
+      data-date={dateStr}
       className={cn(
         'cal-month-cell',
         isToday && 'cal-month-cell-today',
         isOutsideMonth && 'cal-month-cell-outside',
+        isDragSelected && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
       )}
-      onMouseDown={handleCellMouseDown}
     >
       <MonthHeatOverlay intensity={heatIntensity} />
 

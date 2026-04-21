@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useCalendarEvents } from '@/hooks/use-calendar-events'
 import { useCalendarStore } from '@/stores/calendar-store'
 import { MonthDayCell } from './month-day-cell'
@@ -44,15 +45,65 @@ interface MonthViewProps {
 export function MonthView({ focusedDate }: MonthViewProps) {
   const { byDay, heatMap } = useCalendarEvents()
   const createDraft = useCalendarStore((s) => s.createDraft)
+  const setCreateDraft = useCalendarStore((s) => s.setCreateDraft)
   const setView = useCalendarStore((s) => s.setView)
   const setFocusedDate = useCalendarStore((s) => s.setFocusedDate)
   const today = todayStr()
   const grid = getMonthGrid(focusedDate)
 
+  const [dragRange, setDragRange] = useState<{ start: string; end: string } | null>(null)
+  const dragActiveRef = useRef(false)
+
   const handleDayClick = (dateStr: string) => {
     setFocusedDate(dateStr)
     setView('day')
   }
+
+  const getDateFromPoint = (x: number, y: number): string | null => {
+    const el = document.elementFromPoint(x, y)
+    const cell = el?.closest('[data-date]') as HTMLElement | null
+    return cell?.dataset.date ?? null
+  }
+
+  const handleGridMouseDown = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('[data-event], button')) return
+    const dateStr = getDateFromPoint(e.clientX, e.clientY)
+    if (!dateStr) return
+    e.preventDefault()
+    dragActiveRef.current = true
+    setDragRange({ start: dateStr, end: dateStr })
+  }, [])
+
+  const handleGridMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragActiveRef.current) return
+    const dateStr = getDateFromPoint(e.clientX, e.clientY)
+    if (dateStr) setDragRange((prev) => prev ? { ...prev, end: dateStr } : null)
+  }, [])
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      if (!dragActiveRef.current) return
+      dragActiveRef.current = false
+      setDragRange((prev) => {
+        if (!prev) return null
+        const [start, end] = [prev.start, prev.end].sort()
+        const endCell = document.querySelector(`[data-date="${end}"]`)
+        const anchorRect = endCell?.getBoundingClientRect() ?? new DOMRect()
+        setCreateDraft({
+          startAt: `${start}T00:00:00.000Z`,
+          endAt: `${end}T23:59:00.000Z`,
+          kind: 'task',
+          isMultiDay: start !== end,
+          anchorRect,
+        })
+        return null
+      })
+    }
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => document.removeEventListener('mouseup', handleMouseUp)
+  }, [setCreateDraft])
+
+  const [dragStart, dragEnd] = dragRange ? [dragRange.start, dragRange.end].sort() : ['', '']
 
   return (
     <div className="flex flex-col h-full">
@@ -69,7 +120,11 @@ export function MonthView({ focusedDate }: MonthViewProps) {
       </div>
 
       {/* Calendar grid */}
-      <div className="grid grid-cols-7 flex-1 border-l border-t border-border overflow-y-auto">
+      <div
+        className="grid grid-cols-7 flex-1 border-l border-t border-border overflow-y-auto"
+        onMouseDown={handleGridMouseDown}
+        onMouseMove={handleGridMouseMove}
+      >
         {grid.map((dateStr) => (
           <MonthDayCell
             key={dateStr}
@@ -79,6 +134,7 @@ export function MonthView({ focusedDate }: MonthViewProps) {
             isToday={dateStr === today}
             isOutsideMonth={!isCurrentMonth(dateStr, focusedDate)}
             onDayClick={handleDayClick}
+            isDragSelected={!!dragRange && dateStr >= dragStart && dateStr <= dragEnd}
           />
         ))}
       </div>
