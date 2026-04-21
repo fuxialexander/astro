@@ -92,7 +92,7 @@ interface AllDayEventsRowProps {
 
 export function AllDayEventsRow({ events, className }: AllDayEventsRowProps) {
   return (
-    <div className={cn('cal-all-day-row flex flex-wrap gap-1 p-1', className)}>
+    <div className={cn('cal-all-day-row flex flex-col gap-0.5 p-1 overflow-hidden', className)}>
       {events.map((ev) => {
         const externalColor = ev.color === 'external'
           ? (ev.raw as { calendarColor?: string } | undefined)?.calendarColor
@@ -105,7 +105,7 @@ export function AllDayEventsRow({ events, className }: AllDayEventsRowProps) {
               role="button"
               aria-label={ev.title}
               className={cn(
-                'cal-chip text-xs cursor-pointer',
+                'cal-chip text-xs cursor-pointer w-full min-w-0',
                 ev.color !== 'external' && `cal-chip-${ev.color}`,
                 ev.color === 'external' && 'cal-chip-external',
               )}

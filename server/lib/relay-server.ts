@@ -2530,9 +2530,18 @@ export class RelayServer extends EventEmitter {
       machineId,
       this.config.heartbeatTimeoutMs,
       () => {
-        console.log(`[relay] Heartbeat timeout for machine ${machineId}`);
-        machineRegistry.disconnect(machineId, 'heartbeat_timeout');
-        this.emit('machine:disconnected', machineId, 'heartbeat_timeout');
+        console.log(`[relay] Heartbeat timeout for machine ${machineId} — entering disconnect grace period`);
+        const connection = machineRegistry.getConnection(machineId);
+        const socket = connection?.socket;
+        if (socket && socket.readyState === 1) {
+          // Close the socket to signal the agent runner to reconnect.
+          // The 'close' event handler will call startDisconnectGracePeriod.
+          // Code 4003 = heartbeat timeout (agent should reconnect, not exit).
+          socket.close(4003, 'heartbeat_timeout');
+        } else {
+          // Socket already gone — start grace period directly.
+          this.startDisconnectGracePeriod(machineId, 'heartbeat_timeout');
+        }
       }
     );
   }

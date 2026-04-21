@@ -15,6 +15,7 @@ import { Sidebar } from "./sidebar"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow"
+import { AgentSetupStep } from "@/components/onboarding/agent-setup-step"
 import { PasskeyNudgeBanner } from "@/components/passkey-nudge-banner"
 import { SseDisconnectBanner } from "@/components/sse-disconnect-banner"
 import { ToastContainer } from "@/components/toast-container"
@@ -368,6 +369,7 @@ export function AppLayout() {
 
       <SafetyPromptDialog />
       <WelcomeProfileDialog />
+      <AgentSetupStep />
       <OnboardingFlow />
       <ToastContainer />
 

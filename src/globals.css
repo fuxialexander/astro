@@ -1088,7 +1088,6 @@ html[lang="zh-CN"] h3 {
   letter-spacing: 0.04em;
   text-align: center;
   padding: 6px 0 4px;
-  border-bottom: 1px solid var(--border);
 }
 .cal-week-header-cell-today {
   color: var(--primary);
@@ -1109,8 +1108,15 @@ html[lang="zh-CN"] h3 {
   border-bottom: 1px solid var(--border);
   min-height: 28px;
   position: relative;
-  /* Always maintain column width even when empty */
-  flex: 1;
+}
+
+/* Time grid scroll container — hides scrollbar so it takes no horizontal space,
+   keeping day columns perfectly aligned with the header / all-day rows above. */
+.cal-time-scroll {
+  scrollbar-width: none; /* Firefox */
+}
+.cal-time-scroll::-webkit-scrollbar {
+  display: none; /* Chrome / Safari / Edge */
 }
 
 /* Animate view transitions */

@@ -39,11 +39,15 @@ export function WeekView({ focusedDate }: WeekViewProps) {
     el.scrollTop = 7 * HOUR_HEIGHT
   }, [focusedDate])
 
+  // minmax(0, 1fr) prevents long chip text from expanding columns beyond equal widths
+  const colTemplate = `44px repeat(7, minmax(0, 1fr))`
+
   return (
     <div className="flex flex-col h-full">
-      {/* Week day headers */}
-      <div className="flex shrink-0">
-        <div style={{ width: 44 }} className="border-b border-border" />
+      {/* Header + all-day in one shared grid so columns are pixel-perfect aligned */}
+      <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: colTemplate }}>
+        {/* Row 1: day headers */}
+        <div /> {/* ruler spacer */}
         {weekDays.map((day) => {
           const isToday = day === today
           const date = new Date(`${day}T12:00:00Z`)
@@ -51,8 +55,8 @@ export function WeekView({ focusedDate }: WeekViewProps) {
           const dayNum = date.getUTCDate()
           return (
             <div
-              key={day}
-              className={cn('cal-week-header-cell flex-1', isToday && 'cal-week-header-cell-today')}
+              key={`h-${day}`}
+              className={cn('cal-week-header-cell border-r border-border last:border-r-0', isToday && 'cal-week-header-cell-today')}
             >
               <span className="text-[10px] uppercase tracking-wider">{dayOfWeek}</span>
               <span className={cn('cal-week-header-day-num', isToday && 'cal-week-header-day-num-today')}>
@@ -61,25 +65,23 @@ export function WeekView({ focusedDate }: WeekViewProps) {
             </div>
           )
         })}
-      </div>
 
-      {/* All-day row */}
-      <div className="flex shrink-0">
-        <div style={{ width: 44 }} className="border-b border-border" />
+        {/* Row 2: all-day chips */}
+        <div /> {/* ruler spacer */}
         {weekDays.map((day) => {
           const allDay = (byDay.get(day) ?? []).filter((e) => e.allDay)
           return (
             <AllDayEventsRow
-              key={day}
+              key={`a-${day}`}
               events={allDay}
-              className="flex-1 border-r border-border last:border-r-0"
+              className="border-r border-border last:border-r-0"
             />
           )
         })}
       </div>
 
       {/* Time grid */}
-      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start">
+      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start cal-time-scroll">
         <TimeRuler hourHeight={HOUR_HEIGHT} />
         {weekDays.map((day) => {
           const events = byDay.get(day) ?? []

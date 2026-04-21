@@ -44,7 +44,7 @@ export function DayView({ focusedDate }: DayViewProps) {
       </div>
 
       {/* Time grid */}
-      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start">
+      <div ref={scrollRef} className="flex flex-1 overflow-y-auto items-start cal-time-scroll">
         <TimeRuler hourHeight={HOUR_HEIGHT} />
         <DayHourColumn
           dateStr={focusedDate}

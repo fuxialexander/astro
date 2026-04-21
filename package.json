@@ -51,6 +51,7 @@
     "electron:build:main": "tsc -p electron/tsconfig.electron.json && tsc -p electron/tsconfig.preload.json",
     "electron:build:server": "tsx scripts/build-server.ts",
     "build:binaries": "tsx scripts/build-binaries.ts",
+    "build:binaries:local": "tsx scripts/build-binaries.ts --local",
     "electron:dev": "concurrently -n vite,electron -c blue,cyan \"vite\" \"wait-on http://localhost:5173 && npm run electron:build:server && npm run electron:build:main && electron electron/dist/main/index.js\"",
     "electron:package": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:binaries && electron-forge package'",
     "electron:make": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:binaries && electron-forge make'",
