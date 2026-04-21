@@ -469,8 +469,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       window.matchMedia('(display-mode: fullscreen)').matches
     )
   )
-  // Collapse nav to only active item when there are >3 pinned items/projects/sessions
-  const shouldCollapseNav = !collapsed && autoCollapse && (activeProjects.length + recentSessions.length > 3)
+  const shouldCollapseNav = !collapsed && autoCollapse
 
   return (
     <aside
