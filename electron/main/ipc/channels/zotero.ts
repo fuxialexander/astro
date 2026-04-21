@@ -126,40 +126,43 @@ async function fetchZoteroSQLite(): Promise<string | null> {
     const Database = (await import('better-sqlite3')).default
     const db = new Database(dbPath, { readonly: true, fileMustExist: true })
 
-    const itemRows = db.prepare(`
-      SELECT i.itemID, i.key, it.typeName
-      FROM items i
-      JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-      WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
-        AND it.typeName NOT IN ('attachment', 'note')
-      ORDER BY i.dateAdded
-      LIMIT 2000
-    `).all() as Record<string, unknown>[]
+    try {
+      const itemRows = db.prepare(`
+        SELECT i.itemID, i.key, it.typeName
+        FROM items i
+        JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+        WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
+          AND it.typeName NOT IN ('attachment', 'note')
+        ORDER BY i.dateAdded
+        LIMIT 2000
+      `).all() as Record<string, unknown>[]
 
-    const references: Reference[] = []
-    for (const item of itemRows) {
-      const creators = db.prepare(`
-        SELECT c.lastName, c.firstName, ct.creatorType, ic.orderIndex
-        FROM itemCreators ic
-        JOIN creators c ON ic.creatorID = c.creatorID
-        JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
-        WHERE ic.itemID = ? ORDER BY ic.orderIndex
-      `).all(item.itemID) as Record<string, unknown>[]
+      const references: Reference[] = []
+      for (const item of itemRows) {
+        const creators = db.prepare(`
+          SELECT c.lastName, c.firstName, ct.creatorType, ic.orderIndex
+          FROM itemCreators ic
+          JOIN creators c ON ic.creatorID = c.creatorID
+          JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
+          WHERE ic.itemID = ? ORDER BY ic.orderIndex
+        `).all(item.itemID) as Record<string, unknown>[]
 
-      const fields = db.prepare(`
-        SELECT f.fieldName, idv.value
-        FROM itemData id
-        JOIN fields f ON id.fieldID = f.fieldID
-        JOIN itemDataValues idv ON id.valueID = idv.valueID
-        WHERE id.itemID = ?
-      `).all(item.itemID) as Record<string, unknown>[]
+        const fields = db.prepare(`
+          SELECT f.fieldName, idv.value
+          FROM itemData id
+          JOIN fields f ON id.fieldID = f.fieldID
+          JOIN itemDataValues idv ON id.valueID = idv.valueID
+          WHERE id.itemID = ?
+        `).all(item.itemID) as Record<string, unknown>[]
 
-      const ref = convertZoteroItem(item, creators, fields)
-      if (ref) references.push(ref)
+        const ref = convertZoteroItem(item, creators, fields)
+        if (ref) references.push(ref)
+      }
+
+      return references.length > 0 ? toBibTeX(references) : null
+    } finally {
+      db.close()
     }
-    db.close()
-
-    return references.length > 0 ? toBibTeX(references) : null
   } catch (err) {
     console.error('[zotero] SQLite fallback failed:', err)
     return null

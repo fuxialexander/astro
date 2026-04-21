@@ -89,6 +89,7 @@ referencesRoute.post('/import', async (c) => {
     mode?: 'insert' | 'upsert'
   } | null
   if (!body?.references?.length) return c.json({ error: 'No references provided' }, 400)
+  if (body.references.length > 500) return c.json({ error: 'Too many references; split into batches of 500 or fewer' }, 400)
 
   const mode = body.mode ?? 'insert'
 
@@ -149,16 +150,20 @@ referencesRoute.post('/import', async (c) => {
   // Enrich missing abstracts (non-fatal)
   const enriched = await enrichAbstracts(toInsert).catch(() => toInsert)
 
-  const insertedRows = enriched.length
-    ? await db
+  let insertedRows: typeof teamReferences.$inferSelect[] = []
+  let updatedRows: typeof teamReferences.$inferSelect[] = []
+
+  try {
+    if (enriched.length) {
+      insertedRows = await db
         .insert(teamReferences)
         .values(enriched.map(ref => ({ teamId, citeKey: ref.id, data: ref })))
         .returning()
-    : []
+    }
 
-  // Batch updates in a transaction to avoid partial failure
-  const updatedRows = toUpdate.length
-    ? await db.transaction(async (tx) => {
+    // Batch updates in a transaction to avoid partial failure
+    if (toUpdate.length) {
+      updatedRows = await db.transaction(async (tx) => {
         const rows = []
         for (const { rowId, ref } of toUpdate) {
           const [row] = await tx
@@ -170,7 +175,11 @@ referencesRoute.post('/import', async (c) => {
         }
         return rows
       })
-    : []
+    }
+  } catch (err) {
+    console.error('[references] import failed:', err)
+    return c.json({ error: 'Import failed; check server logs for details' }, 500)
+  }
 
   const allRefs = [
     ...insertedRows.map(r => ({ ...r.data, id: r.citeKey })),
@@ -274,6 +283,7 @@ referencesRoute.post('/import-bibtex', async (c) => {
 
   const body = await c.req.json().catch(() => null) as { bibtex?: string } | null
   if (!body?.bibtex) return c.json({ error: 'Missing bibtex field' }, 400)
+  if (body.bibtex.length > 5_000_000) return c.json({ error: 'BibTeX payload too large (max 5 MB)' }, 400)
 
   const parsed = parseBibTeX(body.bibtex)
   if (parsed.length === 0) return c.json({ imported: 0, updated: 0, references: [] })
@@ -326,11 +336,16 @@ referencesRoute.post('/import-bibtex', async (c) => {
   }
 
   const enriched = await enrichAbstracts(toInsert).catch(() => toInsert)
-  const insertedRows = enriched.length
-    ? await db.insert(teamReferences).values(enriched.map(r => ({ teamId, citeKey: r.id, data: r }))).returning()
-    : []
-  const updatedRows = toUpdate.length
-    ? await db.transaction(async (tx) => {
+
+  let insertedRows: typeof teamReferences.$inferSelect[] = []
+  let updatedRows: typeof teamReferences.$inferSelect[] = []
+
+  try {
+    if (enriched.length) {
+      insertedRows = await db.insert(teamReferences).values(enriched.map(r => ({ teamId, citeKey: r.id, data: r }))).returning()
+    }
+    if (toUpdate.length) {
+      updatedRows = await db.transaction(async (tx) => {
         const rows = []
         for (const { rowId, ref } of toUpdate) {
           const [row] = await tx.update(teamReferences).set({ data: ref, citeKey: ref.id, updatedAt: new Date() })
@@ -339,7 +354,11 @@ referencesRoute.post('/import-bibtex', async (c) => {
         }
         return rows
       })
-    : []
+    }
+  } catch (err) {
+    console.error('[references] import-bibtex failed:', err)
+    return c.json({ error: 'Import failed; check server logs for details' }, 500)
+  }
 
   return c.json({
     imported: insertedRows.length,
