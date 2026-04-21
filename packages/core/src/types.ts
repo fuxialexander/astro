@@ -275,6 +275,14 @@ export interface Reference {
   oaSource?: string;
   /** When the reference was added */
   addedAt?: string;
+  /** Inbox status: 'pending' = awaiting human review, 'accepted' = in library */
+  status?: 'pending' | 'accepted';
+  /** Whether added by an AI agent or a human */
+  addedBy?: 'ai' | 'human';
+  /** Project that triggered an AI import */
+  sourceProjectId?: string;
+  /** Name of sourceProject (server-joined, read-only) */
+  sourceProjectName?: string;
 }
 
 /** Status of a PDF download operation */

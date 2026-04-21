@@ -59,9 +59,11 @@ export function WeekView({ focusedDate }: WeekViewProps) {
               className={cn('cal-week-header-cell border-r border-border last:border-r-0', isToday && 'cal-week-header-cell-today')}
             >
               <span className="text-[10px] uppercase tracking-wider">{dayOfWeek}</span>
-              <span className={cn('cal-week-header-day-num', isToday && 'cal-week-header-day-num-today')}>
-                {dayNum}
-              </span>
+              {isToday ? (
+                <span className="cal-week-header-day-num-today">{dayNum}</span>
+              ) : (
+                <span className="cal-week-header-day-num">{dayNum}</span>
+              )}
             </div>
           )
         })}

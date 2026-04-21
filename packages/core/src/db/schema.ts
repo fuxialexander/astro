@@ -104,11 +104,18 @@ export const teamReferences = pgTable('team_references', {
   teamId: uuid('team_id').notNull(),
   citeKey: text('cite_key').notNull(),
   data: jsonb('data').$type<import('../types.js').Reference>().notNull(),
+  /** 'pending' = in inbox awaiting human review; 'accepted' = in library */
+  status: text('status').notNull().default('accepted'),
+  /** Whether the reference was added by an AI agent or a human */
+  addedBy: text('added_by').notNull().default('human'),
+  /** Project that triggered the AI import, if any */
+  sourceProjectId: uuid('source_project_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   teamIdIdx: index('idx_team_references_team_id').on(table.teamId),
   citeKeyIdx: index('idx_team_references_cite_key').on(table.citeKey),
+  statusIdx: index('idx_team_references_status').on(table.status),
 }))
 
 // ── Team Members ──────────────────────────────────────────────────────

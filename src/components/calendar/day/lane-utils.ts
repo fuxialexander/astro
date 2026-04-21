@@ -26,44 +26,23 @@ export function mergeProjectEvents(events: CalendarEvent[]): MergedCalendarEvent
   const result: MergedCalendarEvent[] = noProject.map((ev) => ({ ...ev, mergedCount: 1 }))
 
   for (const [, projectEvents] of byProject) {
+    if (projectEvents.length === 1) {
+      result.push({ ...projectEvents[0], mergedCount: 1 })
+      continue
+    }
+    // All events from the same project merge into one chip at the earliest start time.
     const sorted = [...projectEvents].sort((a, b) => a.startAt.localeCompare(b.startAt))
-    // Sweep-line merge overlapping events into clusters
-    const clusters: CalendarEvent[][] = []
-    let currentCluster: CalendarEvent[] = []
-    let clusterEndMs = 0
-
-    for (const ev of sorted) {
-      const startMs = new Date(ev.startAt).getTime()
-      const endMs = new Date(ev.endAt).getTime()
-      if (currentCluster.length === 0 || startMs < clusterEndMs) {
-        currentCluster.push(ev)
-        clusterEndMs = Math.max(clusterEndMs, endMs)
-      } else {
-        clusters.push(currentCluster)
-        currentCluster = [ev]
-        clusterEndMs = endMs
-      }
-    }
-    if (currentCluster.length > 0) clusters.push(currentCluster)
-
-    for (const cluster of clusters) {
-      if (cluster.length === 1) {
-        result.push({ ...cluster[0], mergedCount: 1 })
-      } else {
-        const minStart = cluster.reduce((m, e) => e.startAt < m ? e.startAt : m, cluster[0].startAt)
-        const maxEnd = cluster.reduce((m, e) => e.endAt > m ? e.endAt : m, cluster[0].endAt)
-        const representative = cluster[0]
-        result.push({
-          ...representative,
-          id: `merged-${representative.projectId}-${minStart}`,
-          startAt: minStart,
-          endAt: maxEnd,
-          title: representative.projectName ?? representative.title,
-          mergedCount: cluster.length,
-          isDraggable: false,
-        })
-      }
-    }
+    const representative = sorted[0]
+    const lastStart = sorted[sorted.length - 1].startAt
+    result.push({
+      ...representative,
+      id: `merged-${representative.projectId}-${representative.startAt}`,
+      startAt: representative.startAt,
+      endAt: lastStart,
+      title: representative.projectName ?? representative.title,
+      mergedCount: projectEvents.length,
+      isDraggable: false,
+    })
   }
 
   return result
@@ -71,7 +50,7 @@ export function mergeProjectEvents(events: CalendarEvent[]): MergedCalendarEvent
 
 export function minuteOfDay(isoStr: string): number {
   const d = new Date(isoStr)
-  return d.getUTCHours() * 60 + d.getUTCMinutes()
+  return d.getHours() * 60 + d.getMinutes()
 }
 
 export function durationMinutes(startAt: string, endAt: string): number {

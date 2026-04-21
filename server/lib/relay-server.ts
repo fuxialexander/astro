@@ -656,6 +656,7 @@ export interface RelayServerEvents {
   'task:dead': (data: { taskId: string; machineId: string; reason: string }) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
+  'machine:reconnecting': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
   'session:attached': (sessionId: string, taskId: string, machineId: string) => void;
   'session:detached': (sessionId: string, taskId: string, reason?: string) => void;
@@ -728,12 +729,6 @@ export class RelayServer extends EventEmitter {
 
         // Start dead job cross-reference checker (P2)
         this.startDeadJobChecker();
-
-        // Listen for registry events
-        machineRegistry.on('machine:heartbeat-timeout', (machineId: string) => {
-          console.log(`[relay] Machine ${machineId} heartbeat timeout`);
-          machineRegistry.disconnect(machineId, 'heartbeat_timeout');
-        });
 
         // Cross-instance routing: handle approval/steer/cancel from other instances
         this.registerRedisRouting();
@@ -1098,6 +1093,12 @@ export class RelayServer extends EventEmitter {
           });
           this.emit('task:safety_prompt', { ...payload, machineId: safetyMachineId });
           console.log(`[relay] Safety prompt for task ${payload.taskId} (tier: ${payload.safetyTier})`);
+          // Bridge cross-instance so the dispatch instance sets waitingForApproval correctly.
+          this.publishToRedis({
+            eventType: 'safety_prompt',
+            taskId: payload.taskId,
+            data: { safetyTier: payload.safetyTier, warning: payload.warning, options: payload.options, machineId: safetyMachineId },
+          }).catch(() => {});
         }
         break;
       }
@@ -1475,6 +1476,7 @@ export class RelayServer extends EventEmitter {
       deliveryStatus: message.result.deliveryStatus,
       deliveryError: message.result.deliveryError,
       summary: message.result.summary,
+      metrics: message.result.metrics,
     }
     // Use appendResultOverridingSyntheticError to recover from disconnect errors.
     // If the agent completed work after a grace period expiry marked the task as failed,
@@ -1944,7 +1946,7 @@ export class RelayServer extends EventEmitter {
     redisPubSub.on('task:steer', (event) => {
       if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
       const connection = machineRegistry.getConnection(event.machineId);
-      if (!connection) return; // machine not on this instance
+      if (!connection?.socket) return; // machine not on this instance (or remote entry with null socket)
       console.log(`[relay] Executing cross-instance steer for task ${event.taskId}`);
       this.steerTaskLocal(event.taskId, event.machineId, event.message, event.action, event.interrupt, event.sessionId, event.branchName);
     });
@@ -2036,6 +2038,7 @@ export class RelayServer extends EventEmitter {
               deliveryStatus: msg.data.deliveryStatus as string | undefined,
               deliveryError: msg.data.deliveryError as string | undefined,
               summary: msg.data.summary as ExecutionSummaryResult | undefined,
+              metrics: msg.data.metrics as import('../types/relay.js').UsageMetrics | undefined,
             },
           });
           break;
@@ -2046,6 +2049,24 @@ export class RelayServer extends EventEmitter {
             recoverable: msg.data.recoverable as boolean | undefined,
             synthetic: msg.data.synthetic as boolean | undefined,
             _dbSeq: msg.dbSeq,
+          });
+          break;
+        case 'approval_request':
+          this.emit('task:approval_request', {
+            taskId: msg.taskId,
+            requestId: msg.data.requestId as string,
+            question: msg.data.question as string,
+            options: msg.data.options as string[],
+            machineId: msg.data.machineId as string | undefined,
+          });
+          break;
+        case 'safety_prompt':
+          this.emit('task:safety_prompt', {
+            taskId: msg.taskId,
+            safetyTier: msg.data.safetyTier as string,
+            warning: msg.data.warning as string | undefined,
+            options: msg.data.options as Array<{ id: string; label: string; description?: string }>,
+            machineId: msg.data.machineId as string | undefined,
           });
           break;
       }
@@ -2305,15 +2326,22 @@ export class RelayServer extends EventEmitter {
    */
   steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean, sessionId?: string, branchName?: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      // Machine not on this instance — route via Redis
-      redisPubSub.routeTaskSteer({
-        taskId, machineId, message, action, interrupt, sessionId, branchName,
-      }).catch((err) => {
-        console.error(`[relay] Failed to route steer via Redis:`, err);
-      });
-      console.log(`[relay] Steer routed via Redis for task ${taskId} (machine ${machineId} not local)`);
-      return true; // Optimistic: assume Redis routing will succeed
+    // Route via Redis when: (a) machine is completely unknown, or (b) machine is a remote
+    // entry (socket: null) registered via registerRemote() — same pattern as dispatchTask.
+    // Checking only `!connection` misses case (b): remote entries have socket=null and would
+    // fall through to steerTaskLocal which silently no-ops on a null socket.
+    if (!connection?.socket) {
+      if (redisPubSub.isConnected()) {
+        redisPubSub.routeTaskSteer({
+          taskId, machineId, message, action, interrupt, sessionId, branchName,
+        }).catch((err) => {
+          console.error(`[relay] Failed to route steer via Redis:`, err);
+        });
+        console.log(`[relay] Steer routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+        return true; // Optimistic: assume Redis routing will succeed
+      }
+      console.error(`[relay] Cannot steer task ${taskId}: machine ${machineId} not local and Redis not connected`);
+      return false;
     }
 
     return this.steerTaskLocal(taskId, machineId, message, action, interrupt, sessionId, branchName);
@@ -2366,15 +2394,21 @@ export class RelayServer extends EventEmitter {
     message?: string
   ): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      // Machine not on this instance — route via Redis
-      redisPubSub.routeApprovalResponse({
-        taskId, machineId, requestId, answered, answer, message,
-      }).catch((err) => {
-        console.error(`[relay] Failed to route approval via Redis:`, err);
-      });
-      console.log(`[relay] Approval response routed via Redis for task ${taskId} (machine ${machineId} not local)`);
-      return true; // Optimistic: assume Redis routing will succeed
+    // Route via Redis when: (a) machine completely unknown, or (b) remote entry (socket: null).
+    // Same pattern as steerTask — checking only `!connection` misses machines in the grace period
+    // (detached socket, connectionStatus='reconnecting') which would silently lose the approval.
+    if (!connection?.socket) {
+      if (redisPubSub.isConnected()) {
+        redisPubSub.routeApprovalResponse({
+          taskId, machineId, requestId, answered, answer, message,
+        }).catch((err) => {
+          console.error(`[relay] Failed to route approval via Redis:`, err);
+        });
+        console.log(`[relay] Approval response routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+        return true; // Optimistic: assume Redis routing will succeed
+      }
+      console.error(`[relay] Cannot send approval for task ${taskId}: machine ${machineId} not local and Redis not connected`);
+      return false;
     }
 
     return this.sendApprovalResponseLocal(taskId, machineId, requestId, answered, answer, message);
@@ -2568,6 +2602,8 @@ export class RelayServer extends EventEmitter {
 
     const gracePeriodMs = this.config.disconnectGracePeriodMs;
     console.log(`[relay] Machine ${machineId} entering disconnect grace period (${gracePeriodMs / 1000}s) — reason: ${reason}`);
+    // Notify frontend immediately so the UI shows "reconnecting" rather than silently hiding the machine
+    this.emit('machine:reconnecting', machineId, reason);
 
     const timer = setTimeout(() => {
       this.disconnectGracePeriods.delete(machineId);
@@ -2853,6 +2889,21 @@ export class RelayServer extends EventEmitter {
       // Store actual task IDs for dead job cross-reference detection (P2)
       machineRegistry.updateActiveTaskIds(machine.machineId, activeTasks);
 
+      // Propagate activeTaskIds cross-instance so the dead job checker on other
+      // instances can cross-reference heartbeat data even when they don't own the WS.
+      // machine.updated publishes the full registry entry; receiving instances call
+      // registerRemote() which updates their in-memory entry (including activeTaskIds).
+      const updatedEntry = machineRegistry.get(machine.machineId);
+      if (updatedEntry && redisPubSub.isConnected()) {
+        redisPubSub.updateMachine(machine.machineId, updatedEntry).catch(() => {});
+        redisPubSub.publishMachineState({
+          event: 'machine.updated',
+          machineId: machine.machineId,
+          machineInfo: updatedEntry,
+          timestamp: new Date(),
+        }).catch(() => {});
+      }
+
       // Reset heartbeat timer
       this.resetHeartbeatTimer(machine.machineId);
 
@@ -2948,7 +2999,7 @@ export class RelayServer extends EventEmitter {
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
       eventType, taskId,
-      data: { toolName, toolInput, toolResult, success },
+      data: { toolName, toolInput, toolResult, success, toolUseId: traceMsg.toolUseId },
       dbSeq: seq,
     });
   }
@@ -3228,6 +3279,12 @@ export class RelayServer extends EventEmitter {
       options: payload.options,
       machineId,
     });
+    // Bridge cross-instance so the dispatch instance sets waitingForApproval correctly.
+    this.publishToRedis({
+      eventType: 'approval_request',
+      taskId: payload.taskId,
+      data: { requestId: payload.requestId, question: payload.question, options: payload.options, machineId },
+    }).catch(() => {});
   }
 
   private async handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): Promise<void> {

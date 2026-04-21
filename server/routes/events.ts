@@ -643,6 +643,13 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'machine:disconnected', data }).catch(() => { alive = false })
     }
 
+    const onMachineReconnecting = (machineId: string, reason?: string) => {
+      if (!alive) return
+      const data = JSON.stringify({ machineId, reason })
+      const id = eventBuffer.push('machine:reconnecting', data)
+      stream.writeSSE({ id, event: 'machine:reconnecting', data }).catch(() => { alive = false })
+    }
+
     // Session attachment event handlers (MCP bridge) — filter by task ownership
     const onSessionAttached = (sessionId: string, taskId: string, machineId: string) => {
       withTaskAccess(taskId, () => {
@@ -752,6 +759,7 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:safety_approved', onSafetyApproved)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
+    relayServer.on('machine:reconnecting', onMachineReconnecting)
     // Session events
     relayServer.on('session:attached', onSessionAttached)
     relayServer.on('session:detached', onSessionDetached)
@@ -1026,6 +1034,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:safety_approved', onSafetyApproved)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      relayServer.off('machine:reconnecting', onMachineReconnecting)
       // Relay-direct streaming fallback cleanup
       relayServer.off('task:text', onRelayText)
       relayServer.off('task:operational', onRelayOperational)

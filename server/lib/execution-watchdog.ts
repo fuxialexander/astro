@@ -312,6 +312,15 @@ async function runWatchdogCheckIfLeader(): Promise<void> {
  * by the server restart, not by a long-running execution.
  */
 export async function reconcileOnStartup(): Promise<void> {
+  // Only one instance should run startup reconciliation — a second instance starting
+  // during a rolling deploy could otherwise reset live tasks that are still running
+  // on the first instance. Use a short-TTL lock so it auto-releases quickly.
+  const isLeader = await redisPubSub.tryAcquireLeader('startup-reconcile', 60)
+  if (!isLeader) {
+    console.log('[watchdog/startup] Skipping startup reconciliation (another instance is running it)')
+    return
+  }
+
   const STARTUP_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
   const cutoffTime = new Date(Date.now() - STARTUP_THRESHOLD_MS)
   const startTime = Date.now()

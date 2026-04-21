@@ -624,6 +624,9 @@ async function start() {
         machineRegistry.registerRemote(event.machineId, event.machineInfo)
       } else if (event.event === 'machine.disconnected') {
         machineRegistry.removeRemote(event.machineId)
+        // Re-emit locally so dispatch.ts watchdog listeners (onMachineDisconnected,
+        // onWatchdogDisconnect) fire on this instance even when the WS was on another.
+        relayServer.emit('machine:disconnected', event.machineId, 'remote_disconnect')
       } else if (event.event === 'machine.updated' && event.machineInfo) {
         machineRegistry.registerRemote(event.machineId, event.machineInfo)
       }
@@ -633,8 +636,12 @@ async function start() {
     // connected to other instances. Only hydrate machines that have a live
     // instance (MACHINE_INSTANCE key with TTL). Ghost machines whose instance
     // key expired are cleaned up from the registry.
+    // Await hydration so dispatch requests don't arrive before remote machines are
+    // registered. Fire-and-forget here means a dispatch on this instance could fail
+    // with "no available machine" for the brief window before hydration completes.
     if (redisPubSub.isConnected()) {
-      redisPubSub.getAllMachines().then(async (remoteMachines) => {
+      try {
+        const remoteMachines = await redisPubSub.getAllMachines()
         let hydrated = 0
         let stale = 0
         for (const entry of remoteMachines) {
@@ -651,9 +658,9 @@ async function start() {
         if (hydrated > 0 || stale > 0) {
           console.log(`[relay] Hydrated ${hydrated} remote machines from Redis (removed ${stale} stale)`)
         }
-      }).catch((err) => {
+      } catch (err) {
         console.warn('[relay] Failed to hydrate remote machines from Redis:', err)
-      })
+      }
     }
 
     console.log(`[relay] WebSocket server listening on port ${relayPort}`)

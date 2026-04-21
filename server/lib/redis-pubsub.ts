@@ -125,7 +125,7 @@ export type StreamingEventType =
   | 'text' | 'operational' | 'tool_use' | 'tool_result' | 'file_change'
   | 'session_init' | 'progress' | 'result' | 'error'
   | 'node_status_changed' | 'task_init' | 'task_ready'
-  | 'plan_result';
+  | 'plan_result' | 'approval_request' | 'safety_prompt';
 
 /** Message published for cross-instance streaming event delivery */
 export interface StreamingEventMessage {
@@ -649,10 +649,14 @@ export class RedisPubSub extends EventEmitter {
   async renewLeadership(operationName: string, ttlSeconds: number): Promise<boolean> {
     if (!this.publisher) return true; // single-instance: always leader
     const key = `${KEYS.LEADER}${operationName}`;
-    const current = await this.publisher.get(key);
-    if (current !== this.instanceId) return false;
-    await this.publisher.expire(key, ttlSeconds);
-    return true;
+    // Atomic compare-and-refresh via Lua: only extend TTL if this instance still owns the key.
+    // GET+EXPIRE as two calls has a TOCTOU window where the key could expire and be re-acquired
+    // between the two commands, causing both instances to believe they hold the lock.
+    const result = await this.publisher.eval(
+      `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("expire", KEYS[1], ARGV[2]) else return 0 end`,
+      1, key, this.instanceId, String(ttlSeconds),
+    ) as number;
+    return result === 1;
   }
 
   /**

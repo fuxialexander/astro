@@ -3039,11 +3039,42 @@ ${verificationSection}${executiveSummarySection}`)
     // Stop the watchdog when any terminal event fires.
     // onResult/onMachineDisconnected/onTaskDead call cleanupResult() which removes result listeners,
     // but the watchdog interval must also be stopped to avoid firing after cleanup.
-    const stopWatchdog = () => clearInterval(watchdog)
-    relayServer.once('task:result', (msg: { result: { taskId: string } }) => { if (msg.result.taskId === executionId) stopWatchdog() })
-    relayServer.once('task:dead', (d: { taskId: string }) => { if (d.taskId === executionId) stopWatchdog() })
-    relayServer.once('task:error', (m: { taskId: string }) => { if (m.taskId === executionId) stopWatchdog() })
-    relayServer.once('machine:disconnected', (id: string) => { if (id === machineId) stopWatchdog() })
+    //
+    // IMPORTANT: must NOT use .once() with a conditional check — .once() removes the listener
+    // on the first call regardless of whether the condition passes. With concurrent tasks,
+    // another task's terminal event would consume the listener without stopping this watchdog.
+    // Define handlers first so stopWatchdog can reference all of them for coordinated cleanup.
+    // Each handler calls stopWatchdog() which deregisters ALL four — this prevents the other
+    // three from leaking as permanent no-op listeners after a task completes or times out.
+    const onWatchdogResult = (msg: { result: { taskId: string } }) => {
+      if (msg.result.taskId !== executionId) return
+      stopWatchdog()
+    }
+    const onWatchdogDead = (d: { taskId: string }) => {
+      if (d.taskId !== executionId) return
+      stopWatchdog()
+    }
+    const onWatchdogError = (m: { taskId: string }) => {
+      if (m.taskId !== executionId) return
+      stopWatchdog()
+    }
+    const onWatchdogDisconnect = (id: string) => {
+      if (id !== machineId) return
+      stopWatchdog()
+    }
+    // stopWatchdog defined after handlers so it can deregister all four in one call.
+    // Also used by the activity timeout path (replaces the bare clearInterval there).
+    const stopWatchdog = () => {
+      clearInterval(watchdog)
+      relayServer.off('task:result', onWatchdogResult)
+      relayServer.off('task:dead', onWatchdogDead)
+      relayServer.off('task:error', onWatchdogError)
+      relayServer.off('machine:disconnected', onWatchdogDisconnect)
+    }
+    relayServer.on('task:result', onWatchdogResult)
+    relayServer.on('task:dead', onWatchdogDead)
+    relayServer.on('task:error', onWatchdogError)
+    relayServer.on('machine:disconnected', onWatchdogDisconnect)
   } // end background listeners block
 
   return c.json({ success: true, executionId, nodeId, projectId })
