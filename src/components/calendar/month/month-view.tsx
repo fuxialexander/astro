@@ -81,20 +81,19 @@ export function MonthView({ focusedDate }: MonthViewProps) {
   }, [])
 
   useEffect(() => {
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       if (!dragActiveRef.current) return
       dragActiveRef.current = false
+      const cursorRect = new DOMRect(e.clientX, e.clientY, 0, 0)
       setDragRange((prev) => {
         if (!prev) return null
         const [start, end] = [prev.start, prev.end].sort()
-        const endCell = document.querySelector(`[data-date="${end}"]`)
-        const anchorRect = endCell?.getBoundingClientRect() ?? new DOMRect()
         setCreateDraft({
           startAt: `${start}T00:00:00.000Z`,
           endAt: `${end}T23:59:00.000Z`,
           kind: 'task',
           isMultiDay: start !== end,
-          anchorRect,
+          anchorRect: cursorRect,
         })
         return null
       })
