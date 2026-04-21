@@ -295,6 +295,13 @@
       "when": 1776743140430,
       "tag": "0041_curvy_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1776798190506,
+      "tag": "0042_known_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

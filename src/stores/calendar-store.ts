@@ -46,6 +46,8 @@ export const useCalendarStore = create<CalendarStore>((set, get) => ({
       d.setUTCDate(d.getUTCDate() + delta)
     } else if (view === 'week') {
       d.setUTCDate(d.getUTCDate() + delta * 7)
+    } else if (view === 'year') {
+      d.setUTCFullYear(d.getUTCFullYear() + delta)
     } else {
       d.setUTCMonth(d.getUTCMonth() + delta)
     }

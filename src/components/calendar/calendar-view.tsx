@@ -4,6 +4,7 @@ import { CalendarToolbar } from './calendar-toolbar'
 import { DayView } from './day/day-view'
 import { WeekView } from './week/week-view'
 import { MonthView } from './month/month-view'
+import { YearView } from './year/year-view'
 
 export function CalendarView() {
   const view = useCalendarStore((s) => s.view)
@@ -15,9 +16,10 @@ export function CalendarView() {
     <div className="flex flex-col h-full bg-background select-none pl-4">
       <CalendarToolbar />
       <div className="flex-1 overflow-hidden cal-view-enter-forward" key={`${view}-${focusedDate}`}>
-        {view === 'day' && <DayView focusedDate={focusedDate} />}
-        {view === 'week' && <WeekView focusedDate={focusedDate} />}
+        {view === 'day'   && <DayView   focusedDate={focusedDate} />}
+        {view === 'week'  && <WeekView  focusedDate={focusedDate} />}
         {view === 'month' && <MonthView focusedDate={focusedDate} />}
+        {view === 'year'  && <YearView  focusedDate={focusedDate} />}
       </div>
     </div>
   )

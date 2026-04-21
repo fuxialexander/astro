@@ -28,6 +28,7 @@ export type RealtimeEventType =
   | 'task:safety_auto_proceeded'
   | 'machine:connected'
   | 'machine:disconnected'
+  | 'machine:reconnecting'
   | 'session:attached'
   | 'session:detached'
   | 'session:event'
@@ -189,6 +190,7 @@ export class RealtimeClient {
       'task:safety_auto_proceeded',
       'machine:connected',
       'machine:disconnected',
+      'machine:reconnecting',
       'session:attached',
       'session:detached',
       'session:event',

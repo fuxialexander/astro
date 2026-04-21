@@ -5,8 +5,8 @@ import { lookupIdentifier } from '../lib/references/translation-client.js'
 import { enrichAbstracts } from '../lib/references/crossref-enrichment.js'
 import { extractCiteKeys } from '../lib/references/cite-key-extractor.js'
 import { db } from '../lib/db/index.js'
-import { teamReferences, planNodes, projects } from '../lib/db/schema.js'
-import { eq, and } from 'drizzle-orm'
+import { teamReferences, planNodes, projects as projectsTable } from '../lib/db/schema.js'
+import { eq, and, inArray } from 'drizzle-orm'
 import { toBibTeX, parseBibTeX } from '@astro/core'
 import type { Reference } from '@astro/core/types'
 
@@ -42,7 +42,7 @@ const referenceSchema = z.object({
 const referencesRoute = new Hono()
 referencesRoute.use('/*', requireAuth)
 
-/** GET /api/references — all references for the active team */
+/** GET /api/references — accepted references for the active team */
 referencesRoute.get('/', async (c) => {
   const user = c.get('user')! as AuthUser
   const teamId = user.teamId
@@ -51,10 +51,77 @@ referencesRoute.get('/', async (c) => {
   const rows = await db
     .select()
     .from(teamReferences)
-    .where(eq(teamReferences.teamId, teamId))
+    .where(and(eq(teamReferences.teamId, teamId), eq(teamReferences.status, 'accepted')))
     .orderBy(teamReferences.createdAt)
 
-  return c.json({ references: rows.map(r => ({ ...r.data, id: r.id, _rowId: r.id })) })
+  return c.json({ references: rows.map(r => ({ ...r.data, id: r.id, status: r.status, addedBy: r.addedBy, sourceProjectId: r.sourceProjectId })) })
+})
+
+/** GET /api/references/inbox — pending references awaiting review */
+referencesRoute.get('/inbox', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const teamId = user.teamId
+  if (!teamId) return c.json({ error: 'No active team' }, 400)
+
+  const rows = await db
+    .select()
+    .from(teamReferences)
+    .where(and(eq(teamReferences.teamId, teamId), eq(teamReferences.status, 'pending')))
+    .orderBy(teamReferences.createdAt)
+
+  // Join project names for any rows with sourceProjectId
+  const projectIds = [...new Set(rows.map(r => r.sourceProjectId).filter(Boolean))] as string[]
+  const projectNames = new Map<string, string>()
+  if (projectIds.length > 0) {
+    const projectRows = await db
+      .select({ id: projectsTable.id, name: projectsTable.name })
+      .from(projectsTable)
+      .where(and(eq(projectsTable.teamId, teamId), inArray(projectsTable.id, projectIds)))
+    for (const p of projectRows) projectNames.set(p.id, p.name)
+  }
+
+  return c.json({
+    references: rows.map(r => ({
+      ...r.data,
+      id: r.id,
+      status: r.status,
+      addedBy: r.addedBy,
+      sourceProjectId: r.sourceProjectId ?? undefined,
+      sourceProjectName: r.sourceProjectId ? (projectNames.get(r.sourceProjectId) ?? undefined) : undefined,
+    })),
+  })
+})
+
+/** POST /api/references/:id/accept — move a pending reference into the library */
+referencesRoute.post('/:id/accept', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const teamId = user.teamId
+  const id = c.req.param('id')
+  if (!teamId) return c.json({ error: 'No active team' }, 400)
+
+  const [row] = await db
+    .update(teamReferences)
+    .set({ status: 'accepted', updatedAt: new Date() })
+    .where(and(eq(teamReferences.id, id), eq(teamReferences.teamId, teamId)))
+    .returning()
+
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  return c.json({ reference: { ...row.data, id: row.id, status: row.status } })
+})
+
+/** POST /api/references/inbox/accept-all — accept all pending references */
+referencesRoute.post('/inbox/accept-all', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const teamId = user.teamId
+  if (!teamId) return c.json({ error: 'No active team' }, 400)
+
+  const rows = await db
+    .update(teamReferences)
+    .set({ status: 'accepted', updatedAt: new Date() })
+    .where(and(eq(teamReferences.teamId, teamId), eq(teamReferences.status, 'pending')))
+    .returning()
+
+  return c.json({ accepted: rows.length })
 })
 
 /** POST /api/references — create a reference */
@@ -123,12 +190,17 @@ referencesRoute.post('/import', async (c) => {
   const body = await c.req.json().catch(() => null) as {
     references: Reference[]
     mode?: 'insert' | 'upsert'
+    addedBy?: 'ai' | 'human'
+    sourceProjectId?: string
   } | null
   if (!body?.references?.length) return c.json({ error: 'No references provided' }, 400)
   if (body.references.length > 500) return c.json({ error: 'Too many references; split into batches of 500 or fewer' }, 400)
   if (JSON.stringify(body.references).length > 5_000_000) return c.json({ error: 'References payload too large (max 5 MB)' }, 413)
 
   const mode = body.mode ?? 'insert'
+  const addedBy = body.addedBy ?? 'human'
+  const refStatus = addedBy === 'ai' ? 'pending' : 'accepted'
+  const sourceProjectId = body.sourceProjectId ?? null
 
   // Fetch all existing rows for this team (need id + citeKey for upsert matching)
   const existing = await db
@@ -194,7 +266,7 @@ referencesRoute.post('/import', async (c) => {
     if (enriched.length) {
       insertedRows = await db
         .insert(teamReferences)
-        .values(enriched.map(ref => ({ teamId, citeKey: ref.id, data: ref })))
+        .values(enriched.map(ref => ({ teamId, citeKey: ref.id, data: ref, status: refStatus, addedBy, sourceProjectId })))
         .returning()
     }
 
@@ -219,8 +291,8 @@ referencesRoute.post('/import', async (c) => {
   }
 
   const allRefs = [
-    ...insertedRows.map(r => ({ ...r.data, id: r.citeKey })),
-    ...updatedRows.map(r => ({ ...r.data, id: r.citeKey })),
+    ...insertedRows.map(r => ({ ...r.data, id: r.citeKey, status: r.status, addedBy: r.addedBy })),
+    ...updatedRows.map(r => ({ ...r.data, id: r.citeKey, status: r.status, addedBy: r.addedBy })),
   ]
 
   return c.json({ imported: insertedRows.length, updated: updatedRows.length, references: allRefs })
@@ -240,8 +312,8 @@ referencesRoute.get('/export', async (c) => {
 
   if (projectId) {
     // Collect cite keys cited in this project's plan nodes + description
-    const [project] = await db.select().from(projects).where(
-      and(eq(projects.id, projectId), eq(projects.teamId, teamId))
+    const [project] = await db.select().from(projectsTable).where(
+      and(eq(projectsTable.id, projectId), eq(projectsTable.teamId, teamId))
     )
     if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -318,9 +390,12 @@ referencesRoute.post('/import-bibtex', async (c) => {
   const teamId = user.teamId
   if (!teamId) return c.json({ error: 'No active team' }, 400)
 
-  const body = await c.req.json().catch(() => null) as { bibtex?: string } | null
+  const body = await c.req.json().catch(() => null) as { bibtex?: string; addedBy?: 'ai' | 'human'; projectId?: string } | null
   if (!body?.bibtex) return c.json({ error: 'Missing bibtex field' }, 400)
   if (body.bibtex.length > 5_000_000) return c.json({ error: 'BibTeX payload too large (max 5 MB)' }, 400)
+  const ibAddedBy = body.addedBy ?? 'human'
+  const ibStatus = ibAddedBy === 'ai' ? 'pending' : 'accepted'
+  const ibSourceProjectId = body.projectId ?? null
 
   const parsed = parseBibTeX(body.bibtex)
   if (parsed.length === 0) return c.json({ imported: 0, updated: 0, references: [] })
@@ -379,7 +454,7 @@ referencesRoute.post('/import-bibtex', async (c) => {
 
   try {
     if (enriched.length) {
-      insertedRows = await db.insert(teamReferences).values(enriched.map(r => ({ teamId, citeKey: r.id, data: r }))).returning()
+      insertedRows = await db.insert(teamReferences).values(enriched.map(r => ({ teamId, citeKey: r.id, data: r, status: ibStatus, addedBy: ibAddedBy, sourceProjectId: ibSourceProjectId }))).returning()
     }
     if (toUpdate.length) {
       updatedRows = await db.transaction(async (tx) => {
@@ -401,8 +476,8 @@ referencesRoute.post('/import-bibtex', async (c) => {
     imported: insertedRows.length,
     updated: updatedRows.length,
     references: [
-      ...insertedRows.map(r => ({ ...r.data, id: r.citeKey })),
-      ...updatedRows.map(r => ({ ...r.data, id: r.citeKey })),
+      ...insertedRows.map(r => ({ ...r.data, id: r.citeKey, status: r.status, addedBy: r.addedBy })),
+      ...updatedRows.map(r => ({ ...r.data, id: r.citeKey, status: r.status, addedBy: r.addedBy })),
     ],
   })
 })

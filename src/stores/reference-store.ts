@@ -213,18 +213,24 @@ function parseNBIB(text: string): Omit<Reference, 'id'>[] {
 // ── Store interface ───────────────────────────────────────────────────
 
 interface ReferenceState {
-  /** Global reference library for the active team */
+  /** Accepted references in the active team's library */
   library: Reference[]
+  /** Pending references awaiting human review */
+  inbox: Reference[]
   /** Whether the library has been loaded */
   loaded: boolean
+  /** Whether the inbox has been loaded */
+  inboxLoaded: boolean
   /** Loading in progress */
   loading: boolean
   /** Currently selected citation style (persisted in localStorage) */
   citationStyle: CitationStyle
 
   // Actions
-  /** Load the global library from the server */
+  /** Load the accepted library from the server */
   loadLibrary: () => Promise<void>
+  /** Load pending inbox references from the server */
+  loadInbox: () => Promise<void>
   /** Get all references (global library) — projectId ignored, kept for call-site compat */
   getReferences: (projectId?: string) => Reference[]
   /** Search the global library */
@@ -237,6 +243,10 @@ interface ReferenceState {
   updateReference: (ref: Reference) => Promise<void>
   /** Remove a reference by id */
   removeReference: (id: string) => Promise<void>
+  /** Accept a pending inbox reference into the library */
+  acceptReference: (id: string) => Promise<void>
+  /** Accept all pending inbox references */
+  acceptAllInbox: () => Promise<void>
   /** Import references from BibTeX string */
   importBibTeX: (bibtex: string) => Promise<number>
   /** Import references from NBIB string */
@@ -253,7 +263,9 @@ interface ReferenceState {
 
 export const useReferenceStore = create<ReferenceState>((set, get) => ({
   library: [],
+  inbox: [],
   loaded: false,
+  inboxLoaded: false,
   loading: false,
   citationStyle: (typeof localStorage !== 'undefined'
     ? (localStorage.getItem('astro:citation-style') as CitationStyle) || 'apa'
@@ -264,11 +276,19 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
     set({ loading: true })
     try {
       const data = await fetchJson<{ references: Reference[] }>('/api/references')
-      console.log('[reference-store] Loaded', data.references?.length ?? 0, 'references')
       set({ library: data.references || [], loaded: true, loading: false })
     } catch (err) {
       console.error('[reference-store] Failed to load library:', err)
       set({ loading: false })
+    }
+  },
+
+  loadInbox: async () => {
+    try {
+      const data = await fetchJson<{ references: Reference[] }>('/api/references/inbox')
+      set({ inbox: data.references || [], inboxLoaded: true })
+    } catch (err) {
+      console.error('[reference-store] Failed to load inbox:', err)
     }
   },
 
@@ -315,7 +335,26 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
 
   removeReference: async (id) => {
     await fetchJson<{ ok: boolean }>(`/api/references/${id}`, { method: 'DELETE' })
-    set(s => ({ library: s.library.filter(r => r.id !== id) }))
+    set(s => ({ library: s.library.filter(r => r.id !== id), inbox: s.inbox.filter(r => r.id !== id) }))
+  },
+
+  acceptReference: async (id) => {
+    const data = await fetchJson<{ reference: Reference }>(`/api/references/${id}/accept`, { method: 'POST' })
+    set(s => ({
+      inbox: s.inbox.filter(r => r.id !== id),
+      library: [...s.library, { ...data.reference, status: 'accepted' }],
+    }))
+  },
+
+  acceptAllInbox: async () => {
+    const data = await fetchJson<{ accepted: number }>('/api/references/inbox/accept-all', { method: 'POST' })
+    if (data.accepted > 0) {
+      const moved = get().inbox
+      set(s => ({
+        inbox: [],
+        library: [...s.library, ...moved.map(r => ({ ...r, status: 'accepted' as const }))],
+      }))
+    }
   },
 
   importBibTeX: async (bibtex) => {

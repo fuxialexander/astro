@@ -164,31 +164,33 @@
    LIQUID GLASS — translucent panels with depth and light refraction
    ═══════════════════════════════════════════════════════════════════════════ */
 .glass-panel {
+  /* Dark mode: dark frosted glass — opaque enough to show the blur */
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.06) 0%,
-    rgba(255, 255, 255, 0.02) 50%,
-    rgba(255, 255, 255, 0.04) 100%
+    rgba(26, 28, 38, 0.88) 0%,
+    rgba(20, 22, 32, 0.82) 50%,
+    rgba(24, 26, 36, 0.86) 100%
   );
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
-    0 4px 24px -4px rgba(0, 0, 0, 0.08);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 4px 24px -4px rgba(0, 0, 0, 0.24);
 }
 
 :root:not(.dark) .glass-panel {
+  /* Light mode: frosted white glass */
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.7) 0%,
-    rgba(255, 255, 255, 0.4) 50%,
-    rgba(255, 255, 255, 0.6) 100%
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(255, 255, 255, 0.65) 50%,
+    rgba(255, 255, 255, 0.76) 100%
   );
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.8),
-    0 4px 24px -4px rgba(0, 0, 0, 0.06);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.95),
+    0 4px 24px -4px rgba(0, 0, 0, 0.08);
 }
 
 .glass-panel-subtle {
@@ -915,83 +917,87 @@ html[lang="zh-CN"] h3 {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CALENDAR VIEW — Fantastical-style temporal surfaces
+   CALENDAR VIEW — macOS Calendar-aligned style
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* Current-time indicator */
 .cal-now-line {
-  background: color-mix(in srgb, var(--destructive) 80%, transparent);
-  height: 2px;
-  border-radius: 1px;
+  background: var(--destructive);
+  height: 1px;
   position: absolute;
   left: 0;
   right: 0;
   z-index: 10;
   pointer-events: none;
+  opacity: 0.85;
 }
 .cal-now-line::before {
   content: '';
   position: absolute;
   left: -4px;
-  top: -3px;
+  top: -3.5px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--destructive);
 }
 
-/* Event chips — Fantastical-style rounded pill with left accent */
+/* Event chips — macOS Calendar style: full-fill, no left border */
 .cal-chip {
   border-radius: 5px;
-  padding: 2px 6px;
-  font-size: 11.5px;
+  padding: 2px 5px;
+  font-size: 11px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.35;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   cursor: pointer;
-  transition: filter 100ms, transform 100ms;
+  transition: filter 80ms, box-shadow 80ms;
   user-select: none;
-  border-left-width: 2.5px;
-  border-left-style: solid;
 }
 .cal-chip:hover {
-  filter: brightness(1.08);
-  transform: translateY(-0.5px);
+  filter: brightness(0.93);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
 .cal-chip:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
-/* Chip color variants — uses Morandi palette CSS vars */
-.cal-chip-blue    { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); border-left-color: var(--primary); }
-.cal-chip-green   { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); border-left-color: var(--success); }
-.cal-chip-amber   { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning); border-left-color: var(--warning); }
-.cal-chip-red     { background: color-mix(in srgb, var(--destructive) 14%, transparent); color: var(--destructive); border-left-color: var(--destructive); }
-.cal-chip-purple  { background: color-mix(in srgb, #A898C0 14%, transparent); color: #A898C0; border-left-color: #A898C0; }
-.cal-chip-gray    { background: color-mix(in srgb, var(--muted-foreground) 12%, transparent); color: var(--muted-foreground); border-left-color: var(--muted-foreground); }
-/* External: left color set via inline style */
-.cal-chip-external { background: color-mix(in srgb, var(--muted-foreground) 10%, transparent); color: var(--foreground); }
+/* Full-fill color variants — Mac Calendar uses solid tinted fills */
+.cal-chip-blue   { background: color-mix(in srgb, var(--primary) 28%, transparent);          color: color-mix(in srgb, var(--primary) 100%, black 30%); }
+.cal-chip-green  { background: color-mix(in srgb, var(--success) 28%, transparent);          color: color-mix(in srgb, var(--success) 100%, black 30%); }
+.cal-chip-amber  { background: color-mix(in srgb, var(--warning) 28%, transparent);          color: color-mix(in srgb, var(--warning) 100%, black 35%); }
+.cal-chip-red    { background: color-mix(in srgb, var(--destructive) 24%, transparent);      color: color-mix(in srgb, var(--destructive) 100%, black 25%); }
+.cal-chip-purple { background: color-mix(in srgb, #A898C0 28%, transparent);                 color: color-mix(in srgb, #A898C0 100%, black 30%); }
+.cal-chip-gray   { background: color-mix(in srgb, var(--muted-foreground) 18%, transparent); color: var(--muted-foreground); }
+.cal-chip-external { background: color-mix(in srgb, var(--muted-foreground) 14%, transparent); color: var(--foreground); }
+
+/* Light mode: richer fills */
+:root:not(.dark) .cal-chip-blue   { background: color-mix(in srgb, var(--primary) 22%, white);          color: color-mix(in srgb, var(--primary) 90%, black 40%); }
+:root:not(.dark) .cal-chip-green  { background: color-mix(in srgb, var(--success) 22%, white);          color: color-mix(in srgb, var(--success) 90%, black 40%); }
+:root:not(.dark) .cal-chip-amber  { background: color-mix(in srgb, var(--warning) 22%, white);          color: color-mix(in srgb, var(--warning) 90%, black 45%); }
+:root:not(.dark) .cal-chip-red    { background: color-mix(in srgb, var(--destructive) 20%, white);      color: color-mix(in srgb, var(--destructive) 90%, black 30%); }
+:root:not(.dark) .cal-chip-purple { background: color-mix(in srgb, #A898C0 22%, white);                 color: color-mix(in srgb, #A898C0 100%, black 35%); }
+:root:not(.dark) .cal-chip-gray   { background: color-mix(in srgb, var(--muted-foreground) 14%, white); color: color-mix(in srgb, var(--muted-foreground) 90%, black 20%); }
+:root:not(.dark) .cal-chip-external { background: rgba(0,0,0,0.05); color: var(--foreground); }
 
 /* Hour slots */
 .cal-hour-slot {
-  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   height: 60px;
   position: relative;
   cursor: crosshair;
   transition: background 60ms;
 }
 .cal-hour-slot:hover {
-  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .cal-hour-slot-half {
   position: absolute;
   top: 50%;
   left: 0;
   right: 0;
-  border-top: 1px dashed color-mix(in srgb, var(--border) 25%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--border) 28%, transparent);
   pointer-events: none;
 }
 
@@ -1010,7 +1016,7 @@ html[lang="zh-CN"] h3 {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .cal-month-cell-today {
-  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+  background: color-mix(in srgb, var(--primary) 4%, var(--card));
 }
 .cal-month-cell-outside {
   opacity: 0.45;
@@ -1033,11 +1039,12 @@ html[lang="zh-CN"] h3 {
   color: var(--foreground);
 }
 .cal-month-cell-today .cal-day-number {
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--destructive);
+  color: white;
+  font-weight: 600;
 }
 
-/* Drag ghost selection */
+/* Drag ghost */
 .cal-drag-ghost {
   background: color-mix(in srgb, var(--primary) 12%, transparent);
   border: 1.5px solid color-mix(in srgb, var(--primary) 40%, transparent);
@@ -1068,69 +1075,83 @@ html[lang="zh-CN"] h3 {
   transition: background 300ms;
 }
 
-/* Time ruler */
+/* Time ruler — Mac Calendar style: small, right-aligned, appears at top of hour */
 .cal-time-label {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  text-align: right;
+  padding-right: 8px;
+  line-height: 1;
+  user-select: none;
+  opacity: 0.65;
+  letter-spacing: 0.01em;
+}
+
+/* Week header day columns — Mac Calendar: day abbrev small, number large */
+.cal-week-header-cell {
   font-size: 10px;
   font-weight: 500;
   color: var(--muted-foreground);
-  text-align: right;
-  padding-right: 6px;
-  line-height: 1;
-  user-select: none;
-}
-
-/* Week header day columns */
-.cal-week-header-cell {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted-foreground);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-align: center;
-  padding: 6px 0 4px;
+  padding: 8px 0 6px;
 }
 .cal-week-header-cell-today {
-  color: var(--primary);
+  color: var(--destructive);
 }
+/* Large date number */
 .cal-week-header-day-num {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 300;
   display: block;
   line-height: 1.1;
+  color: var(--foreground);
+  margin-top: 1px;
 }
+/* Today: red filled circle on the date number */
 .cal-week-header-day-num-today {
-  color: var(--primary);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--destructive);
+  color: white;
+  font-weight: 600;
+  font-size: 18px;
+  margin-top: 1px;
 }
 
 /* All-day row */
 .cal-all-day-row {
   border-bottom: 1px solid var(--border);
-  min-height: 28px;
+  min-height: 26px;
   position: relative;
 }
 
-/* Time grid scroll container — hides scrollbar so it takes no horizontal space,
-   keeping day columns perfectly aligned with the header / all-day rows above. */
+/* Time grid scroll container */
 .cal-time-scroll {
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
 }
 .cal-time-scroll::-webkit-scrollbar {
-  display: none; /* Chrome / Safari / Edge */
+  display: none;
 }
 
 /* Animate view transitions */
 @keyframes cal-slide-in-right {
-  from { opacity: 0; transform: translateX(20px); }
+  from { opacity: 0; transform: translateX(16px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes cal-slide-in-left {
-  from { opacity: 0; transform: translateX(-20px); }
+  from { opacity: 0; transform: translateX(-16px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 .cal-view-enter-forward {
-  animation: cal-slide-in-right 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: cal-slide-in-right 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 .cal-view-enter-backward {
-  animation: cal-slide-in-left 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: cal-slide-in-left 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }

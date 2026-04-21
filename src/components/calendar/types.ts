@@ -84,7 +84,7 @@ export const DEFAULT_FILTER: CalendarFilter = {
   showExternal: true,
 }
 
-export type CalendarView = 'day' | 'week' | 'month'
+export type CalendarView = 'day' | 'week' | 'month' | 'year'
 
 export type CreateDraftKind = 'task' | 'milestone' | 'project' | 'apple-event'
 

@@ -7,6 +7,7 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useReferenceStore } from '@/stores/reference-store'
 import { useTeamStore } from '@/stores/team-store'
 import { ReferenceList } from '@/components/references/reference-list'
+import { ReferenceInbox } from '@/components/references/reference-inbox'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isDesktop } from '@/lib/desktop-detect'
@@ -205,8 +206,10 @@ export function References() {
   const nodes = usePlanStore((s) => s.nodes)
   const {
     library,
+    inbox,
     loaded,
     loadLibrary,
+    loadInbox,
     getReferencesForProject,
     addReference,
     updateReference,
@@ -218,12 +221,13 @@ export function References() {
   const [importOpen, setImportOpen] = useState(false)
   const autoSelectedRef = useRef(false)
 
-  // Load library on mount / team change
+  // Load library and inbox on mount / team change
   useEffect(() => {
     if (activeTeamId) {
       // Reset loaded state when team changes so library reloads
-      useReferenceStore.setState({ loaded: false })
+      useReferenceStore.setState({ loaded: false, inboxLoaded: false })
       void loadLibrary()
+      void loadInbox()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTeamId])
@@ -358,6 +362,11 @@ export function References() {
           >
             <BookOpen className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1 truncate">All references</span>
+            {inbox.length > 0 && (
+              <span className="text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded-full">
+                {inbox.length}
+              </span>
+            )}
             <span className="text-[10px] text-muted-foreground">{library.length}</span>
           </button>
 
@@ -389,6 +398,9 @@ export function References() {
         <div className="px-6 py-4">
           {selectedProjectId === null ? (
             // All references view
+            <ReferenceInbox />
+          ) : null}
+          {selectedProjectId === null ? (
             <ReferenceList
               references={library}
               onAddReference={addReference}

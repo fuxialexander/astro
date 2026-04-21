@@ -2,9 +2,55 @@ import type { CalendarEvent } from '../types'
 
 export const HOUR_HEIGHT = 60 // px per hour, 1px per minute
 
+export interface MergedCalendarEvent extends CalendarEvent {
+  mergedCount: number
+}
+
+// Group overlapping timed events from the same project into single merged chips.
+// Events without a projectId, or solo events in a project, are returned unchanged.
+export function mergeProjectEvents(events: CalendarEvent[]): MergedCalendarEvent[] {
+  // Separate project events from non-project events
+  const byProject = new Map<string, CalendarEvent[]>()
+  const noProject: CalendarEvent[] = []
+
+  for (const ev of events) {
+    if (ev.projectId) {
+      const arr = byProject.get(ev.projectId) ?? []
+      arr.push(ev)
+      byProject.set(ev.projectId, arr)
+    } else {
+      noProject.push(ev)
+    }
+  }
+
+  const result: MergedCalendarEvent[] = noProject.map((ev) => ({ ...ev, mergedCount: 1 }))
+
+  for (const [, projectEvents] of byProject) {
+    if (projectEvents.length === 1) {
+      result.push({ ...projectEvents[0], mergedCount: 1 })
+      continue
+    }
+    // All events from the same project merge into one chip at the earliest start time.
+    const sorted = [...projectEvents].sort((a, b) => a.startAt.localeCompare(b.startAt))
+    const representative = sorted[0]
+    const lastStart = sorted[sorted.length - 1].startAt
+    result.push({
+      ...representative,
+      id: `merged-${representative.projectId}-${representative.startAt}`,
+      startAt: representative.startAt,
+      endAt: lastStart,
+      title: representative.projectName ?? representative.title,
+      mergedCount: projectEvents.length,
+      isDraggable: false,
+    })
+  }
+
+  return result
+}
+
 export function minuteOfDay(isoStr: string): number {
   const d = new Date(isoStr)
-  return d.getUTCHours() * 60 + d.getUTCMinutes()
+  return d.getHours() * 60 + d.getMinutes()
 }
 
 export function durationMinutes(startAt: string, endAt: string): number {

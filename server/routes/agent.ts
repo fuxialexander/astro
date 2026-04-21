@@ -172,22 +172,26 @@ async function streamChatViaRelay(
   // Emit a visible system_message in the activity log so users see which machine
   // will run their task. If the target machine is offline, abort early with a clear
   // error — no silent fallback to a random machine.
+  //
+  // Use isMachineReachable() (Redis-aware) rather than machineRegistry.getConnection()
+  // (in-memory only) to avoid false-offline with 2 Fly.io instances round-robin:
+  // the WebSocket may be on the other instance, invisible to this one's registry.
   const user = c.get('user') as { id: string } | undefined
   if (opts.targetMachineId) {
-    const targetConn = machineRegistry.getConnection(opts.targetMachineId)
-    if (targetConn) {
-      const machineName = targetConn.entry.name || opts.targetMachineId.slice(0, 12)
+    // Always look up name from DB so we have it regardless of which instance holds the WS.
+    let machineName = opts.targetMachineId.slice(0, 12)
+    try {
+      const [row] = await db.select({ name: registeredMachines.name })
+        .from(registeredMachines).where(eq(registeredMachines.id, opts.targetMachineId)).limit(1)
+      if (row?.name) machineName = row.name
+    } catch { /* use truncated ID */ }
+
+    const reachable = await relayServer.isMachineReachable(opts.targetMachineId)
+    if (reachable) {
       await streamingEventLog.append(persistId, 'system_message', {
         message: `Connected to machine "${machineName}" via WebSocket`,
       })
     } else {
-      // Target machine is offline — look up its name from the DB for a helpful error
-      let machineName = opts.targetMachineId.slice(0, 12)
-      try {
-        const [row] = await db.select({ name: registeredMachines.name })
-          .from(registeredMachines).where(eq(registeredMachines.id, opts.targetMachineId)).limit(1)
-        if (row?.name) machineName = row.name
-      } catch { /* use truncated ID */ }
       await streamingEventLog.append(persistId, 'system_message', {
         message: `Machine "${machineName}" is offline — agent runner is not connected. Please start the agent runner on that machine.`,
       })

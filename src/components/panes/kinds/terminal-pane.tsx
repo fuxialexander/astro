@@ -57,7 +57,13 @@ export function TerminalPane({ paneState }: Props) {
   const isRemote = project?.terminalOpenIn === 'remote'
 
   const { cwd, initialInput } = useMemo(() => {
-    if (!isRemote || !machine?.hostname || !HOSTNAME_SAFE.test(machine.hostname)) {
+    // Pick the best SSH target: prefer machine.name (user-configurable, matches
+    // ~/.ssh/config aliases) over machine.hostname (raw OS hostname, often not
+    // routable from outside the machine's local network).
+    const sshTarget = machine
+      ? (HOSTNAME_SAFE.test(machine.name ?? '') ? machine.name : machine.hostname)
+      : undefined
+    if (!isRemote || !sshTarget || !HOSTNAME_SAFE.test(sshTarget)) {
       // Local: open the PTY directly in the working directory.
       return { cwd: workingDirectory || '.', initialInput: undefined as string | undefined }
     }
@@ -74,7 +80,7 @@ export function TerminalPane({ paneState }: Props) {
     const remoteCmd = workingDirectory
       ? `ASTRO_REMOTE_CWD="$(${decode(b64(workingDirectory))})" && sh -c "$(${decode(b64(remoteInner))})"`
       : `sh -c "$(${decode(b64(remoteInner))})"`
-    return { cwd: '.', initialInput: `ssh -t ${machine.hostname} ${JSON.stringify(remoteCmd)}` }
+    return { cwd: '.', initialInput: `ssh -t ${sshTarget} ${JSON.stringify(remoteCmd)}` }
   }, [isRemote, machine, workingDirectory])
 
   const handleSpawnError = useCallback(
@@ -116,7 +122,7 @@ export function TerminalPane({ paneState }: Props) {
         cwd={cwd}
         active
         initialInput={initialInput}
-        onSpawnError={isRemote ? handleSpawnError : undefined}
+        onSpawnError={isRemote && initialInput ? handleSpawnError : undefined}
       />
     </div>
   )

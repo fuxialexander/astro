@@ -1259,6 +1259,32 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'machine:reconnecting': {
+      const machineId = data.machineId as string
+      const reason = data.reason as string | undefined
+      // Mark machine as offline in the live machines map so the UI reflects it
+      set((state) => {
+        const machines = new Map(state.machines)
+        const existing = machines.get(machineId)
+        if (existing) {
+          machines.set(machineId, { ...existing, connectionStatus: 'reconnecting' })
+        }
+        return { machines }
+      })
+      const registeredMachine = useMachinesStore.getState().machines.find(m => m.id === machineId)
+      const machineName = registeredMachine?.name || machineId
+      useToastStore.getState().add({
+        title: `Machine lost connection`,
+        description: `"${machineName}" is reconnecting${reason ? ` (${reason})` : ''}. Tasks will resume when it reconnects.`,
+        type: 'warning',
+        duration: 8000,
+      })
+      addActivity(set, 'machine', `Machine "${machineName}" lost connection — reconnecting`, {
+        machineId,
+      })
+      break
+    }
+
     case 'task:stdout':
     case 'task:text': {
       const execId = data.taskId as string
