@@ -11,15 +11,23 @@ export function DayCreatePopover({ draft }: DayCreatePopoverProps) {
   const setCreateDraft = useCalendarStore((s) => s.setCreateDraft)
   const ref = useRef<HTMLDivElement>(null)
 
-  // Position the popover near the anchor rect
+  // Position the popover near the anchor rect, clamped within viewport
   const anchorRect = draft.anchorRect
   const style: React.CSSProperties = anchorRect
-    ? {
-        position: 'fixed',
-        top: Math.min(anchorRect.top, window.innerHeight - 320),
-        left: anchorRect.right + 8,
-        zIndex: 50,
-      }
+    ? (() => {
+        const popupW = 288 // w-72
+        const popupH = 320
+        const spaceRight = window.innerWidth - anchorRect.right
+        const left = spaceRight >= popupW + 16
+          ? anchorRect.right + 8
+          : Math.max(8, anchorRect.left - popupW - 8)
+        return {
+          position: 'fixed',
+          top: Math.min(Math.max(8, anchorRect.top), window.innerHeight - popupH - 8),
+          left: Math.max(8, Math.min(left, window.innerWidth - popupW - 8)),
+          zIndex: 50,
+        }
+      })()
     : { position: 'fixed', top: '30%', left: '50%', transform: 'translateX(-50%)', zIndex: 50 }
 
   useEffect(() => {
