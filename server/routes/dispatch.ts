@@ -338,6 +338,7 @@ const dispatchTaskSchema = z.object({
   preferredProvider: z.string().max(100).optional(),
   targetMachineId: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
+  effort: z.enum(['low', 'medium', 'high', 'max', 'xhigh']).optional(),
   maxTurns: z.number().int().min(1).refine(
     (value) => Number.isSafeInteger(value),
     { message: 'maxTurns must be a safe integer' }
@@ -485,6 +486,7 @@ dispatchRoute.post('/task', async (c) => {
     priority = 'normal',
     preferredProvider,
     model,
+    effort,
     force = false,
     dryRun = false,
     computeBackend,
@@ -2091,6 +2093,7 @@ ${verificationSection}${executiveSummarySection}`)
     visionDoc,
     preferredProvider,
     model: model || undefined,
+    effort: effort || undefined,
     maxTurns: maxTurns || undefined,
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,

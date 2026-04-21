@@ -1744,6 +1744,7 @@ export class RelayServer extends EventEmitter {
         ...(task.systemPrompt && { systemPrompt: task.systemPrompt }),
         ...(task.messages && { messages: task.messages }),
         ...(task.model && { model: task.model }),
+        ...(task.effort && { effort: task.effort }),
         // Workspace/delivery fields
         ...(task.deliveryMode && { deliveryMode: task.deliveryMode }),
         ...(task.remoteType && { remoteType: task.remoteType }),

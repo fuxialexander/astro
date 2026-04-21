@@ -168,6 +168,7 @@ export interface ExecutionOptions {
   /** Selected compute backend (direct, slurm, docker, k8s-exec) */
   computeBackend?: string
   model?: string
+  effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh'
   maxTurns?: number
   /** Whether to use git worktree isolation (defaults to true in agent runner) */
   useWorktree?: boolean
@@ -602,6 +603,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const settings = useSettingsStore.getState()
       const effectiveProvider = options?.preferredProvider || settings.defaultProvider || undefined
       const effectiveModel = options?.model || settings.getModelForProvider(effectiveProvider) || undefined
+      const effectiveEffort = options?.effort || settings.modelEffort || undefined
 
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
@@ -618,6 +620,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           preferredProvider: effectiveProvider,
           targetMachineId: effectiveTargetMachineId,
           model: effectiveModel,
+          effort: effectiveEffort,
           maxTurns: options?.maxTurns,
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback } from "react"
+import { useEffect, useMemo, useCallback, useState, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
 import {
@@ -26,7 +26,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
-import { useSettingsStore } from "@/stores/settings-store"
+import { useSettingsStore, getEffortOptions, EFFORT_LABELS } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -168,14 +168,30 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
   const modelTier = useSettingsStore((s) => s.modelTier)
   const setModelTier = useSettingsStore((s) => s.setModelTier)
+  const modelEffort = useSettingsStore((s) => s.modelEffort)
+  const setModelEffort = useSettingsStore((s) => s.setModelEffort)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
   const yoloMode = useSettingsStore((s) => s.yoloMode)
   const setYoloMode = useSettingsStore((s) => s.setYoloMode)
+  const [effortPopoverTier, setEffortPopoverTier] = useState<string | null>(null)
+  const effortPopoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showAuth = isServerMode()
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const activeProjectId = params.id
 
   // Auto-reveal sidebar items based on usage thresholds
   useAutoReveal()
+
+  const openEffortPopover = useCallback((tier: string) => {
+    if (effortPopoverTimer.current) clearTimeout(effortPopoverTimer.current)
+    setEffortPopoverTier(tier)
+  }, [])
+
+  const closeEffortPopover = useCallback(() => {
+    effortPopoverTimer.current = setTimeout(() => setEffortPopoverTier(null), 120)
+  }, [])
+
+  const effectiveProvider = defaultProvider || "claude-sdk"
 
   useEffect(() => {
     const unsubscribe = subscribeToChanges()
@@ -954,29 +970,55 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             </PopoverTrigger>
             <PopoverContent side="right" align="center" className="w-auto p-2">
               <div className="flex items-center gap-2">
-                {(["small", "medium", "large"] as const).map((tier) => (
-                  <Tooltip key={tier}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => setModelTier(tier)}
-                        className={cn(
-                          "flex items-center justify-center rounded-full transition-colors",
-                          tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                          modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                        )}
+                {(["small", "medium", "large"] as const).map((tier) => {
+                  const tierLabel = tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"
+                  const effortOpts = getEffortOptions(effectiveProvider, tier)
+                  return (
+                    <Popover key={tier} open={effortPopoverTier === `collapsed-${tier}`}>
+                      <PopoverTrigger asChild>
+                        <button
+                          onClick={() => setModelTier(tier)}
+                          onMouseEnter={() => openEffortPopover(`collapsed-${tier}`)}
+                          onMouseLeave={closeEffortPopover}
+                          className={cn(
+                            "flex items-center justify-center rounded-full transition-colors",
+                            tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                            modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                          )}
+                        >
+                          <div className={cn(
+                            "rounded-full",
+                            tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                            modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                          )} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="top"
+                        align="center"
+                        className="w-32 p-1.5"
+                        onMouseEnter={() => openEffortPopover(`collapsed-${tier}`)}
+                        onMouseLeave={closeEffortPopover}
                       >
-                        <div className={cn(
-                          "rounded-full",
-                          tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
-                          modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                        )} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
+                        <p className="text-[10px] font-medium text-muted-foreground px-1.5 py-0.5">{tierLabel}</p>
+                        <div className="h-px bg-border mx-1 my-1" />
+                        <p className="text-[10px] font-medium text-muted-foreground px-1.5 pb-0.5">Effort</p>
+                        {effortOpts.map((opt) => (
+                          <button
+                            key={opt}
+                            onClick={() => setModelEffort(opt)}
+                            className={cn(
+                              "w-full flex items-center gap-2 px-1.5 py-1 rounded text-xs transition-colors text-left",
+                              modelEffort === opt ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                            )}
+                          >
+                            {EFFORT_LABELS[opt]}
+                          </button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                  )
+                })}
               </div>
             </PopoverContent>
           </Popover>
@@ -1001,29 +1043,55 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         <div className="flex items-center gap-3 px-5 py-2 border-t border-border">
           <div className="flex items-center gap-1.5" data-tour-id="model-tier">
             <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
-            {(["small", "medium", "large"] as const).map((tier) => (
-              <Tooltip key={tier}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setModelTier(tier)}
-                    className={cn(
-                      "flex items-center justify-center rounded-full transition-colors",
-                      tier === "small" ? "h-4 w-4" : tier === "medium" ? "h-5 w-5" : "h-6 w-6",
-                      modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                    )}
+            {(["small", "medium", "large"] as const).map((tier) => {
+              const tierLabel = tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"
+              const effortOpts = getEffortOptions(effectiveProvider, tier)
+              return (
+                <Popover key={tier} open={effortPopoverTier === `expanded-${tier}`}>
+                  <PopoverTrigger asChild>
+                    <button
+                      onClick={() => setModelTier(tier)}
+                      onMouseEnter={() => openEffortPopover(`expanded-${tier}`)}
+                      onMouseLeave={closeEffortPopover}
+                      className={cn(
+                        "flex items-center justify-center rounded-full transition-colors",
+                        tier === "small" ? "h-4 w-4" : tier === "medium" ? "h-5 w-5" : "h-6 w-6",
+                        modelTier === tier ? "bg-primary" : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                      )}
+                    >
+                      <div className={cn(
+                        "rounded-full",
+                        tier === "small" ? "h-1.5 w-1.5" : tier === "medium" ? "h-2 w-2" : "h-2.5 w-2.5",
+                        modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                      )} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="center"
+                    className="w-32 p-1.5"
+                    onMouseEnter={() => openEffortPopover(`expanded-${tier}`)}
+                    onMouseLeave={closeEffortPopover}
                   >
-                    <div className={cn(
-                      "rounded-full",
-                      tier === "small" ? "h-1.5 w-1.5" : tier === "medium" ? "h-2 w-2" : "h-2.5 w-2.5",
-                      modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                    )} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                </TooltipContent>
-              </Tooltip>
-            ))}
+                    <p className="text-[10px] font-medium text-muted-foreground px-1.5 py-0.5">{tierLabel}</p>
+                    <div className="h-px bg-border mx-1 my-1" />
+                    <p className="text-[10px] font-medium text-muted-foreground px-1.5 pb-0.5">Effort</p>
+                    {effortOpts.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => setModelEffort(opt)}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-1.5 py-1 rounded text-xs transition-colors text-left",
+                          modelEffort === opt ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                        )}
+                      >
+                        {EFFORT_LABELS[opt]}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )
+            })}
           </div>
           <div className="flex-1" />
           <Tooltip>

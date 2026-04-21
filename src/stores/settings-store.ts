@@ -3,6 +3,31 @@ import { apiUrl } from "@/lib/api-url"
 import { dataClient } from "@/lib/data-client"
 
 export type ModelTier = "large" | "medium" | "small"
+/** Reasoning effort level. Available options vary by provider and model tier. */
+export type ModelEffort = "low" | "medium" | "high" | "max" | "xhigh"
+
+/**
+ * Returns the effort options valid for a given provider + model tier.
+ * - Claude: "max" only available on large (Opus)
+ * - Codex: "xhigh" available on medium/large but not small
+ */
+export function getEffortOptions(provider: string, tier: ModelTier): ModelEffort[] {
+  if (provider === "codex") {
+    if (tier === "small") return ["low", "medium", "high"]
+    return ["low", "medium", "high", "xhigh"]
+  }
+  // claude-sdk and others
+  if (tier === "large") return ["low", "medium", "high", "max"]
+  return ["low", "medium", "high"]
+}
+
+export const EFFORT_LABELS: Record<ModelEffort, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  max: "Max",
+  xhigh: "Extra High",
+}
 
 /**
  * Default model tier → provider → model ID mapping.
@@ -76,6 +101,7 @@ export function getEffectiveModelTierMap(customMap?: CustomModelMap): Record<Mod
 interface SettingsState {
   model: string // kept for backward compat; derived from modelTier + provider
   modelTier: ModelTier
+  modelEffort: ModelEffort // reasoning/thinking effort level
   defaultProvider: string // '' = auto/first available
   customModelMap: CustomModelMap // user overrides for tier → provider → model
   editorType: 'cursor' | 'vscode'
@@ -90,6 +116,7 @@ interface SettingsState {
   checkConnection: () => Promise<void>
   setModel: (model: string) => void
   setModelTier: (tier: ModelTier) => void
+  setModelEffort: (effort: ModelEffort) => void
   setDefaultProvider: (provider: string) => void
   setEditorType: (type: 'cursor' | 'vscode') => void
   setYoloMode: (enabled: boolean) => void
@@ -117,6 +144,7 @@ function tierFromModel(model: string): ModelTier {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   model: "sonnet",
   modelTier: "medium",
+  modelEffort: "medium",
   defaultProvider: "",
   customModelMap: {},
   editorType: "cursor",
@@ -185,6 +213,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       } else if (settings.showTaskNumbers === 'false') {
         updates.showTaskNumbers = false
       }
+      if (settings.modelEffort === 'low' || settings.modelEffort === 'medium' || settings.modelEffort === 'high') {
+        updates.modelEffort = settings.modelEffort as ModelEffort
+      }
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
@@ -226,6 +257,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const model = resolveModel(modelTier, provider, customModelMap) || ''
     set({ modelTier, model })
     dataClient.updateSettings({ modelTier, model }).catch(() => {})
+  },
+
+  setModelEffort: (modelEffort) => {
+    set({ modelEffort })
+    dataClient.updateSettings({ modelEffort }).catch(() => {})
   },
 
   setEditorType: (editorType) => {
