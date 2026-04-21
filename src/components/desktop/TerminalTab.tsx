@@ -35,9 +35,14 @@ interface TerminalTabProps {
    * terminal" is really just a local PTY with an initial ssh handshake.
    */
   initialInput?: string
+  /**
+   * Called when the PTY spawn fails. When provided the component does NOT
+   * render an inline error — the parent is responsible for the error UI.
+   */
+  onSpawnError?: (err: Error) => void
 }
 
-export function TerminalTab({ cwd, active, shell, initialInput }: TerminalTabProps) {
+export function TerminalTab({ cwd, active, shell, initialInput, onSpawnError }: TerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -152,7 +157,12 @@ export function TerminalTab({ cwd, active, shell, initialInput }: TerminalTabPro
           void desktopBridge.terminal.write(sessionId, payload).catch(() => {})
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        const errorObj = err instanceof Error ? err : new Error(String(err))
+        if (onSpawnError) {
+          onSpawnError(errorObj)
+        } else {
+          setError(errorObj.message)
+        }
       }
     })()
 

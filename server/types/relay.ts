@@ -253,6 +253,16 @@ export interface TaskDispatch {
   model?: string;
 
   /**
+   * Reasoning/thinking effort level for the model.
+   *
+   * For Claude: maps to the `thinking` budget (low/medium/high).
+   * For Codex/OpenAI: maps to `reasoning_effort` (low/medium/high).
+   *
+   * When omitted, the agent runner uses its configured default.
+   */
+  effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh';
+
+  /**
    * How results should be delivered after task completion.
    *
    * - 'pr': Create a pull request (GitHub, GitLab, Bitbucket)

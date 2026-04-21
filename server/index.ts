@@ -90,6 +90,14 @@ try {
 export function createApp() {
   const app = new Hono()
 
+  // pdf-proxy streams a remote PDF into an iframe — must run before secureHeaders
+  // so it fires AFTER secureHeaders on the return path and can override DENY → SAMEORIGIN
+  app.use('/api/references/pdf-proxy', async (c, next) => {
+    await next()
+    c.res.headers.set('X-Frame-Options', 'SAMEORIGIN')
+    c.res.headers.delete('Content-Security-Policy')
+  })
+
   // Security headers
   app.use('/*', secureHeaders({
     contentSecurityPolicy: {

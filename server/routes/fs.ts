@@ -8,7 +8,9 @@
 
 import { Hono } from 'hono'
 import { relayServer } from '../lib/relay-server.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { getMachine, getTeamSharedMachineIds } from '../lib/registered-machines-store.js'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 
 const MAX_RESULTS = 50
 
@@ -27,12 +29,13 @@ interface CacheEntry<T> {
 
 const dirCache = new Map<string, CacheEntry<DirectoryListResult>>()
 
-function dirCacheKey(machineId: string, path: string): string {
-  return `${machineId}:${path}`
+// Scoped per-user so one user's cached listing never leaks to another
+function dirCacheKey(userId: string, machineId: string, path: string): string {
+  return `${userId}:${machineId}:${path}`
 }
 
-function getCachedDirList(machineId: string, path: string): DirectoryListResult | null {
-  const key = dirCacheKey(machineId, path)
+function getCachedDirList(userId: string, machineId: string, path: string): DirectoryListResult | null {
+  const key = dirCacheKey(userId, machineId, path)
   const entry = dirCache.get(key)
   if (!entry) return null
   if (Date.now() > entry.expiresAt) {
@@ -42,7 +45,7 @@ function getCachedDirList(machineId: string, path: string): DirectoryListResult 
   return entry.data
 }
 
-function setCachedDirList(machineId: string, path: string, data: DirectoryListResult): void {
+function setCachedDirList(userId: string, machineId: string, path: string, data: DirectoryListResult): void {
   if (dirCache.size >= DIR_CACHE_MAX_ENTRIES) {
     // Evict expired entries first, then oldest by insertion if still over limit
     const now = Date.now()
@@ -54,10 +57,22 @@ function setCachedDirList(machineId: string, path: string, data: DirectoryListRe
       if (oldest) dirCache.delete(oldest)
     }
   }
-  dirCache.set(dirCacheKey(machineId, path), {
+  dirCache.set(dirCacheKey(userId, machineId, path), {
     data,
     expiresAt: Date.now() + DIR_CACHE_TTL_MS,
   })
+}
+
+/**
+ * Verify the authenticated user has access to the given machine.
+ * Mirrors the ownership check in relay.ts.
+ */
+async function verifyMachineAccess(machineId: string, user: AuthUser): Promise<boolean> {
+  const machine = await getMachine(machineId)
+  if (!machine?.userId || machine.userId === LOCAL_USER_ID) return true
+  if (machine.userId === user.id) return true
+  const teamSharedIds = user.teamIds?.length ? await getTeamSharedMachineIds(user.teamIds) : new Set<string>()
+  return teamSharedIds.has(machineId)
 }
 
 export const fsRoute = new Hono()
@@ -72,6 +87,7 @@ fsRoute.use('/*', requireAuth)
  * Requires machineId — no local filesystem fallback.
  */
 fsRoute.get('/files', async (c) => {
+  const user = c.get('user') as AuthUser
   const projectId = c.req.query('projectId')
   const query = c.req.query('q') || ''
   const machineId = c.req.query('machineId')
@@ -86,6 +102,10 @@ fsRoute.get('/files', async (c) => {
   }
 
   if (!workingDirectory) {
+    return c.json({ files: [] })
+  }
+
+  if (!await verifyMachineAccess(machineId, user)) {
     return c.json({ files: [] })
   }
 
@@ -127,6 +147,7 @@ interface DirectoryListResult {
  * If path is empty or '~', returns the home directory listing.
  */
 fsRoute.get('/directories', async (c) => {
+  const user = c.get('user') as AuthUser
   const machineId = c.req.query('machineId')
   const path = c.req.query('path') || '~'
   const noCache = c.req.query('noCache') === '1'
@@ -135,9 +156,13 @@ fsRoute.get('/directories', async (c) => {
     return c.json({ error: 'machineId is required' }, 400)
   }
 
+  if (!await verifyMachineAccess(machineId, user)) {
+    return c.json({ path, entries: [], error: 'Machine not found' })
+  }
+
   // Check in-memory cache first (skip relay round-trip for repeated navigations)
   if (!noCache) {
-    const cached = getCachedDirList(machineId, path)
+    const cached = getCachedDirList(user.id, machineId, path)
     if (cached) {
       return c.json(cached)
     }
@@ -154,7 +179,7 @@ fsRoute.get('/directories', async (c) => {
     const result = await requestDirectoryList(machineId, path)
     // Cache successful results (no error, has entries or is a valid empty dir)
     if (!result.error) {
-      setCachedDirList(machineId, path, result)
+      setCachedDirList(user.id, machineId, path, result)
     }
     return c.json(result)
   } catch (error) {
@@ -218,6 +243,7 @@ interface CreateDirectoryResult {
  * Body: { machineId, path (parent), name }
  */
 fsRoute.post('/directories', async (c) => {
+  const user = c.get('user') as AuthUser
   const body = await c.req.json<{ machineId?: string; path?: string; name?: string }>()
   const { machineId, path, name } = body
 
@@ -240,6 +266,10 @@ fsRoute.post('/directories', async (c) => {
   }
   if (/[/\\\0]/.test(trimmedName)) {
     return c.json({ error: 'Folder name cannot contain path separators' }, 400)
+  }
+
+  if (!await verifyMachineAccess(machineId, user)) {
+    return c.json({ success: false, error: 'Machine not found' }, 404)
   }
 
   try {
@@ -319,6 +349,7 @@ function validateAbsolutePath(path: string): boolean {
  * Supports Range header for partial content (e.g., PDF streaming).
  */
 fsRoute.get('/content', async (c) => {
+  const user = c.get('user') as AuthUser
   const machineId = c.req.query('machineId')
   const filePath = c.req.query('path')
   const download = c.req.query('download') === 'true'
@@ -335,6 +366,10 @@ fsRoute.get('/content', async (c) => {
     return c.json({ error: 'path must be an absolute path' }, 400)
   }
 
+  if (!await verifyMachineAccess(machineId, user)) {
+    return c.json({ error: 'Machine not found' }, 404)
+  }
+
   try {
     const result = await requestFileContent(machineId, filePath)
 
@@ -342,8 +377,9 @@ fsRoute.get('/content', async (c) => {
       return c.json({ error: result.error }, result.error.includes('not found') ? 404 : 500)
     }
 
-    const fileName = filePath.split('/').pop() || 'file'
-    const disposition = download ? `attachment; filename="${fileName}"` : 'inline'
+    // Sanitize filename to prevent Content-Disposition header injection
+    const safeName = (filePath.split('/').pop() || 'file').replace(/["\r\n]/g, '_')
+    const disposition = download ? `attachment; filename="${safeName}"` : 'inline'
 
     // Handle Range header for partial content
     const rangeHeader = c.req.header('Range')
@@ -509,6 +545,7 @@ const CHUNK_SIZE = 1024 * 1024 // 1MB chunks
  */
 fsRoute.post('/content', async (c) => {
   try {
+    const user = c.get('user') as AuthUser
     const body = await c.req.parseBody()
     const machineId = body['machineId'] as string | undefined
     const destinationPath = body['destinationPath'] as string | undefined
@@ -529,6 +566,10 @@ fsRoute.post('/content', async (c) => {
 
     if (!file || !(file instanceof File)) {
       return c.json({ error: 'file is required (multipart form field)' }, 400)
+    }
+
+    if (!await verifyMachineAccess(machineId, user)) {
+      return c.json({ error: 'Machine not found' }, 404)
     }
 
     // Validate file size
@@ -628,6 +669,87 @@ async function requestFileUpload(
         resolve({ success: false, error: 'Lost connection during upload' })
         return
       }
+    }
+  })
+}
+
+// ============================================================================
+// Content Search (ripgrep on remote machine via relay)
+// ============================================================================
+
+interface ContentSearchMatch {
+  path: string
+  lineNo: number
+  line: string
+  matchStart: number
+  matchEnd: number
+}
+
+/**
+ * GET /search?machineId=yyy&root=/path&pattern=query
+ *
+ * Full-text content search on a remote machine via relay (ripgrep).
+ * Agent runner must handle content_search_request for this to return results.
+ */
+fsRoute.get('/search', async (c) => {
+  const user = c.get('user') as AuthUser
+  const machineId = c.req.query('machineId')
+  const root = c.req.query('root')
+  const pattern = c.req.query('pattern')
+
+  if (!machineId || !root || !pattern) {
+    return c.json({ matches: [], error: 'machineId, root, and pattern are required' }, 400)
+  }
+
+  if (root.includes('..') || !root.startsWith('/')) {
+    return c.json({ matches: [], error: 'Invalid root path' }, 400)
+  }
+
+  if (!await verifyMachineAccess(machineId, user)) {
+    return c.json({ matches: [], error: 'Machine not found' })
+  }
+
+  const reachable = await relayServer.isMachineReachable(machineId)
+  if (!reachable) {
+    return c.json({ matches: [], error: 'Machine not connected' })
+  }
+
+  try {
+    const matches = await requestContentSearch(machineId, root, pattern)
+    return c.json({ matches })
+  } catch (error) {
+    console.error('[fs] Content search error:', error)
+    return c.json({ matches: [], error: 'Search failed' }, 500)
+  }
+})
+
+async function requestContentSearch(
+  machineId: string,
+  root: string,
+  pattern: string,
+): Promise<ContentSearchMatch[]> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<ContentSearchMatch[]>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('content_search:response', handler)
+      resolve([])
+    }, 15000)
+
+    function handler(data: { correlationId: string; matches: ContentSearchMatch[]; error?: string }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('content_search:response', handler)
+      resolve(data.matches ?? [])
+    }
+
+    relayServer.on('content_search:response', handler)
+
+    const sent = relayServer.requestContentSearch(machineId, root, pattern, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('content_search:response', handler)
+      resolve([])
     }
   })
 }

@@ -387,6 +387,17 @@ interface DirectoryEntry {
   isSymlink?: boolean;
 }
 
+/** Agent runner's content search response message format */
+interface AgentRunnerContentSearchResponseMessage {
+  type: 'content_search_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    matches: Array<{ path: string; lineNo: number; line: string; matchStart: number; matchEnd: number }>;
+    error?: string;
+  };
+}
+
 /** Agent runner's directory list response message format */
 interface AgentRunnerDirectoryListResponseMessage {
   type: 'directory_list_response';
@@ -1139,6 +1150,10 @@ export class RelayServer extends EventEmitter {
         this.handleAgentRunnerFileContentResponse(message as unknown as AgentRunnerFileContentResponseMessage);
         break;
 
+      case 'content_search_response':
+        this.handleAgentRunnerContentSearchResponse(message as unknown as AgentRunnerContentSearchResponseMessage);
+        break;
+
       // File upload response from agent runner (for writing remote files)
       case 'file_upload.response':
         this.handleFileUploadResponse(message as unknown as FileUploadResponseMessage);
@@ -1729,6 +1744,7 @@ export class RelayServer extends EventEmitter {
         ...(task.systemPrompt && { systemPrompt: task.systemPrompt }),
         ...(task.messages && { messages: task.messages }),
         ...(task.model && { model: task.model }),
+        ...(task.effort && { effort: task.effort }),
         // Workspace/delivery fields
         ...(task.deliveryMode && { deliveryMode: task.deliveryMode }),
         ...(task.remoteType && { remoteType: task.remoteType }),
@@ -2514,9 +2530,18 @@ export class RelayServer extends EventEmitter {
       machineId,
       this.config.heartbeatTimeoutMs,
       () => {
-        console.log(`[relay] Heartbeat timeout for machine ${machineId}`);
-        machineRegistry.disconnect(machineId, 'heartbeat_timeout');
-        this.emit('machine:disconnected', machineId, 'heartbeat_timeout');
+        console.log(`[relay] Heartbeat timeout for machine ${machineId} — entering disconnect grace period`);
+        const connection = machineRegistry.getConnection(machineId);
+        const socket = connection?.socket;
+        if (socket && socket.readyState === 1) {
+          // Close the socket to signal the agent runner to reconnect.
+          // The 'close' event handler will call startDisconnectGracePeriod.
+          // Code 4003 = heartbeat timeout (agent should reconnect, not exit).
+          socket.close(4003, 'heartbeat_timeout');
+        } else {
+          // Socket already gone — start grace period directly.
+          this.startDisconnectGracePeriod(machineId, 'heartbeat_timeout');
+        }
       }
     );
   }
@@ -4474,6 +4499,46 @@ export class RelayServer extends EventEmitter {
       }
     }
     return false;
+  }
+
+  // ============================================================================
+  // Content Search Handlers (ripgrep via agent runner)
+  // ============================================================================
+
+  requestContentSearch(machineId: string, root: string, pattern: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'content_search_request',
+        timestamp: new Date().toISOString(),
+        payload: { root, pattern, correlationId },
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'content_search_request',
+        payload: { root, pattern, correlationId },
+      }).catch((err) => console.error('[relay] Redis proxy content_search_request failed:', err));
+      return true;
+    }
+
+    console.error(`[relay] Machine ${machineId} not reachable for content search`);
+    return false;
+  }
+
+  private handleAgentRunnerContentSearchResponse(message: AgentRunnerContentSearchResponseMessage): void {
+    this.emit('content_search:response', {
+      correlationId: message.payload.correlationId,
+      matches: message.payload.matches,
+      error: message.payload.error,
+    });
   }
 }
 

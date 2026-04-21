@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
 import { CommandPalette } from "@/components/command-palette"
 import { AuthGuard } from "@/components/auth-guard"
-import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
 // ProjectNew removed — inline creation now happens on /projects page
 import { PlanView } from "@/pages/plan-view"
@@ -34,6 +33,7 @@ import { useExampleStore } from "@/stores/example-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useTeamStore } from "@/stores/team-store"
 import { useReferenceStore } from "@/stores/reference-store"
+import { useScheduleStore } from "@/stores/schedule-store"
 import { setActiveTeamId } from "@/lib/data-client"
 import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
 import { PluginLoader } from "@/components/plugin-loader"
@@ -65,24 +65,18 @@ import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 import { References } from "@/pages/references"
 import { Sessions } from "@/pages/sessions"
+import { Scheduled } from "@/pages/scheduled"
 import { OnboardingWorkflows } from "@/pages/onboarding-workflows"
+import { CalendarPage } from "@/pages/calendar"
 
 const LazyInboxHome = lazy(() => import("@/pages/inbox-home").then((m) => ({ default: m.InboxHome })))
 
-/**
- * HomeRouter checks the `inbox-home` feature flag and renders InboxHome or Dashboard accordingly.
- * Keeps the /dashboard route path unchanged so existing bookmarks work.
- */
 function HomeRouter() {
-  const enabled = useFeatureFlag("inbox-home")
-  if (enabled) {
-    return (
-      <Suspense fallback={<div className="flex items-center justify-center h-full" />}>
-        <LazyInboxHome />
-      </Suspense>
-    )
-  }
-  return <Dashboard />
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-full" />}>
+      <LazyInboxHome />
+    </Suspense>
+  )
 }
 
 function FeatureFlagRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
@@ -160,6 +154,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const fetchGitHubAppInstallations = useGitHubAppStore((s) => s.fetchInstallations)
   const loadReferenceLibrary = useReferenceStore((s) => s.loadLibrary)
+  const loadAllSchedules = useScheduleStore((s) => s.loadAllSchedules)
+  const allSchedulesLoaded = useScheduleStore((s) => s.allLoaded)
   const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -223,6 +219,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!templatesLoaded) loadTemplates()
     if (!agentLoaded) loadAgent()
     void loadReferenceLibrary()
+    if (!allSchedulesLoaded) void loadAllSchedules()
 
     connectRealtime()
 
@@ -415,6 +412,8 @@ export default function App() {
 
                 <Route path="onboarding" element={<OnboardingWorkflows />} />
                 <Route path="sessions" element={<Sessions />} />
+                <Route path="scheduled" element={<Scheduled />} />
+                <Route path="calendar" element={<CalendarPage />} />
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />

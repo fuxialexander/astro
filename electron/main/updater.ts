@@ -94,3 +94,47 @@ export function installUpdate(): void {
   }
   _autoUpdater.quitAndInstall()
 }
+
+export type UpdateCheckResult =
+  | { status: 'up-to-date' }
+  | { status: 'available'; version: string }
+  | { status: 'downloaded'; version: string }
+  | { status: 'unavailable'; reason: string }
+
+export async function checkForUpdatesManual(): Promise<UpdateCheckResult> {
+  if (!_autoUpdater) {
+    return { status: 'unavailable', reason: 'Not a packaged build' }
+  }
+  return new Promise((resolve) => {
+    const onNotAvailable = () => {
+      cleanup()
+      resolve({ status: 'up-to-date' })
+    }
+    const onAvailable = (info: { version?: string }) => {
+      cleanup()
+      resolve({ status: 'available', version: info?.version ?? 'unknown' })
+    }
+    const onDownloaded = (info: { version?: string }) => {
+      cleanup()
+      resolve({ status: 'downloaded', version: info?.version ?? 'unknown' })
+    }
+    const onError = (err: Error) => {
+      cleanup()
+      resolve({ status: 'unavailable', reason: err?.message ?? String(err) })
+    }
+    const cleanup = () => {
+      _autoUpdater.removeListener('update-not-available', onNotAvailable)
+      _autoUpdater.removeListener('update-available', onAvailable)
+      _autoUpdater.removeListener('update-downloaded', onDownloaded)
+      _autoUpdater.removeListener('error', onError)
+    }
+    _autoUpdater.once('update-not-available', onNotAvailable)
+    _autoUpdater.once('update-available', onAvailable)
+    _autoUpdater.once('update-downloaded', onDownloaded)
+    _autoUpdater.once('error', onError)
+    void _autoUpdater.checkForUpdates().catch((err: unknown) => {
+      cleanup()
+      resolve({ status: 'unavailable', reason: String(err) })
+    })
+  })
+}

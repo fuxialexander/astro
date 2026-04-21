@@ -10,7 +10,7 @@ import { Cron } from 'croner'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
 import { schedules, scheduleRuns, projects, teamMembers, planNodes } from '../lib/db/schema.js'
-import { eq, and, desc, isNull } from 'drizzle-orm'
+import { eq, and, desc, isNull, inArray } from 'drizzle-orm'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import {
   insertScheduleRun,
@@ -182,24 +182,38 @@ schedulesRoute.post('/', async (c) => {
   return c.json({ success: true, data: schedule }, 201)
 })
 
-// ── GET /?projectId=X — List schedules for project ──────────────
+// ── GET /?projectId=X — List schedules for project (or all for team) ──────────────
 
 schedulesRoute.get('/', async (c) => {
   const user = c.get('user') as AuthUser
   const projectId = c.req.query('projectId')
-  if (!projectId || !z.string().uuid().safeParse(projectId).success) {
-    return c.json({ success: false, error: 'Valid projectId query parameter required' }, 400)
+
+  if (projectId) {
+    // Scoped to a single project
+    if (!z.string().uuid().safeParse(projectId).success) {
+      return c.json({ success: false, error: 'Valid projectId query parameter required' }, 400)
+    }
+    if (!await verifyProjectAccess(projectId, user.id)) {
+      return c.json({ success: true, data: [] })
+    }
+    const result = await db.select()
+      .from(schedules)
+      .where(and(eq(schedules.projectId, projectId), isNull(schedules.deletedAt)))
+      .orderBy(desc(schedules.createdAt))
+    return c.json({ success: true, data: result })
   }
 
-  if (!await verifyProjectAccess(projectId, user.id)) {
-    return c.json({ success: true, data: [] }) // Return empty, not 403 (don't leak existence)
-  }
+  // No projectId — return all schedules for the user's active team
+  const teamProjects = await db.select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.teamId, user.teamId))
+  const projectIds = teamProjects.map((p) => p.id)
+  if (projectIds.length === 0) return c.json({ success: true, data: [] })
 
   const result = await db.select()
     .from(schedules)
-    .where(and(eq(schedules.projectId, projectId), isNull(schedules.deletedAt)))
+    .where(and(inArray(schedules.projectId, projectIds), isNull(schedules.deletedAt)))
     .orderBy(desc(schedules.createdAt))
-
   return c.json({ success: true, data: result })
 })
 

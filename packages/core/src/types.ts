@@ -197,6 +197,7 @@ export interface Project {
   fileTreeUpdatedAt?: string;
   fileTreeMachineId?: string;
   defaultMachineId?: string
+  terminalOpenIn?: 'local' | 'remote'
   computeBackends?: string[]
   mergeQueueEnabled?: boolean
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'

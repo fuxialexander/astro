@@ -1,18 +1,23 @@
 /**
  * Terminal pane — wraps the desktop TerminalTab in a single-active container.
  *
- * When the project's agent machine is a different host than the Electron
- * shell, the PTY still spawns locally but the shell is immediately fed
- * `ssh -t <hostname> 'cd <workdir>; exec $SHELL -l'`. That reuses the user's
- * local ~/.ssh/config (keys, ProxyJump, etc.) instead of building a full
- * PTY-over-relay stack. Local-host projects get the plain local shell.
+ * Behaviour is controlled by the project's `terminalOpenIn` setting:
+ *   - 'remote' (or machine configured with a hostname): open a local PTY and
+ *     immediately send `ssh -t <hostname> '...'` to land on the remote host
+ *     in the right working directory.
+ *   - 'local' / unset: open a local PTY directly in workingDirectory.
+ *
+ * The PTY always spawns on the local machine — we never try to spawn it on
+ * the remote host. For remote projects this means the embedded terminal falls
+ * back gracefully to an "Open in System Terminal" button if node-pty can't
+ * spawn (e.g. sandbox restrictions), rather than failing silently.
  */
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState, useCallback } from 'react'
 
 import { TerminalTab } from '@/components/desktop/TerminalTab'
 import { useProjectStore } from '@/stores/project-store'
 import { useMachinesStore } from '@/stores/machines-store'
-import { isLocalDesktopHost } from '@/lib/desktop-detect'
+import { desktopBridge } from '@/lib/desktop-bridge'
 import { usePaneSize } from '../use-pane-size'
 import type { PaneState } from '../types'
 
@@ -27,7 +32,6 @@ const HOSTNAME_SAFE = /^(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9_.-]+$/
 
 /** Base64-encode a UTF-8 string using only browser-available APIs. */
 function b64(value: string): string {
-  // btoa only handles Latin-1, so round-trip through TextEncoder for safety.
   const bytes = new TextEncoder().encode(value)
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
@@ -37,6 +41,8 @@ function b64(value: string): string {
 export function TerminalPane({ paneState }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const size = usePaneSize(ref)
+  const [spawnError, setSpawnError] = useState<string | null>(null)
+  const [openingExternal, setOpeningExternal] = useState(false)
 
   const project = useProjectStore((s) =>
     paneState.projectId ? s.projects.find((p) => p.id === paneState.projectId) : undefined,
@@ -48,39 +54,70 @@ export function TerminalPane({ paneState }: Props) {
   )
 
   const workingDirectory = paneState.cwd ?? project?.workingDirectory ?? ''
-  const isRemote = machine ? !isLocalDesktopHost(machine.hostname) : false
+  const isRemote = project?.terminalOpenIn === 'remote'
 
   const { cwd, initialInput } = useMemo(() => {
-    if (!isRemote || !machine) {
+    if (!isRemote || !machine?.hostname || !HOSTNAME_SAFE.test(machine.hostname)) {
+      // Local: open the PTY directly in the working directory.
       return { cwd: workingDirectory || '.', initialInput: undefined as string | undefined }
     }
-    if (!HOSTNAME_SAFE.test(machine.hostname)) {
-      // Refuse rather than risk injecting a hostile hostname into a shell.
-      return { cwd: '.', initialInput: undefined as string | undefined }
-    }
-    // Build the remote command as text, base64-encode it, then decode on the
-    // far side. This avoids any quoting concerns with paths that contain
-    // backticks, `$(...)`, or single-quote sequences.
-    //
-    // Decoder choice: `openssl base64 -d -A` is ubiquitous on both Linux and
-    // macOS. Plain `base64 -d` works on GNU coreutils and macOS ≥ Monterey,
-    // but older macOS wants `-D`, so we avoid it.
+
+    // Remote: PTY spawns locally, then sends an SSH command that lands on the
+    // remote host in workingDirectory. Base64-encoding avoids shell-quoting
+    // issues with paths containing backticks, $(...), or single quotes.
+    // openssl base64 -d -A works on both Linux and macOS (older macOS wants
+    // -D for plain `base64 -d`, so we use openssl instead).
     const remoteInner = workingDirectory
       ? `cd -- "$ASTRO_REMOTE_CWD"; exec $SHELL -l`
       : 'exec $SHELL -l'
-    const encoded = b64(remoteInner)
-    const cwdEncoded = workingDirectory ? b64(workingDirectory) : ''
     const decode = (e: string) => `printf %s ${e} | openssl base64 -d -A`
     const remoteCmd = workingDirectory
-      ? `ASTRO_REMOTE_CWD="$(${decode(cwdEncoded)})" && sh -c "$(${decode(encoded)})"`
-      : `sh -c "$(${decode(encoded)})"`
-    const cmd = `ssh -t ${machine.hostname} ${JSON.stringify(remoteCmd)}`
-    return { cwd: '.', initialInput: cmd }
+      ? `ASTRO_REMOTE_CWD="$(${decode(b64(workingDirectory))})" && sh -c "$(${decode(b64(remoteInner))})"`
+      : `sh -c "$(${decode(b64(remoteInner))})"`
+    return { cwd: '.', initialInput: `ssh -t ${machine.hostname} ${JSON.stringify(remoteCmd)}` }
   }, [isRemote, machine, workingDirectory])
+
+  const handleSpawnError = useCallback(
+    (err: Error) => { setSpawnError(err.message) },
+    [],
+  )
+
+  const openInSystemTerminal = useCallback(async () => {
+    if (!initialInput) return
+    setOpeningExternal(true)
+    try {
+      await desktopBridge.shell.openTerminal(initialInput)
+    } finally {
+      setOpeningExternal(false)
+    }
+  }, [initialInput])
+
+  if (spawnError && isRemote && initialInput) {
+    return (
+      <div ref={ref} className="h-full w-full flex items-center justify-center p-4">
+        <div className="max-w-sm text-center space-y-3">
+          <div className="text-xs font-medium text-foreground">Embedded terminal unavailable</div>
+          <div className="text-[10px] font-mono text-muted-foreground break-words">{spawnError}</div>
+          <button
+            onClick={() => void openInSystemTerminal()}
+            disabled={openingExternal}
+            className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {openingExternal ? 'Opening…' : 'Open in System Terminal'}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={ref} className="h-full w-full" data-density={size.density}>
-      <TerminalTab cwd={cwd} active initialInput={initialInput} />
+      <TerminalTab
+        cwd={cwd}
+        active
+        initialInput={initialInput}
+        onSpawnError={isRemote ? handleSpawnError : undefined}
+      />
     </div>
   )
 }

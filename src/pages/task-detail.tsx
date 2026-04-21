@@ -1,27 +1,130 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, ChevronDown, ChevronRight, Info } from "lucide-react"
+import { ArrowLeft, Square, Loader2, RotateCcw, Check, AlertCircle, CheckCircle2, XCircle, FileText, Info, FileDiff, Folder } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useMachinesStore } from "@/stores/machines-store"
 import { UnifiedActivityView } from "@/components/task-detail/unified-activity-view"
-import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { TaskContentTab } from "@/components/task-detail/task-content-tab"
 import { ApprovalCard } from "@/components/approval-card"
 import { TaskPropertiesBar } from "@/components/task-properties-bar"
+import { TaskWorkdirBar } from "@/components/task-detail/task-workdir-bar"
+import { FileBrowser } from "@/components/file-browser"
+import { projectWorktreePath, resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
 import { PrStatusCard } from "@/components/task-detail/pr-status-card"
-import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
-import { cn, getShortId } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { useStreamEvents } from "@/hooks/use-stream-events"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { ExecutionSwitcher } from "@/components/task-detail/execution-switcher"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
+
+// Build a folder tree from flat file paths
+interface TreeNode { name: string; children: Map<string, TreeNode>; isFile: boolean; action?: string }
+function buildFileTree(files: Array<{ path: string; action: string }>): Map<string, TreeNode> {
+  const root = new Map<string, TreeNode>()
+  for (const { path, action } of files) {
+    const parts = path.split("/")
+    let cur = root
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      if (!cur.has(part)) {
+        cur.set(part, { name: part, children: new Map(), isFile: i === parts.length - 1, action })
+      }
+      const node = cur.get(part)!
+      if (i === parts.length - 1) { node.isFile = true; node.action = action }
+      cur = node.children
+    }
+  }
+  return root
+}
+
+const actionColors: Record<string, string> = {
+  created: "text-success",
+  modified: "text-info",
+  deleted: "text-error opacity-60",
+}
+
+function FileTreeNodes({ nodes, depth = 0 }: { nodes: Map<string, TreeNode>; depth?: number }) {
+  return (
+    <>
+      {Array.from(nodes.entries()).map(([, node]) => (
+        <div key={node.name}>
+          <div style={{ paddingLeft: depth * 12 }} className="flex items-center gap-1 py-[1px] min-w-0">
+            {node.isFile ? (
+              <FileDiff className={cn("h-3 w-3 shrink-0", actionColors[node.action ?? "modified"] ?? "text-muted-foreground")} />
+            ) : (
+              <Folder className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+            )}
+            <span className={cn(
+              "text-xs truncate",
+              node.isFile ? (actionColors[node.action ?? "modified"] ?? "text-foreground") : "text-muted-foreground"
+            )}>
+              {node.name}
+            </span>
+          </div>
+          {!node.isFile && node.children.size > 0 && (
+            <FileTreeNodes nodes={node.children} depth={depth + 1} />
+          )}
+        </div>
+      ))}
+    </>
+  )
+}
+
+function FileTreePopover({ changes }: { changes: Array<{ path: string; action: string }> }) {
+  const [open, setOpen] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tree = buildFileTree(changes)
+
+  const handleMouseEnter = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    setOpen(true)
+  }
+  const handleMouseLeave = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 100)
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 focus-visible:ring-0 focus-visible:ring-offset-0"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          <FileDiff className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">{changes.length} file{changes.length !== 1 ? "s" : ""}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-64 p-2"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        sideOffset={6}
+        align="end"
+      >
+        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+          Files Changed
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          <FileTreeNodes nodes={tree} />
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 // Deduplicate file changes: keep latest per path
 function deduplicateFileChanges(changes: Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }>): Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }> {
@@ -45,6 +148,12 @@ export function TaskDetail() {
   const resetExecution = useExecutionStore((s) => s.resetExecution)
   const isExecuting = useExecutionStore((s) => nodeId ? s.isExecuting(nodeId) : false)
   const [isResetting, setIsResetting] = useState(false)
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
+  const [fileBrowserWidth, setFileBrowserWidth] = useState(320)
+  const [fileBrowserResizing, setFileBrowserResizing] = useState(false)
+  const [initialFilePath, setInitialFilePath] = useState<string | undefined>(undefined)
+  const isWide = useMediaQuery("(min-width: 1024px)")
+  const machines = useMachinesStore((s) => s.machines)
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
@@ -112,7 +221,7 @@ export function TaskDetail() {
   return (
     <div className="flex h-dvh md:h-full flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 md:gap-4 border-b border-border px-4 md:px-6 py-3 md:py-4">
+      <div className="flex items-center gap-3 border-b border-border px-4 md:px-6 h-14 shrink-0">
         <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => {
           // Navigate back to the view we came from
           const returnView = searchParams.get("from")
@@ -126,140 +235,62 @@ export function TaskDetail() {
         }}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <h1 className="text-base md:text-lg font-semibold truncate"><span className="text-muted-foreground font-normal font-mono mr-1.5">{getShortId(node.id)}</span>{node.title}</h1>
-            <Badge variant={statusBadgeVariants[node.status] || "secondary"} className="text-[10px]">
-              {node.status.replace(/_/g, " ")}
-            </Badge>
-          </div>
-          <p className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">
-            {project?.name} &middot; {node.type}
-          </p>
-        </div>
+        <h1 className="flex-1 min-w-0 text-base md:text-lg font-semibold truncate">{node.title}</h1>
 
-      </div>
-
-      {/* Meta Row - scrollable on mobile, hidden when empty */}
-      {(node.executionStartedAt || isExecuting || isRunning || node.executionId || execution?.executionId || node.prUrl || execution?.prUrl || node.branchName || execution?.branchName) && (
-      <div className={cn(
-        "flex items-center gap-4 md:gap-6 border-b border-border px-4 md:px-6 py-2 md:py-3 text-xs md:text-sm",
-        "overflow-x-auto"
-      )}>
-        {node.executionStartedAt && (
-          <div className="flex items-center gap-1.5 text-muted-foreground shrink-0">
-            <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />
-            <span className="whitespace-nowrap">{formatDuration(node.executionStartedAt, node.executionCompletedAt)}</span>
-          </div>
-        )}
-        {taskStream?.progress != null && taskStream.progress > 0 && taskStream.progress < 100 && isRunning && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="h-1.5 w-16 md:w-24 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-info transition-all duration-500"
-                style={{ width: `${taskStream.progress}%` }}
-              />
+        {/* Header action buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          {isRunning && (
+            <>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8"
+                onClick={() => nodeId && cancelExecution(nodeId)}
+              >
+                <Square className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline ml-1.5">Stop</span>
+              </Button>
+              {isExecuting && (
+                <div className="flex items-center gap-1.5 text-info">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="hidden sm:inline text-xs font-medium">Running</span>
+                </div>
+              )}
+            </>
+          )}
+          {!isRunning && isExecuting && (
+            <div className="flex items-center gap-1.5 text-info">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span className="hidden sm:inline text-xs font-medium">Running</span>
             </div>
-            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">{taskStream.progress}%</span>
-          </div>
-        )}
-        {execution?.subroutineProgress && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Layers className="h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
-            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">
-              Step {execution.subroutineProgress.index + 1}/{execution.subroutineProgress.total}: {execution.subroutineProgress.name}
-            </span>
-            {execution.subroutineProgress.status === 'running' && (
-              <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-info animate-pulse"
-                  style={{ width: `${((execution.subroutineProgress.index + 0.5) / execution.subroutineProgress.total) * 100}%` }}
-                />
-              </div>
-            )}
-          </div>
-        )}
-        {execution?.executionId && (
-          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
-            <Monitor className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">{execution.executionId.slice(0, 20)}</span>
-          </div>
-        )}
-        {/* Delivery result: PR link, branch name, or direct indicator */}
-        {(node.prUrl || execution?.prUrl) ? (
-          <a
-            href={node.prUrl || execution?.prUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 shrink-0"
-          >
-            <Badge variant="outline" className="gap-1 cursor-pointer hover:bg-accent text-[10px]">
-              <ExternalLink className="h-3 w-3" />
-              <span className="hidden sm:inline">PR </span>#{node.prNumber || execution?.prNumber}
-            </Badge>
-          </a>
-        ) : (node.branchName || execution?.branchName) ? (
-          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
-            <GitBranch className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
-          </div>
-        ) : project?.deliveryMode === 'direct' && !isRunning && execution?.status === 'success' ? (
-          <div className="hidden md:flex items-center gap-1.5 text-warning shrink-0">
-            <FolderEdit className="h-3.5 w-3.5" />
-            <span className="text-xs">Changes applied directly</span>
-          </div>
-        ) : null}
-        <div className="flex-1 min-w-[20px]" />
-        {/* Action buttons */}
-        {isRunning && (
-          <div className="flex items-center gap-2 shrink-0">
+          )}
+          {fileChanges.length > 0 && (
+            <FileTreePopover changes={fileChanges} />
+          )}
+          {!isRunning && node.executionId && (
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
-              className="h-8 shrink-0"
-              onClick={() => nodeId && cancelExecution(nodeId)}
+              className="h-8"
+              disabled={isResetting}
+              onClick={async () => {
+                if (!nodeId) return
+                setIsResetting(true)
+                try {
+                  await resetExecution(nodeId)
+                  const returnView = searchParams.get("from") || "list"
+                  navigate(`/project/${projectId}/${returnView}`)
+                } finally {
+                  setIsResetting(false)
+                }
+              }}
             >
-              <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
-              <span className="hidden sm:inline ml-1.5">Stop</span>
+              <RotateCcw className={cn("h-3.5 w-3.5", isResetting && "animate-spin")} />
+              <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Reset"}</span>
             </Button>
-            {isExecuting && (
-              <div className="flex items-center gap-1.5 text-info shrink-0">
-                <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
-                <span className="text-[10px] md:text-xs font-medium">Running</span>
-              </div>
-            )}
-          </div>
-        )}
-        {!isRunning && isExecuting && (
-          <div className="flex items-center gap-1.5 text-info shrink-0">
-            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
-            <span className="text-[10px] md:text-xs font-medium">Running</span>
-          </div>
-        )}
-        {!isRunning && node.executionId && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0"
-            disabled={isResetting}
-            onClick={async () => {
-              if (!nodeId) return
-              setIsResetting(true)
-              try {
-                await resetExecution(nodeId)
-                const returnView = searchParams.get("from") || "list"
-                navigate(`/project/${projectId}/${returnView}`)
-              } finally {
-                setIsResetting(false)
-              }
-            }}
-          >
-            <RotateCcw className={cn("h-3 w-3 md:h-3.5 md:w-3.5", isResetting && "animate-spin")} />
-            <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Reset"}</span>
-          </Button>
-        )}
+          )}
+        </div>
       </div>
-      )}
 
       {/* Approval Card (if pending) */}
       {node.status === "awaiting_approval" && pendingApproval && (
@@ -418,18 +449,6 @@ export function TaskDetail() {
                   <Check className="h-3.5 w-3.5 mr-1" />
                   Approve
                 </Button>
-                <Button variant="outline" size="sm" disabled={isResetting} onClick={async () => {
-                  if (!nodeId) return
-                  setIsResetting(true)
-                  try { await resetExecution(nodeId) } finally { setIsResetting(false) }
-                }} className="min-h-9">
-                  <RotateCcw className={cn("h-3.5 w-3.5 mr-1", isResetting && "animate-spin")} />
-                  {isResetting ? "Resetting..." : "Reset"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "pruned" })} className="min-h-9 text-muted-foreground">
-                  <Scissors className="h-3.5 w-3.5 mr-1" />
-                  Prune
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -505,11 +524,12 @@ export function TaskDetail() {
         </div>
       )}
 
-      {/* Single-scroll layout: Note (collapsible) → Activity (main) → Files (collapsible) */}
-      <div className="flex flex-1 min-h-0">
+      {/* Content row: main content + optional file browser sidebar */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Main content column */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
 
-          {/* Unified task bar: Notes + properties + execution pills */}
+          {/* Unified task bar: Notes + properties */}
           {project && (
             <div className="border-b border-border/50 px-4 md:px-6 py-1.5 shrink-0">
               <TaskPropertiesBar
@@ -520,7 +540,6 @@ export function TaskDetail() {
                   defaultMachineId: project.defaultMachineId,
                   fileTree: project.fileTree,
                 }}
-                viewMode={searchParams.get("from") || "list"}
                 hasNote={!!(node.content || node.description)}
                 attachmentCount={(node.attachments?.length ?? 0) + (node.links?.length ?? 0)}
               >
@@ -548,44 +567,110 @@ export function TaskDetail() {
               isRunning={isRunning}
               executionId={executionId}
               machineId={machineId}
+              onFileSelect={(filePath) => {
+                const wd = project?.workingDirectory
+                const fbWorkDir = wd
+                  ? (project?.projectBranch
+                      ? projectWorktreePath(wd, project.projectBranch)
+                      : wd)
+                  : undefined
+                if (fbWorkDir) {
+                  setInitialFilePath(resolveFilePathForBrowsing(filePath, fbWorkDir))
+                }
+                setFileBrowserOpen(true)
+              }}
             />
           </div>
 
-          {/* Files section — collapsible at bottom when changes exist */}
-          {fileChanges.length > 0 && (
-            <FilesSection changes={fileChanges} machineId={machineId} />
-          )}
         </div>
 
+        {/* File browser sidebar (wide screens, right side) */}
+        {(() => {
+          const fbMachine = project?.defaultMachineId
+            ? machines.find((m) => m.id === project.defaultMachineId)
+            : machines.length === 1 ? machines[0] : undefined
+          const fbWorkDir = project?.workingDirectory
+            ? (project.projectBranch
+                ? projectWorktreePath(project.workingDirectory, project.projectBranch)
+                : project.workingDirectory)
+            : undefined
+          return fileBrowserOpen && fbMachine && fbWorkDir && isWide ? (
+            <div
+              className="flex flex-col bg-background border-l border-border shrink-0 relative overflow-hidden"
+              style={{ width: fileBrowserWidth, transition: fileBrowserResizing ? 'none' : undefined }}
+            >
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  const startX = e.clientX
+                  const startWidth = fileBrowserWidth
+                  setFileBrowserResizing(true)
+                  const onMouseMove = (ev: MouseEvent) => setFileBrowserWidth(Math.max(240, Math.min(600, startWidth - (ev.clientX - startX)))  )
+                  const onMouseUp = () => {
+                    setFileBrowserResizing(false)
+                    document.body.style.cursor = ''
+                    document.body.style.userSelect = ''
+                    document.removeEventListener('mousemove', onMouseMove)
+                    document.removeEventListener('mouseup', onMouseUp)
+                  }
+                  document.body.style.cursor = 'col-resize'
+                  document.body.style.userSelect = 'none'
+                  document.addEventListener('mousemove', onMouseMove)
+                  document.addEventListener('mouseup', onMouseUp)
+                }}
+              />
+              <FileBrowser
+                machineId={fbMachine.id}
+                machineName={fbMachine.name}
+                workingDirectory={fbWorkDir}
+                fallbackDirectory={project!.workingDirectory}
+                initialFilePath={initialFilePath}
+                embedded
+                onClose={() => setFileBrowserOpen(false)}
+              />
+            </div>
+          ) : fileBrowserOpen && fbMachine && fbWorkDir && !isWide ? (
+            <Sheet open={fileBrowserOpen} onOpenChange={setFileBrowserOpen}>
+              <SheetContent side="right" className="w-[85vw] max-w-[400px] p-0 flex flex-col">
+                <FileBrowser
+                  machineId={fbMachine.id}
+                  machineName={fbMachine.name}
+                  workingDirectory={fbWorkDir}
+                  fallbackDirectory={project!.workingDirectory}
+                  initialFilePath={initialFilePath}
+                  embedded
+                  onClose={() => setFileBrowserOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
+          ) : null
+        })()}
       </div>
-    </div>
-  )
-}
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function FilesSection({ changes, machineId }: {
-  changes: Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }>
-  machineId?: string
-}) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="border-t border-border/50 shrink-0">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 w-full px-4 md:px-6 py-2.5 text-left hover:bg-muted/30 transition-colors"
-      >
-        {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-        <Layers className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground">Files changed</span>
-        <span className="ml-1 text-[10px] text-muted-foreground/60">({changes.length})</span>
-      </button>
-      {open && (
-        <div className="border-t border-border/30 max-h-[40vh] overflow-auto">
-          <FileChangesView changes={changes} machineId={machineId} />
-        </div>
+      {/* Workdir bar — same as project view, at bottom */}
+      {project && (
+        <TaskWorkdirBar
+          node={node}
+          project={project}
+          viewMode={searchParams.get("from") || "list"}
+          fileBrowserOpen={fileBrowserOpen}
+          onToggleFileBrowser={
+            (() => {
+              const fbMachine = project.defaultMachineId
+                ? machines.find((m) => m.id === project.defaultMachineId)
+                : machines.length === 1 ? machines[0] : undefined
+              const fbWorkDir = project.workingDirectory
+                ? (project.projectBranch
+                    ? projectWorktreePath(project.workingDirectory, project.projectBranch)
+                    : project.workingDirectory)
+                : undefined
+              return fbMachine && fbWorkDir ? () => setFileBrowserOpen((v) => !v) : undefined
+            })()
+          }
+        />
       )}
     </div>
   )
 }
+

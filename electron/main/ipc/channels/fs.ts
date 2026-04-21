@@ -10,6 +10,7 @@
 
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { defineHandler } from '../registry.js'
 import * as schema from '../schema/fs.js'
 
@@ -120,5 +121,73 @@ export function registerFsChannels(): void {
 
     await walk(req.root)
     return { matches }
+  })
+
+  defineHandler('fs:search-content', schema.searchContent, (req) => {
+    return new Promise((resolve) => {
+      // @vscode/ripgrep ships a pre-built rg binary for all platforms.
+      // We require() at call-time to avoid a hard startup dependency.
+      let rgBin: string
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        rgBin = (require('@vscode/ripgrep') as { rgPath: string }).rgPath
+      } catch {
+        resolve({ matches: [], error: 'ripgrep not available' })
+        return
+      }
+
+      const args = [
+        '--json',
+        '--max-count', String(req.maxMatchesPerFile ?? 5),
+        '--max-filesize', '1M',
+        '--glob', '!node_modules',
+        '--glob', '!.git',
+        '--glob', '!dist',
+        '--glob', '!build',
+        '--glob', '!.next',
+        '--glob', '!target',
+      ]
+      if (!req.caseSensitive) args.push('--ignore-case')
+      args.push(req.pattern, req.root)
+
+      const proc = spawn(rgBin, args)
+      const matches: Array<{ path: string; lineNo: number; line: string; matchStart: number; matchEnd: number }> = []
+      const limit = req.limit ?? 500
+      let buf = ''
+
+      proc.stdout.on('data', (chunk: Buffer) => {
+        if (matches.length >= limit) return
+        buf += chunk.toString()
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim() || matches.length >= limit) continue
+          try {
+            const obj = JSON.parse(line) as {
+              type: string
+              data: {
+                path: { text: string }
+                line_number: number
+                lines: { text: string }
+                submatches: Array<{ start: number; end: number }>
+              }
+            }
+            if (obj.type === 'match') {
+              const sub = obj.data.submatches[0]
+              matches.push({
+                path: obj.data.path.text,
+                lineNo: obj.data.line_number,
+                line: obj.data.lines.text.trimEnd(),
+                matchStart: sub?.start ?? 0,
+                matchEnd: sub?.end ?? 0,
+              })
+            }
+          } catch { /* skip malformed rg output */ }
+        }
+      })
+
+      proc.on('close', () => resolve({ matches }))
+      proc.on('error', (err) => resolve({ matches: [], error: err.message }))
+    })
   })
 }

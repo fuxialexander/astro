@@ -13,6 +13,7 @@
  */
 
 import { app, BrowserWindow } from 'electron'
+import { buildApplicationMenu } from './menu.js'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { installCSP } from './security/csp.js'
@@ -80,6 +81,7 @@ function handleDeepLink(url: string): void {
 installWebviewGuard()
 
 app.whenReady().then(async () => {
+  buildApplicationMenu()
   installCSP()
   registerPluginProtocol()
 

@@ -30,7 +30,13 @@ const repoRoot = path.resolve(__dirname, '..')
 // Hono backend, PGlite, or bundled skills. Native modules (node-pty, ssh2,
 // cpu-features) are still packaged via `afterCopy` + `asar.unpack` because
 // the desktop shell needs them for the local terminal/SSH flows.
-const extraResources: string[] = []
+//
+// binaries/ contains the esbuild-bundled astro-agent.mjs and astro-cli.mjs
+// built by scripts/build-binaries.ts. The agent:setup IPC handler copies
+// them to ~/.astro/bin/ on first run so `astro-agent` and `astro-cli` are
+// available in the user's shell.
+const binariesDir = path.join(repoRoot, 'electron', 'resources', 'binaries')
+const extraResources: string[] = fs.existsSync(binariesDir) ? [binariesDir] : []
 
 // Apple signing/notarization — only attach the blocks when all three env
 // vars are present. Missing any one means "local dev build, skip signing".
@@ -72,6 +78,10 @@ const config: ForgeConfig = {
     },
     icon: path.join(repoRoot, 'electron', 'icons', 'icon'),
     extraResource: extraResources,
+    extendInfo: {
+      NSCalendarsUsageDescription: 'Astro reads your calendars to display events alongside your planned tasks.',
+      NSRemindersUsageDescription: 'Astro reads your Reminders to display them alongside your planned tasks.',
+    },
     // @electron/universal merges the per-arch packaged apps and bails on any
     // file that differs between x64 and arm64 without a rule saying which
     // arch it belongs to. node-pty / ssh2 / cpu-features ship arch-specific

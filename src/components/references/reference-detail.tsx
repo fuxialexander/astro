@@ -32,6 +32,7 @@ import {
   type PdfDownloadProgress,
 } from '@/lib/pdf-downloader'
 import { isDesktop } from '@/lib/desktop-detect'
+import { desktopBridge } from '@/lib/desktop-bridge'
 import { PdfExtractPanel } from './pdf-extract-panel'
 
 // ── Props ────────────────────────────────────────────────────────────
@@ -54,6 +55,8 @@ export function ReferenceDetail({
   const [downloadStatus, setDownloadStatus] = useState<PdfDownloadStatus>('idle')
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [pdfProxyBlocked, setPdfProxyBlocked] = useState(false)
+  const [openingInViewer, setOpeningInViewer] = useState(false)
   const [showExtract, setShowExtract] = useState(false)
   const [notesDraft, setNotesDraft] = useState(reference.notes ?? '')
   const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,7 +95,11 @@ export function ReferenceDetail({
     notesDebounceRef.current = setTimeout(() => onUpdate?.({ notes: val }), 600)
   }, [onUpdate])
 
-  const pdfViewUrl = getPdfViewUrl(reference)
+  const rawPdfUrl = getPdfViewUrl(reference)
+  // For web mode, route through the backend proxy to strip X-Frame-Options.
+  const pdfViewUrl = rawPdfUrl && !isDesktop()
+    ? `/api/references/pdf-proxy?url=${encodeURIComponent(rawPdfUrl)}`
+    : rawPdfUrl
   const hasPdf = isPdfAvailable(reference)
   const isDownloading = downloadStatus === 'resolving' || downloadStatus === 'downloading'
 
@@ -213,15 +220,90 @@ export function ReferenceDetail({
         <div className="flex items-center gap-2">
           {/* Download/View PDF Button */}
           {hasPdf ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowPdf(!showPdf)}
-              className="gap-1.5"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              {showPdf ? 'Hide PDF' : 'View PDF'}
-            </Button>
+            <>
+              {/* Desktop with local file: open directly in system PDF viewer */}
+              {isDesktop() && reference.pdfPath ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={openingInViewer}
+                  onClick={async () => {
+                    if (showPdf) { setShowPdf(false); return }
+                    setOpeningInViewer(true)
+                    try {
+                      await desktopBridge.shell.openPath(reference.pdfPath!)
+                    } finally {
+                      setOpeningInViewer(false)
+                    }
+                  }}
+                  className="gap-1.5"
+                >
+                  {openingInViewer ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  Open PDF
+                </Button>
+              ) : isDesktop() && rawPdfUrl ? (
+                /* Desktop but no local file yet: download to tmp then open */
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={openingInViewer}
+                  onClick={async () => {
+                    setOpeningInViewer(true)
+                    try {
+                      const { path } = await desktopBridge.pdf.download({
+                        url: rawPdfUrl,
+                        subdir: 'tmp',
+                        timeoutMs: 60_000,
+                      })
+                      await desktopBridge.shell.openPath(path)
+                    } catch (err) {
+                      setDownloadError(err instanceof Error ? err.message : 'Failed to open PDF')
+                      setDownloadStatus('error')
+                    } finally {
+                      setOpeningInViewer(false)
+                    }
+                  }}
+                  className="gap-1.5"
+                >
+                  {openingInViewer
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Opening…</>
+                    : <><FileText className="h-3.5 w-3.5" />Open PDF</>}
+                </Button>
+              ) : !pdfProxyBlocked ? (
+                /* Web: try inline iframe via proxy */
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (showPdf) { setShowPdf(false); return }
+                    if (pdfViewUrl) {
+                      try {
+                        const res = await fetch(pdfViewUrl, { method: 'HEAD' })
+                        if (res.status === 422) {
+                          setPdfProxyBlocked(true)
+                          // Silently open in new tab instead
+                          if (rawPdfUrl) window.open(rawPdfUrl, '_blank', 'noopener,noreferrer')
+                          return
+                        }
+                      } catch { /* network error — try iframe anyway */ }
+                    }
+                    setShowPdf(true)
+                  }}
+                  className="gap-1.5"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {showPdf ? 'Hide PDF' : 'View PDF'}
+                </Button>
+              ) : null}
+              {rawPdfUrl && (
+                <a href={rawPdfUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="ghost" size="sm" className="gap-1.5">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open in tab
+                  </Button>
+                </a>
+              )}
+            </>
           ) : (
             <Button
               variant="default"
@@ -246,20 +328,6 @@ export function ReferenceDetail({
                   Download PDF
                 </>
               )}
-            </Button>
-          )}
-
-          {/* Re-download for desktop mode */}
-          {isDesktop() && hasPdf && !reference.pdfDownloaded && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDownloadPdf}
-              disabled={isDownloading}
-              className="gap-1.5"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Save locally
             </Button>
           )}
 
@@ -341,25 +409,15 @@ export function ReferenceDetail({
         />
       )}
 
-      {/* Inline PDF Viewer */}
-      {showPdf && pdfViewUrl && (
+      {/* Inline PDF Viewer — web only; desktop opens in system viewer */}
+      {showPdf && pdfViewUrl && !pdfProxyBlocked && !isDesktop() && (
         <div className="border rounded-lg overflow-hidden" style={{ height: '600px' }}>
-          {isDesktop() && reference.pdfPath ? (
-            // Desktop: use embed with local file path
-            <embed
-              src={pdfViewUrl}
-              type="application/pdf"
-              className="h-full w-full"
-            />
-          ) : (
-            // Web: use iframe for remote PDF URL
-            <iframe
-              src={pdfViewUrl}
-              className="h-full w-full border-0"
-              title={`PDF: ${reference.title}`}
-              sandbox="allow-same-origin allow-scripts"
-            />
-          )}
+          <iframe
+            src={pdfViewUrl}
+            className="h-full w-full border-0"
+            title={`PDF: ${reference.title}`}
+            sandbox="allow-scripts allow-same-origin allow-forms"
+          />
         </div>
       )}
     </div>

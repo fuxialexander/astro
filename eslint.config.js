@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', '**/dist', '.astro/worktrees', '.claude/worktrees', 'tmp', 'packages/agent-runner/**', 'packages/cli/**', 'packages/openclaw-plugin/**']),
+  globalIgnores(['dist', '**/dist', '.astro/worktrees', '.claude/worktrees', 'tmp', 'packages/agent-runner/**', 'packages/cli/**', 'packages/openclaw-plugin/**', 'electron/resources/binaries/**']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

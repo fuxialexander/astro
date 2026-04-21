@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Check } from "lucide-react"
 import type { PickerOption } from "@/lib/constants"
 import { cn } from "@/lib/utils"
@@ -10,6 +10,8 @@ export function PropertyPicker({
   title,
   disabled,
   onSelect,
+  openOnHover,
+  triggerClassName,
   children,
 }: {
   value: string | undefined
@@ -17,20 +19,46 @@ export function PropertyPicker({
   title: string
   disabled?: boolean
   onSelect: (id: string) => void
+  openOnHover?: boolean
+  triggerClassName?: string
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+  }
+
+  const scheduleClose = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 200)
+  }
+
+  const handleMouseEnterTrigger = () => {
+    if (!openOnHover) return
+    cancelClose()
+    setOpen(true)
+  }
+
+  const handleMouseLeaveTrigger = () => {
+    if (!openOnHover) return
+    scheduleClose()
+  }
 
   if (disabled) return <span className="inline-flex items-center">{children}</span>
+
+  const defaultTriggerClass = "inline-flex items-center rounded-md p-2 -m-2 hover:bg-muted transition-colors cursor-pointer"
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center rounded-md p-2 -m-2 hover:bg-muted transition-colors cursor-pointer"
+          className={triggerClassName ?? defaultTriggerClass}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); if (!openOnHover) setOpen(!open) }}
+          onMouseEnter={handleMouseEnterTrigger}
+          onMouseLeave={handleMouseLeaveTrigger}
         >
           {children}
         </button>
@@ -39,6 +67,8 @@ export function PropertyPicker({
         align="start"
         className="w-48 p-1"
         onPointerDown={(e) => e.stopPropagation()}
+        onMouseEnter={() => { if (openOnHover) cancelClose() }}
+        onMouseLeave={() => { if (openOnHover) scheduleClose() }}
       >
         <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{title}</p>
         {options.map((opt) => {

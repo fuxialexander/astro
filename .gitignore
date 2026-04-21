@@ -16,6 +16,8 @@ out/
 .cache/
 # electron-forge vite plugin output (main, preload, renderer bundles)
 .vite/
+# esbuild-bundled agent/cli binaries (built by scripts/build-binaries.ts)
+electron/resources/binaries/
 # tsc incremental build metadata
 *.tsbuildinfo
 # esbuild / other tool caches

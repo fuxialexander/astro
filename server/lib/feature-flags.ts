@@ -31,8 +31,9 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'team-machines': true,
   'delivery-branches': true,
   'parallel-execution': false,
-  'inbox-home': true,
   'import-from-history': true,
+  'calendar-view': true,
+  'file-content-search': true,
 }
 
 /**
