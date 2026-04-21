@@ -4,6 +4,7 @@ import { useCalendarStore } from '@/stores/calendar-store'
 import { DayEventChip } from './day-event-chip'
 import { assignLanes, HOUR_HEIGHT } from './lane-utils'
 import { useCalendarDrag } from '@/hooks/use-calendar-drag'
+import { EventTooltip } from '../shared/event-tooltip'
 import { cn } from '@/lib/utils'
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -97,18 +98,22 @@ export function AllDayEventsRow({ events, className }: AllDayEventsRowProps) {
           ? (ev.raw as { calendarColor?: string } | undefined)?.calendarColor
           : undefined
         return (
-          <div
-            key={ev.id}
-            data-event
-            className={cn(
-              'cal-chip text-xs',
-              ev.color !== 'external' && `cal-chip-${ev.color}`,
-              ev.color === 'external' && 'cal-chip-external',
-            )}
-            style={externalColor ? { borderLeftColor: externalColor, color: externalColor } : undefined}
-          >
-            {ev.title}
-          </div>
+          <EventTooltip key={ev.id} event={ev}>
+            <div
+              data-event
+              tabIndex={0}
+              role="button"
+              aria-label={ev.title}
+              className={cn(
+                'cal-chip text-xs cursor-pointer',
+                ev.color !== 'external' && `cal-chip-${ev.color}`,
+                ev.color === 'external' && 'cal-chip-external',
+              )}
+              style={externalColor ? { borderLeftColor: externalColor, color: externalColor } : undefined}
+            >
+              {ev.title}
+            </div>
+          </EventTooltip>
         )
       })}
     </div>
