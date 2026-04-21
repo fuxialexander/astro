@@ -75,9 +75,10 @@ export function DraftPaperDialog({
   useEffect(() => {
     if (prevFormatRef.current !== outputFormat) {
       prevFormatRef.current = outputFormat
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFilename(defaultFilename[outputFormat])
     }
-  }, [outputFormat])
+  }, [outputFormat]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = () => {
     const CITATION_STYLE = citationStyle.toUpperCase()

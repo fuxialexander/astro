@@ -146,7 +146,7 @@ export function ReferenceList({
 
   const toggleCheck = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setChecked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setChecked(prev => { const n = new Set(prev); if (n.has(id)) { n.delete(id) } else { n.add(id) } return n })
   }, [])
 
   const handleDeleteChecked = useCallback(async () => {

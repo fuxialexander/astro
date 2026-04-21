@@ -22,6 +22,7 @@ export const CitationSuggestion = forwardRef<CitationSuggestionRef, CitationSugg
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     useEffect(() => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedIndex(0)
     }, [items])
 

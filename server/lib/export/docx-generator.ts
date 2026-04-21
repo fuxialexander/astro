@@ -6,8 +6,6 @@ import {
   HeadingLevel,
   AlignmentType,
   BorderStyle,
-  NumberFormat,
-  UnderlineType,
 } from 'docx'
 import type { Reference } from '@astro/core/types'
 

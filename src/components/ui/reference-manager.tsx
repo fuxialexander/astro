@@ -317,7 +317,7 @@ export function ReferenceManager({ projectId: _projectId, className }: Reference
               )}
               onClick={() => setSelected(s => {
                 const n = new Set(s)
-                n.has(ref.id) ? n.delete(ref.id) : n.add(ref.id)
+                if (n.has(ref.id)) { n.delete(ref.id) } else { n.add(ref.id) }
                 return n
               })}
             >
