@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Diamond } from "lucide-react"
+import { Diamond, CalendarDays } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DatePickerPopover } from "@/components/ui/date-picker-popover"
+import { formatDueDateShort } from "@/lib/date-utils"
+import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
 interface MilestoneDialogProps {
@@ -110,13 +113,24 @@ export function MilestoneDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="dueDate">{t('milestone.dueDate')}</Label>
-            <Input
-              id="dueDate"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-            />
+            <Label>{t('milestone.dueDate')}</Label>
+            <DatePickerPopover
+              value={dueDate || undefined}
+              onChange={(date) => setDueDate(date || "")}
+              align="start"
+            >
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-2 h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-left",
+                  "hover:bg-accent hover:text-accent-foreground transition-colors",
+                  !dueDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {dueDate ? formatDueDateShort(dueDate).text : "Pick a date"}
+              </button>
+            </DatePickerPopover>
           </div>
         </div>
 

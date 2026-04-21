@@ -10,12 +10,14 @@ import {
   type DragEvent,
 } from "react"
 import { createPortal } from "react-dom"
-import { FileCode2, Hash, X, Loader2, BookOpen } from "lucide-react"
+import { FileCode2, Hash, X, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
 import type { Reference } from "@/lib/citation/types"
+import { getCiteKey } from "@/lib/citation/cite-key"
+import { CitationDropdownContent } from "./citation-dropdown-content"
 
 export interface SlashCommand {
   name: string
@@ -105,6 +107,7 @@ export function FileCompletionTextarea({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const abortRef = useRef<AbortController>(undefined)
   const hiddenDivRef = useRef<HTMLDivElement>(null)
+  const mirrorRef = useRef<HTMLDivElement>(null)
 
   // File completion state: track if we're actively completing and the '@' position
   const [atIndex, setAtIndex] = useState(-1)
@@ -444,25 +447,19 @@ export function FileCompletionTextarea({
       dismissSlash()
 
       // Check for [@ citation trigger (must come before @ check to prevent overlap)
-      if (hasReferences && cursorPos > 1) {
+      if (hasReferences && cursorPos != null && cursorPos >= 2) {
         const beforeCursor = newValue.slice(0, cursorPos)
-        // Look for the last '[@' sequence
         const lastBracketAt = beforeCursor.lastIndexOf("[@")
         if (lastBracketAt >= 0) {
-          const charBefore = lastBracketAt > 0 ? newValue[lastBracketAt - 1] : " "
-          if (charBefore === " " || charBefore === "\n" || lastBracketAt === 0) {
-            const q = beforeCursor.slice(lastBracketAt + 2) // skip "[@"
-            // Citation query: allow spaces, up to 80 chars, no closing bracket yet
-            if (q.length <= 80 && !q.includes("]")) {
-              setCiteActive(true)
-              setCiteBracketIndex(lastBracketAt)
-              setCiteQuery(q)
-              setCiteSelectedIndex(0)
-              updateDropdownPosition()
-              setCiteDropdownPos(computeDropdownPosition())
-              dismiss()
-              return
-            }
+          const q = beforeCursor.slice(lastBracketAt + 2) // skip "[@"
+          if (q.length <= 80 && !q.includes("]")) {
+            setCiteActive(true)
+            setCiteBracketIndex(lastBracketAt)
+            setCiteQuery(q)
+            setCiteSelectedIndex(0)
+            setCiteDropdownPos(computeDropdownPosition())
+            dismiss()
+            return
           }
         }
       }
@@ -594,16 +591,17 @@ export function FileCompletionTextarea({
       const textarea = textareaRef.current
       if (citeBracketIndex < 0 || !textarea) return
 
+      const citeKey = getCiteKey(ref)
       const cursorPos = textarea.selectionStart
       const before = value.slice(0, citeBracketIndex)
       const after = value.slice(cursorPos)
-      const newValue = `${before}[@${ref.id}]${after}`
+      const newValue = `${before}[@${citeKey}]${after}`
 
       onChange(newValue)
       dismissCite()
 
       requestAnimationFrame(() => {
-        const newPos = citeBracketIndex + ref.id.length + 3 // [@ + key + ]
+        const newPos = citeBracketIndex + citeKey.length + 3 // [@ + key + ]
         textarea.setSelectionRange(newPos, newPos)
         textarea.focus()
       })
@@ -766,6 +764,19 @@ export function FileCompletionTextarea({
 
   const hasImages = (images?.length ?? 0) > 0 || pendingUploads > 0
 
+  // Build mirror HTML: plain text shown in foreground color, [@key] wrapped in amber badge
+  const mirrorHtml = useMemo(() => {
+    if (!hasReferences) return ''
+    const escaped = (value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    return escaped.replace(
+      /\[(@[^\]]*)\]/g,
+      '<span class="citation-badge inline-flex items-center rounded px-1 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700 mx-0.5 whitespace-nowrap">[$1]</span>'
+    )
+  }, [value, hasReferences])
+
   return (
     <>
       {/* Hidden div for measuring content height */}
@@ -825,24 +836,44 @@ export function FileCompletionTextarea({
           }}
         />
       )}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
-        onPaste={handlePaste}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        placeholder={placeholder}
-        rows={rows}
-        disabled={disabled}
-        className={cn(className, "overflow-y-auto")}
-        style={{
-          maxHeight: "50vh",
-          minHeight: `${rows * 1.5}em`, // Preserve initial rows as min-height
-        }}
-      />
+      <div className="relative flex-1 min-w-0">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={handleBlur}
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onScroll={() => {
+            if (mirrorRef.current && textareaRef.current) {
+              mirrorRef.current.scrollTop = textareaRef.current.scrollTop
+            }
+          }}
+          placeholder={placeholder}
+          rows={rows}
+          disabled={disabled}
+          className={cn("w-full", className, "overflow-y-auto", hasReferences && "text-transparent placeholder:text-muted-foreground/60")}
+          style={{
+            maxHeight: "50vh",
+            minHeight: `${rows * 1.5}em`,
+            caretColor: "var(--foreground)",
+          }}
+        />
+        {hasReferences && (
+          <div
+            ref={mirrorRef}
+            aria-hidden="true"
+            className={cn(className, "absolute inset-0 pointer-events-none overflow-hidden whitespace-pre-wrap break-words bg-transparent border-transparent shadow-none resize-none")}
+            style={{
+              maxHeight: "50vh",
+              minHeight: `${rows * 1.5}em`,
+            }}
+            dangerouslySetInnerHTML={{ __html: mirrorHtml || '\u00a0' }}
+          />
+        )}
+      </div>
       {showDropdown &&
         createPortal(
           <div
@@ -989,53 +1020,18 @@ export function FileCompletionTextarea({
               left: citeDropdownPos.left,
               width: citeDropdownPos.width,
             }}
-            className={cn(
-              "z-[9999] max-h-[320px] overflow-y-auto",
-              "rounded-md border border-border bg-popover shadow-md",
-            )}
+            className="z-[9999] max-h-[320px] overflow-y-auto rounded-md border border-border bg-popover shadow-md"
           >
-            <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b">
+            <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b sticky top-0 bg-popover">
               References
             </div>
-            {filteredCiteRefs.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                No matching references found
-              </div>
-            ) : (
-              filteredCiteRefs.map((ref, i) => {
-                const firstAuthor = ref.authors[0]?.split(',')[0]?.split(' ').pop() || ref.authors[0] || 'Unknown'
-                const etAl = ref.authors.length > 1 ? ' et al.' : ''
-                return (
-                  <button
-                    key={ref.id}
-                    type="button"
-                    className={cn(
-                      "flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-xs",
-                      "hover:bg-accent hover:text-accent-foreground cursor-pointer",
-                      i === citeSelectedIndex && "bg-accent text-accent-foreground",
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      insertCitation(ref)
-                    }}
-                    onMouseEnter={() => setCiteSelectedIndex(i)}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BookOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="font-medium truncate">{ref.title.length > 60 ? ref.title.slice(0, 59) + '\u2026' : ref.title}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground pl-[18px]">
-                      <span>{firstAuthor}{etAl}</span>
-                      <span>{ref.year}</span>
-                      {ref.venue && <span className="truncate italic">{ref.venue.length > 30 ? ref.venue.slice(0, 29) + '\u2026' : ref.venue}</span>}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/60 pl-[18px] font-mono">
-                      @{ref.id}
-                    </div>
-                  </button>
-                )
-              })
-            )}
+            <CitationDropdownContent
+              refs={filteredCiteRefs}
+              selectedIndex={citeSelectedIndex}
+              onSelect={insertCitation}
+              onHover={setCiteSelectedIndex}
+              useMouseDown
+            />
           </div>,
           document.body,
         )}

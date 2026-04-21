@@ -509,7 +509,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Note: the agent-runner enforces this via a directory lock as a safety net;
     // this frontend check provides early feedback to the user.
     const effectiveDeliveryMode = project?.deliveryMode || (project?.source ? deriveDeliveryMode(project.source) : undefined)
-    if (effectiveDeliveryMode === 'direct') {
+    if (effectiveDeliveryMode === 'direct' && !project?.discoveryMode) {
       const activeForProject = [...get().executions.values()].some(
         (e) => e.projectId === projectId && (e.status === 'pending' || e.status === 'running')
       )
@@ -894,15 +894,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { batchExecutions: newBatch }
     })
 
-    // Dispatch ready nodes with a short staggered delay between each to avoid
-    // overwhelming the system when many tasks become ready simultaneously
-    const STAGGER_DELAY_MS = 10_000
+    // Discovery mode: tasks are isolated by output directory, dispatch all ready nodes immediately.
+    // Non-discovery direct-delivery mode: stagger to avoid overwhelming the system.
+    const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+    const isDiscovery = project?.discoveryMode === true
+    const STAGGER_DELAY_MS = 2_000
     readyNodes.forEach((node, index) => {
-      if (index === 0) {
+      if (isDiscovery || index === 0) {
         get().startExecution(node.id, projectId, options)
       } else {
         setTimeout(() => {
-          // Check batch is still active before dispatching
           if (get().batchExecutions.get(projectId)?.active) {
             get().startExecution(node.id, projectId, options)
           }

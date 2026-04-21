@@ -1726,8 +1726,12 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // Discovery mode: inject shared instructions + task-specific workspace details
     if (isDiscoveryMode && taskOutputDir) {
-      // General discovery mode rules (single source of truth from prompt-templates)
-      promptParts.push(DISCOVERY_MODE_INSTRUCTIONS.trim())
+      // General discovery mode rules go into system prompt for reliable behavioral enforcement
+      if (relaySystemPrompt) {
+        relaySystemPrompt = DISCOVERY_MODE_INSTRUCTIONS.trim() + '\n\n' + relaySystemPrompt
+      } else {
+        relaySystemPrompt = DISCOVERY_MODE_INSTRUCTIONS.trim()
+      }
 
       if (workingDirectory) {
         const taskWorkDir = `${workingDirectory}/analysis/${taskOutputDir}`

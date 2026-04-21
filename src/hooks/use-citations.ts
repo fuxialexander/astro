@@ -21,8 +21,8 @@ import type { Reference } from '@/lib/citation/types'
  * - `formatText(text)`: replace [@key] markers with formatted inline citations
  * - `hasCitations(text)`: check if text contains citation markers
  */
-export function useCitations(projectId: string) {
-  const references = useReferenceStore((s) => s.referencesByProject.get(projectId) || [])
+export function useCitations(_projectId?: string) {
+  const references = useReferenceStore((s) => s.library)
   const citationStyle = useReferenceStore((s) => s.citationStyle)
 
   const refMap = useMemo(

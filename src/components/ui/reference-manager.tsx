@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react'
-import { BookOpen, Plus, Upload, Trash2, Search, X, Settings2, ExternalLink } from 'lucide-react'
+import { BookOpen, Plus, Upload, Trash2, Search, X, Settings2, ExternalLink, CheckSquare, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useReferenceStore } from '@/stores/reference-store'
@@ -21,9 +21,8 @@ interface ReferenceManagerProps {
   className?: string
 }
 
-export function ReferenceManager({ projectId, className }: ReferenceManagerProps) {
+export function ReferenceManager({ projectId: _projectId, className }: ReferenceManagerProps) {
   const {
-    getReferences,
     searchReferences,
     addReference,
     removeReference,
@@ -32,11 +31,12 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
     setCitationStyle,
   } = useReferenceStore()
 
-  const references = getReferences(projectId)
+  const references = useReferenceStore((s) => s.library)
   const [searchQuery, setSearchQuery] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
   const [showBibTeX, setShowBibTeX] = useState(false)
   const [bibtexInput, setBibtexInput] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // Add form state
   const [newRef, setNewRef] = useState({
@@ -52,8 +52,8 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
 
   const filteredRefs = useMemo(() => {
     if (!searchQuery.trim()) return references
-    return searchReferences(projectId, searchQuery)
-  }, [references, searchQuery, projectId, searchReferences])
+    return searchReferences(searchQuery)
+  }, [references, searchQuery, searchReferences])
 
   const handleAddReference = useCallback(async () => {
     if (!newRef.title.trim() || !newRef.authors.trim()) {
@@ -67,7 +67,7 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
     const id = newRef.id.trim() || `${firstAuthor}${newRef.year}`
 
     try {
-      await addReference(projectId, {
+      await addReference({
         id,
         title: newRef.title.trim(),
         authors,
@@ -83,28 +83,51 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
     } catch (err) {
       useToastStore.getState().add({ type: 'error', title: 'Failed', description: err instanceof Error ? err.message : 'Failed to add reference' })
     }
-  }, [projectId, newRef, addReference])
+  }, [newRef, addReference])
 
   const handleImportBibTeX = useCallback(async () => {
     if (!bibtexInput.trim()) return
     try {
-      const count = await importBibTeX(projectId, bibtexInput)
+      const count = await importBibTeX(bibtexInput)
       useToastStore.getState().add({ type: 'success', title: 'Imported', description: `${count} reference${count !== 1 ? 's' : ''} imported` })
       setBibtexInput('')
       setShowBibTeX(false)
     } catch (err) {
       useToastStore.getState().add({ type: 'error', title: 'Import failed', description: err instanceof Error ? err.message : 'Failed to import BibTeX' })
     }
-  }, [projectId, bibtexInput, importBibTeX])
+  }, [bibtexInput, importBibTeX])
 
   const handleDelete = useCallback(async (citeKey: string) => {
     try {
-      await removeReference(projectId, citeKey)
+      await removeReference(citeKey)
+      setSelected(s => { const n = new Set(s); n.delete(citeKey); return n })
       useToastStore.getState().add({ type: 'success', title: 'Removed', description: `[@${citeKey}] removed` })
     } catch {
       useToastStore.getState().add({ type: 'error', title: 'Failed', description: 'Failed to remove reference' })
     }
-  }, [projectId, removeReference])
+  }, [removeReference])
+
+  const handleDeleteSelected = useCallback(async () => {
+    const keys = Array.from(selected)
+    let failed = 0
+    for (const key of keys) {
+      try { await removeReference(key) } catch { failed++ }
+    }
+    setSelected(new Set())
+    const removed = keys.length - failed
+    if (removed > 0) useToastStore.getState().add({ type: 'success', title: 'Removed', description: `${removed} reference${removed !== 1 ? 's' : ''} removed` })
+    if (failed > 0) useToastStore.getState().add({ type: 'error', title: 'Partial failure', description: `${failed} could not be removed` })
+  }, [selected, removeReference])
+
+  const allFilteredSelected = filteredRefs.length > 0 && filteredRefs.every(r => selected.has(r.id))
+
+  const toggleSelectAll = useCallback(() => {
+    if (allFilteredSelected) {
+      setSelected(s => { const n = new Set(s); filteredRefs.forEach(r => n.delete(r.id)); return n })
+    } else {
+      setSelected(s => { const n = new Set(s); filteredRefs.forEach(r => n.add(r.id)); return n })
+    }
+  }, [allFilteredSelected, filteredRefs])
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
@@ -249,6 +272,31 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
         </div>
       )}
 
+      {/* Bulk action toolbar */}
+      {filteredRefs.length > 0 && (
+        <div className="flex items-center gap-2">
+          <button
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            onClick={toggleSelectAll}
+            title={allFilteredSelected ? 'Deselect all' : 'Select all'}
+          >
+            {allFilteredSelected
+              ? <CheckSquare className="h-3 w-3" />
+              : <Square className="h-3 w-3" />}
+            {allFilteredSelected ? 'Deselect all' : 'Select all'}
+          </button>
+          {selected.size > 0 && (
+            <button
+              className="flex items-center gap-1 text-[10px] text-destructive hover:text-destructive/80 transition-colors ml-auto"
+              onClick={handleDeleteSelected}
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete {selected.size}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Reference List */}
       <div className="space-y-1 max-h-[400px] overflow-y-auto">
         {filteredRefs.length === 0 ? (
@@ -261,8 +309,23 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
           filteredRefs.map(ref => (
             <div
               key={ref.id}
-              className="group flex items-start gap-2 rounded-md border border-border/50 p-2 hover:border-border transition-colors"
+              className={cn(
+                'group flex items-start gap-2 rounded-md border p-2 transition-colors cursor-pointer',
+                selected.has(ref.id)
+                  ? 'border-primary/40 bg-primary/5'
+                  : 'border-border/50 hover:border-border',
+              )}
+              onClick={() => setSelected(s => {
+                const n = new Set(s)
+                if (n.has(ref.id)) { n.delete(ref.id) } else { n.add(ref.id) }
+                return n
+              })}
             >
+              <div className="shrink-0 mt-0.5">
+                {selected.has(ref.id)
+                  ? <CheckSquare className="h-3 w-3 text-primary" />
+                  : <Square className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />}
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-medium truncate">{ref.title}</div>
                 <div className="text-[10px] text-muted-foreground">
@@ -270,7 +333,7 @@ export function ReferenceManager({ projectId, className }: ReferenceManagerProps
                 </div>
                 <div className="text-[10px] font-mono text-muted-foreground/60">@{ref.id}</div>
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
                 {(ref.doi || ref.url) && (
                   <a
                     href={ref.doi ? `https://doi.org/${ref.doi}` : ref.url}

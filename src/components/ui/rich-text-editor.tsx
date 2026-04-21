@@ -31,8 +31,12 @@ import {
 } from 'lucide-react'
 import { cn, getShortId } from '@/lib/utils'
 import { MentionSuggestion, type MentionSuggestionItem, type MentionSuggestionRef } from './mention-suggestion'
+import { CitationSuggestion, type CitationSuggestionRef } from './citation-suggestion'
 import { stripHtml } from '@/lib/html-utils'
 import { prosemirrorToMarkdown, fragmentToMarkdown } from '@/lib/prosemirror-markdown'
+import type { Reference } from '@/lib/citation/types'
+import { getCiteKey } from '@/lib/citation/cite-key'
+import { useReferenceStore } from '@/stores/reference-store'
 
 export interface RichTextEditorRef {
   focus: () => void
@@ -53,14 +57,41 @@ interface RichTextEditorProps {
   onBlur?: () => void
   /** Items for @mention suggestions */
   mentionItems?: MentionSuggestionItem[]
+  /** References for [@citation suggestions */
+  references?: Reference[]
   /** Called when an image is pasted/dropped - should upload and return URL */
   onImageUpload?: (file: File) => Promise<string | null>
   /** Extra content rendered in the toolbar (e.g. save status indicator) */
   toolbarExtra?: React.ReactNode
 }
 
+// Citation inline node — a Mention variant that triggers on [@ and serializes to [@key]
+const CitationNode = Mention.extend({
+  name: 'citation',
+  addAttributes() {
+    return {
+      id: { default: null },
+      label: { default: null },
+    }
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return [
+      'span',
+      {
+        ...HTMLAttributes,
+        'data-citation': node.attrs.id as string,
+        class: 'citation-badge inline-flex items-center rounded px-1 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700 no-underline mx-0.5',
+      },
+      `[@${node.attrs.label as string}]`,
+    ]
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-citation]' }]
+  },
+})
+
 export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
-  ({ content = '', onChange, placeholder = 'Start writing...', className, editable = true, autofocus = false, onBlur, mentionItems, onImageUpload, toolbarExtra }, ref) => {
+  ({ content = '', onChange, placeholder = 'Start writing...', className, editable = true, autofocus = false, onBlur, mentionItems, references, onImageUpload, toolbarExtra }, ref) => {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     // Use a ref for mentionItems so the suggestion closure always reads the latest value
@@ -68,6 +99,14 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     useEffect(() => {
       mentionItemsRef.current = mentionItems
     }, [mentionItems])
+
+    // Ref for references so citation suggestion closure stays current
+    const referencesRef = useRef(references)
+    useEffect(() => {
+      referencesRef.current = references
+    }, [references])
+    // Always have a live path to the store regardless of prop update timing
+    const getLibrary = useReferenceStore.getState
 
     const mentionExtension = useMemo(() => {
       if (!mentionItems) return null
@@ -143,6 +182,61 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    const citationExtension = useMemo(() => {
+      return CitationNode.configure({
+        suggestion: {
+          char: '[@',
+          allowSpaces: false,
+          items: ({ query }: { query: string }) => {
+            const refs = (referencesRef.current?.length ? referencesRef.current : null) ?? getLibrary().library
+            const q = query.toLowerCase()
+            return refs
+              .filter(r =>
+                getCiteKey(r).includes(q) ||
+                r.title.toLowerCase().includes(q) ||
+                r.authors.some(a => a.toLowerCase().includes(q))
+              )
+              .slice(0, 10)
+              .map(r => ({ id: getCiteKey(r), label: getCiteKey(r), ref: r }))
+          },
+          render: () => {
+            let component: ReactRenderer<CitationSuggestionRef> | null = null
+            let popup: Instance[] | null = null
+
+            return {
+              onStart: (props: SuggestionProps) => {
+                component = new ReactRenderer(CitationSuggestion, {
+                  props: { items: props.items, command: props.command },
+                  editor: props.editor,
+                })
+                if (!props.clientRect) return
+                popup = tippy('body', {
+                  getReferenceClientRect: props.clientRect as () => DOMRect,
+                  appendTo: () => document.body,
+                  content: component.element,
+                  showOnCreate: true,
+                  interactive: true,
+                  trigger: 'manual',
+                  placement: 'bottom-start',
+                })
+              },
+              onUpdate: (props: SuggestionProps) => {
+                component?.updateProps({ items: props.items, command: props.command })
+                if (popup?.[0] && props.clientRect) {
+                  popup[0].setProps({ getReferenceClientRect: props.clientRect as () => DOMRect })
+                }
+              },
+              onKeyDown: (props: SuggestionKeyDownProps) => {
+                if (props.event.key === 'Escape') { popup?.[0]?.hide(); return true }
+                return component?.ref?.onKeyDown({ event: props.event }) ?? false
+              },
+              onExit: () => { popup?.[0]?.destroy(); component?.destroy() },
+            }
+          },
+        },
+      })
+    }, [])
+
     const extensions = useMemo(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const exts: any[] = [
@@ -176,8 +270,9 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
       if (mentionExtension) {
         exts.push(mentionExtension)
       }
+      exts.push(citationExtension)
       return exts
-    }, [placeholder, mentionExtension])
+    }, [placeholder, mentionExtension, citationExtension])
 
     // Use a ref to avoid the circular dependency between handleImageFile and editor
     const editorInstanceRef = useRef<ReturnType<typeof useEditor>>(null)
@@ -341,7 +436,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
 
         {/* Toolbar */}
         {editable && (
-          <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-2 py-1.5 flex-wrap">
+          <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-2 py-1.5">
             {/* Text formatting group */}
             <ToolbarGroup>
               <ToolbarButton
@@ -461,26 +556,26 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
 
             <div className="flex-1" />
 
-            {/* Extra toolbar content (e.g. save status) */}
-            {toolbarExtra}
-
-            {/* Undo/redo */}
-            <ToolbarGroup>
-              <ToolbarButton
-                onClick={() => editor.chain().focus().undo().run()}
-                disabled={!editor.can().undo()}
-                title="Undo"
-              >
-                <Undo className="h-3.5 w-3.5" />
-              </ToolbarButton>
-              <ToolbarButton
-                onClick={() => editor.chain().focus().redo().run()}
-                disabled={!editor.can().redo()}
-                title="Redo"
-              >
-                <Redo className="h-3.5 w-3.5" />
-              </ToolbarButton>
-            </ToolbarGroup>
+            {/* Extra toolbar content (e.g. save status) + Undo/redo — kept on same line */}
+            <div className="flex items-center gap-1">
+              {toolbarExtra}
+              <ToolbarGroup>
+                <ToolbarButton
+                  onClick={() => editor.chain().focus().undo().run()}
+                  disabled={!editor.can().undo()}
+                  title="Undo"
+                >
+                  <Undo className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <ToolbarButton
+                  onClick={() => editor.chain().focus().redo().run()}
+                  disabled={!editor.can().redo()}
+                  title="Redo"
+                >
+                  <Redo className="h-3.5 w-3.5" />
+                </ToolbarButton>
+              </ToolbarGroup>
+            </div>
           </div>
         )}
 

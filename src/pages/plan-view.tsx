@@ -2,9 +2,10 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, Columns3, Maximize2, Minimize2, MessageSquare } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, CalendarDays, Columns3, Maximize2, Minimize2, MessageSquare, Microscope, AlertCircle } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { DraftPaperDialog } from "@/pages/project-overview"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { resolveEditorContent, fileToBase64 } from "@/lib/html-utils"
 import { dataClient } from "@/lib/data-client"
@@ -50,6 +51,7 @@ import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
+import { DatePickerPopover } from "@/components/ui/date-picker-popover"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import {
   getProjectGroupDescriptor,
@@ -64,13 +66,17 @@ import { useInitiativeStore } from "@/stores/initiative-store"
 import { useTeamStore } from "@/stores/team-store"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
+import { deriveDeliveryMode } from "@/lib/project-source"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useReferenceStore } from "@/stores/reference-store"
 import { ProviderAgentPicker } from "@/components/execution/provider-agent-picker"
 import { MachineWorkdirPill } from "@/components/execution/machine-workdir-pill"
+import { isDesktop } from "@/lib/desktop-detect"
+import { desktopBridge } from "@/lib/desktop-bridge"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -348,15 +354,24 @@ function WorkdirBar({ project }: { project: Project }) {
               <div className="flex items-center shrink-0">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <a
-                      href={editorUrl ?? '#'}
+                    <button
+                      type="button"
+                      disabled={!editorUrl}
+                      onClick={() => {
+                        if (!editorUrl) return
+                        if (isDesktop()) {
+                          desktopBridge.editor.openExternal(editorUrl)
+                        } else {
+                          window.open(editorUrl, '_blank')
+                        }
+                      }}
                       className={cn(
                         "flex items-center justify-center h-6 w-6 rounded-l-full border border-border hover:bg-muted transition-colors",
-                        !editorUrl && "pointer-events-none opacity-40"
+                        !editorUrl && "opacity-40 cursor-not-allowed"
                       )}
                     >
                       <AppIcon appId={selectedApp} className="h-4 w-4" />
-                    </a>
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent>Open in {selectedAppDef.label}</TooltipContent>
                 </Tooltip>
@@ -404,6 +419,16 @@ function WorkdirBar({ project }: { project: Project }) {
             )}
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
+              {project.discoveryMode && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center justify-center h-6 w-6 rounded-md border border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <Microscope className="h-3.5 w-3.5" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Discovery mode</TooltipContent>
+                </Tooltip>
+              )}
               <ProviderAgentPicker
                 providers={providerIds}
                 value={defaultProvider || ""}
@@ -500,6 +525,7 @@ function ProjectInfoSection({ project }: { project: Project }) {
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const addActivity = useActivityStore((s) => s.addActivity)
   const teams = useTeamStore((s) => s.teams)
+  const references = useReferenceStore((s) => s.library)
 
   const [descriptionDraft, setDescriptionDraft] = useState(() => resolveEditorContent(project.description))
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
@@ -627,21 +653,22 @@ function ProjectInfoSection({ project }: { project: Project }) {
       {/* Expanded: notes */}
       {expanded && (
         <div className="px-4 pb-3 pt-1">
-          <div className="flex items-center justify-end mb-1">
-            {descriptionSaveStatus !== "idle" && (
-              <span className="text-[11px] text-muted-foreground/40 flex items-center gap-1">
-                {descriptionSaveStatus === "saving" && <><Loader2 className="h-2.5 w-2.5 animate-spin" />Saving</>}
-                {descriptionSaveStatus === "saved" && <><CircleCheck className="h-2.5 w-2.5" />Saved</>}
-              </span>
-            )}
-          </div>
           <RichTextEditor
             ref={descriptionEditorRef}
             content={descriptionDraft}
             onChange={handleDescriptionChange}
             placeholder="Add notes — goals, context, key details..."
+            references={references}
             onImageUpload={handleDescriptionImageUpload}
             className="min-h-[80px] text-[13px] [&_.tiptap]:max-h-[150px] [&_.tiptap]:overflow-y-auto"
+            toolbarExtra={
+              descriptionSaveStatus !== "idle" ? (
+                <span className="text-[11px] text-muted-foreground/40 flex items-center gap-1">
+                  {descriptionSaveStatus === "saving" && <><Loader2 className="h-2.5 w-2.5 animate-spin" />Saving</>}
+                  {descriptionSaveStatus === "saved" && <><CircleCheck className="h-2.5 w-2.5" />Saved</>}
+                </span>
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -798,6 +825,42 @@ function ProgressCell({ node }: { node: PlanNode }) {
   )
 }
 
+// --- Shared Due Date Cell ---
+function DueDateCell({
+  dueDate,
+  onChange,
+  align = "start",
+}: {
+  dueDate?: string | null
+  onChange?: (date: string | undefined) => void
+  align?: "start" | "center" | "end"
+}) {
+  const { text, className } = formatDueDateShort(dueDate ?? undefined)
+  if (!onChange) {
+    return dueDate
+      ? <span className={cn("text-xs", className)}>{text}</span>
+      : <CalendarDays className="h-3 w-3 text-muted-foreground/20" />
+  }
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <DatePickerPopover value={dueDate ?? undefined} onChange={onChange} align={align}>
+        {dueDate ? (
+          <span className={cn(
+            "inline-flex items-center h-5 text-xs rounded-sm px-1 hover:bg-muted transition-colors cursor-pointer select-none whitespace-nowrap",
+            className
+          )}>
+            {text}
+          </span>
+        ) : (
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-sm hover:bg-muted transition-colors cursor-pointer group">
+            <CalendarDays className="h-3 w-3 text-muted-foreground/20 group-hover:text-muted-foreground/60 transition-colors" />
+          </span>
+        )}
+      </DatePickerPopover>
+    </div>
+  )
+}
+
 // --- Plan List Column Definitions ---
 function makePlanColumns(
   project: { labels?: { id: string; name: string; color: string }[] } | undefined,
@@ -808,6 +871,7 @@ function makePlanColumns(
   onManageLabels?: () => void,
   onExecute?: (node: PlanNode) => void,
   showTaskNumbers?: boolean,
+  onReset?: (node: PlanNode) => void,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -830,6 +894,31 @@ function makePlanColumns(
               >
                 <Play className="h-3 w-3 fill-current" />
               </button>
+            )}
+            {(node.status === 'in_progress' || node.status === 'dispatched') && (
+              <span className="shrink-0 flex items-center justify-center w-5 h-5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/60" />
+              </span>
+            )}
+            {(node.status === 'auto_verified' || node.status === 'completed') && (
+              <span className="shrink-0 flex items-center justify-center w-5 h-5">
+                <CircleCheck className="h-3.5 w-3.5 text-emerald-500" />
+              </span>
+            )}
+            {node.status === 'awaiting_judgment' && node.executionError && onReset && (
+              <button
+                type="button"
+                title="Reset task"
+                onClick={(e) => { e.stopPropagation(); onReset(node) }}
+                className="shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-warning/10 text-warning/70 hover:text-warning transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+            {(node.status === 'awaiting_approval' || (node.status === 'awaiting_judgment' && !node.executionError)) && (
+              <span className="shrink-0 flex items-center justify-center w-5 h-5">
+                <AlertCircle className="h-3.5 w-3.5 text-blue-500" />
+              </span>
             )}
             {showTaskNumbers && node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
             <span className="truncate">{node.title}</span>
@@ -896,26 +985,13 @@ function makePlanColumns(
       label: "Due Date",
       width: "w-[100px]",
       sortKey: "dueDate",
-      render: (node) => {
-        const { text, className } = formatDueDateShort(node.dueDate)
-        return (
-          <div
-            className="relative inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className={cn("text-xs", className)}>{text}</span>
-            {onNodeUpdate && (
-              <input
-                type="date"
-                value={node.dueDate || ""}
-                onChange={(e) => onNodeUpdate(node.id, { dueDate: e.target.value || undefined })}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                tabIndex={-1}
-              />
-            )}
-          </div>
-        )
-      },
+      render: (node) => (
+        <DueDateCell
+          dueDate={node.dueDate}
+          onChange={onNodeUpdate ? (date) => onNodeUpdate(node.id, { dueDate: date }) : undefined}
+          align="start"
+        />
+      ),
     },
     {
       id: "estimate",
@@ -1236,6 +1312,11 @@ export function PlanListView({
     })
   }, [project, addActivity, flushPendingSaves])
 
+  const handleReset = useCallback((node: PlanNode) => {
+    const { resetExecution } = useExecutionStore.getState()
+    resetExecution(node.id)
+  }, [])
+
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
       id: "execute",
@@ -1359,7 +1440,7 @@ export function PlanListView({
     return map
   }, [allProjectNodes])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers, handleReset), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers, handleReset])
 
   const tasks = useMemo(() => {
     // Exclude pruned from the active task list — they appear in a separate "Deprecated" group
@@ -1389,7 +1470,16 @@ export function PlanListView({
         result.push({
           key: `milestone-${m.id}`,
           label: showTaskNumbers && m.number != null ? `${m.number}  ${m.title}` : m.title,
-          icon: <Diamond className="h-3 w-3 text-primary" />,
+          icon: null,
+          foldIcon: (isCollapsed: boolean) => (
+            <Diamond
+              className="h-4 w-4 text-primary shrink-0 transition-transform duration-200 ease-in-out"
+              style={{
+                transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+                fill: isCollapsed ? "currentColor" : "none",
+              }}
+            />
+          ),
           items: grouped,
           meta: (
             <div className="flex items-center gap-2">
@@ -1397,6 +1487,18 @@ export function PlanListView({
               <span className="text-[11px] text-muted-foreground whitespace-nowrap">{completedCount}/{grouped.length}</span>
             </div>
           ),
+          headerColumnRender: (colId: string) => {
+            if (colId === "dueDate") {
+              return (
+                <DueDateCell
+                  dueDate={m.dueDate}
+                  onChange={(date) => handleNodeUpdate(m.id, { dueDate: date })}
+                  align="start"
+                />
+              )
+            }
+            return null
+          },
         })
       }
       const unassigned = tasks.filter((n) => !n.milestoneId)
@@ -1504,7 +1606,7 @@ export function PlanListView({
     }
 
     return result
-  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes, showTaskNumbers])
+  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes, showTaskNumbers, handleNodeUpdate])
 
   // Open creation row for the first group when Enter is pressed with no focused item
   useEffect(() => {
@@ -1617,9 +1719,15 @@ export function PlanListView({
   }
 
   // Ensure name column is always visible
-  const visibleColumnsWithName = displaySettings.visibleProperties?.includes("name")
+  const baseVisible = displaySettings.visibleProperties?.includes("name")
     ? displaySettings.visibleProperties
     : ["name", ...(displaySettings.visibleProperties || [])]
+
+  // Only show PR column when the project's effective delivery mode is "pr"
+  const effectiveDeliveryMode = project?.deliveryMode ?? (project?.source ? deriveDeliveryMode(project.source) : undefined)
+  const visibleColumnsWithName = effectiveDeliveryMode === "pr"
+    ? baseVisible
+    : baseVisible.filter((c) => c !== "pr")
 
   return (
     <>
@@ -1660,6 +1768,7 @@ export function PlanListView({
         sortColumn={displaySettings.orderBy}
         sortDirection={displaySettings.orderDirection}
         onSort={handleSort}
+        indentGroupedRows={false}
         onGroupDrop={displaySettings.groupBy !== "none" && displaySettings.groupBy !== "project" ? handleGroupDrop : undefined}
         renderItemName={fastEdit ? (node) => {
           if (editingNodeId === node.id) {
@@ -2029,6 +2138,7 @@ export function PlanView() {
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false)
+  const [draftPaperOpen, setDraftPaperOpen] = useState(false)
   const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
   const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
   const fastEdit = fastEditSetting
@@ -2226,6 +2336,9 @@ export function PlanView() {
 
   return (
     <div className="flex h-dvh md:h-full flex-col">
+      {project.discoveryMode && (
+        <DraftPaperDialog open={draftPaperOpen} onOpenChange={setDraftPaperOpen} project={project} />
+      )}
       {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
       <header className="flex items-center gap-2 md:gap-3 border-b border-border/60 px-2 md:px-6 h-11 md:h-14 shrink-0">
         {/* Mobile back button */}
@@ -2431,6 +2544,21 @@ export function PlanView() {
                 </div>
               </div>
             ) : null}
+            {project.discoveryMode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDraftPaperOpen(true)}
+                    className="h-8 w-8 p-0 rounded-full"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Draft Paper</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -2522,6 +2650,15 @@ export function PlanView() {
               <Link2 className="h-3.5 w-3.5 mr-2" />
               Share
             </DropdownMenuItem>
+            {project.discoveryMode && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => { setDraftPaperOpen(true); setViewDropdownOpen(false) }}>
+                  <BookOpen className="h-3.5 w-3.5 mr-2" />
+                  Draft Paper…
+                </DropdownMenuItem>
+              </>
+            )}
             {canSyncGitHub ? (
               <>
                 <DropdownMenuSeparator />

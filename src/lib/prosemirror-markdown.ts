@@ -97,6 +97,12 @@ const nodes: Record<string, (state: MarkdownSerializerState, node: ProseMirrorNo
     const label = (node.attrs.label as string) || (node.attrs.id as string) || ''
     state.write(`@${label}`)
   },
+
+  // Citation inline node → [@citeKey]
+  citation(state, node) {
+    const key = (node.attrs.id as string) || (node.attrs.label as string) || ''
+    state.write(`[@${key}]`)
+  },
 }
 
 // ── Mark serializers ──────────────────────────────────────────────────

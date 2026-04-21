@@ -5,7 +5,7 @@
  * Web: shows PDF URL with in-browser iframe viewer.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   Download,
   ExternalLink,
@@ -19,6 +19,7 @@ import {
   User,
   Tag,
   Globe,
+  ScanText,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -31,6 +32,7 @@ import {
   type PdfDownloadProgress,
 } from '@/lib/pdf-downloader'
 import { isDesktop } from '@/lib/desktop-detect'
+import { PdfExtractPanel } from './pdf-extract-panel'
 
 // ── Props ────────────────────────────────────────────────────────────
 
@@ -52,6 +54,9 @@ export function ReferenceDetail({
   const [downloadStatus, setDownloadStatus] = useState<PdfDownloadStatus>('idle')
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [showExtract, setShowExtract] = useState(false)
+  const [notesDraft, setNotesDraft] = useState(reference.notes ?? '')
+  const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleProgress = useCallback((progress: PdfDownloadProgress) => {
     setDownloadStatus(progress.status)
@@ -80,6 +85,12 @@ export function ReferenceDetail({
       console.error('Failed to delete PDF:', err)
     }
   }, [reference.pdfPath, onUpdate])
+
+  const handleNotesChange = useCallback((val: string) => {
+    setNotesDraft(val)
+    if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current)
+    notesDebounceRef.current = setTimeout(() => onUpdate?.({ notes: val }), 600)
+  }, [onUpdate])
 
   const pdfViewUrl = getPdfViewUrl(reference)
   const hasPdf = isPdfAvailable(reference)
@@ -184,13 +195,18 @@ export function ReferenceDetail({
         </div>
       )}
 
-      {/* Notes */}
-      {reference.notes && (
-        <div className="text-sm">
-          <p className="font-medium mb-1">Notes</p>
-          <p className="text-muted-foreground">{reference.notes}</p>
-        </div>
-      )}
+      {/* Notes — editable, included in LLM citation context */}
+      <div className="text-sm">
+        <p className="font-medium mb-1.5">Notes</p>
+        <textarea
+          value={notesDraft}
+          onChange={e => handleNotesChange(e.target.value)}
+          placeholder="Add reading notes, key findings, or relevant excerpts… these will be injected into the prompt when you cite this paper with [@"
+          rows={3}
+          className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+        />
+        <p className="mt-1 text-[10px] text-muted-foreground">Included in prompt when cited with <code className="bg-muted px-0.5 rounded">[@{reference.id}]</code></p>
+      </div>
 
       {/* PDF Actions */}
       <div className="flex flex-col gap-2 pt-2 border-t">
@@ -273,6 +289,20 @@ export function ReferenceDetail({
             </a>
           )}
 
+          {/* Extract text/figures from PDF — desktop only */}
+          {isDesktop() && hasPdf && (
+            <Button
+              variant={showExtract ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setShowExtract(v => !v)}
+              className="gap-1.5"
+              title="Extract text and figures from PDF"
+            >
+              <ScanText className="h-3.5 w-3.5" />
+              Extract
+            </Button>
+          )}
+
           {/* Remove reference */}
           {onDelete && (
             <Button
@@ -302,6 +332,14 @@ export function ReferenceDetail({
           </p>
         )}
       </div>
+
+      {/* PDF Extract Panel — desktop only */}
+      {showExtract && pdfViewUrl && (
+        <PdfExtractPanel
+          pdfUrl={pdfViewUrl}
+          onAppendNotes={text => handleNotesChange(notesDraft ? `${notesDraft}\n\n${text}` : text)}
+        />
+      )}
 
       {/* Inline PDF Viewer */}
       {showPdf && pdfViewUrl && (

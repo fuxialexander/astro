@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
+import { useReferenceStore } from '@/stores/reference-store'
 import { statusBadgeVariants } from '@/lib/status-config'
 import { cn, getShortId } from '@/lib/utils'
 import { sanitizeHtml } from '@/lib/sanitize-html'
@@ -77,6 +78,7 @@ export function ExpandableTaskPanel({
   const editorRef = useRef<RichTextEditorRef>(null)
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const references = useReferenceStore((s) => s.library)
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
   const schedules = useScheduleStore((s) => s.schedules)
@@ -303,6 +305,7 @@ export function ExpandableTaskPanel({
                 content={draftContent}
                 onChange={handleContentChange}
                 placeholder="Add notes, context, or additional details about this task..."
+                references={references}
                 className="min-h-[300px]"
               />
             </div>

@@ -97,6 +97,19 @@ export const teams = pgTable('teams', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── Team References ──────────────────────────────────────────────────
+export const teamReferences = pgTable('team_references', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  teamId: uuid('team_id').notNull(),
+  citeKey: text('cite_key').notNull(),
+  data: jsonb('data').$type<import('../types.js').Reference>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index('idx_team_references_team_id').on(table.teamId),
+  citeKeyIdx: index('idx_team_references_cite_key').on(table.citeKey),
+}))
+
 // ── Team Members ──────────────────────────────────────────────────────
 export const teamMembers = pgTable('team_members', {
   teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),

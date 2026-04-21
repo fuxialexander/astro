@@ -196,6 +196,7 @@ export function useConvertToProject() {
         githubOwner: sourceProject.githubOwner,
         githubRepo: sourceProject.githubRepo,
         deliveryMode: sourceProject.deliveryMode || (source ? deriveDeliveryMode(source) : undefined),
+        discoveryMode: sourceProject.discoveryMode ?? false,
         defaultMachineId: sourceProject.defaultMachineId,
         projectType: "default",
         createdAt: now,

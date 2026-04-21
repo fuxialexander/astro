@@ -7,7 +7,7 @@ import {
   Cpu, Zap, Sun, Moon, CheckSquare, GitBranch, Github, Terminal,
   Radio, Target, Plus, Minus, GripVertical, BookOpen, Palette,
   Globe, FileText, Layers, Box, Wrench, Code, Sparkles, X, LayoutTemplate,
-  Pin, PinOff, ChevronRight, Search,
+  Pin, PinOff, ChevronRight, Search, ChevronsDownUp, ChevronsUpDown, Trash2, Lightbulb,
 } from "lucide-react"
 import {
   DndContext,
@@ -135,6 +135,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const authUser = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const projects = useProjectStore((s) => s.projects)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const nodesLoaded = usePlanStore((s) => s.loaded)
@@ -153,6 +154,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const reorderPinnedItems = useSidebarStore((s) => s.reorderPinnedItems)
   const collapsedInitiatives = useSidebarStore((s) => s.collapsedInitiatives)
   const toggleInitiativeCollapse = useSidebarStore((s) => s.toggleInitiativeCollapse)
+  const setAllInitiativesCollapsed = useSidebarStore((s) => s.setAllInitiativesCollapsed)
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
   const dismissAutoReveal = useSidebarStore((s) => s.dismissAutoReveal)
   const executions = useExecutionStore((s) => s.executions)
@@ -478,7 +480,15 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
+              <button onClick={() => navigate("/onboarding")} className={cn("flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors", location.pathname === "/onboarding" && "text-primary bg-primary/10")}>
+                <Lightbulb className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Workflow guide</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-tour-id="search" onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
                 <Search className="h-4 w-4" />
               </button>
             </TooltipTrigger>
@@ -502,7 +512,15 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
+              <button onClick={() => navigate("/onboarding")} className={cn("flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors", location.pathname === "/onboarding" && "text-primary bg-primary/10")}>
+                <Lightbulb className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Workflow guide</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-tour-id="search" onClick={() => setCommandPaletteOpen(true)} className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors">
                 <Search className="h-4 w-4" />
               </button>
             </TooltipTrigger>
@@ -728,7 +746,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         {initiativeGroups.length > 0 && (
           <div className={cn("flex flex-col gap-1 py-2 font-primary", collapsed ? "items-center" : "px-5")}>
             {!collapsed && (
-              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground mb-1">PROJECTS</div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">PROJECTS</div>
+                <button
+                  onClick={() => {
+                    const allIds = initiativeGroups.map((g) => g.initiative.id)
+                    const allCollapsed = allIds.every((id) => collapsedInitiatives.has(id))
+                    setAllInitiativesCollapsed(allIds, !allCollapsed)
+                  }}
+                  className="p-0.5 rounded hover:bg-muted/50 transition-colors text-muted-foreground/50 hover:text-muted-foreground"
+                  title={initiativeGroups.every((g) => collapsedInitiatives.has(g.initiative.id)) ? "Expand all" : "Fold all"}
+                >
+                  {initiativeGroups.every((g) => collapsedInitiatives.has(g.initiative.id))
+                    ? <ChevronsUpDown className="h-3 w-3" />
+                    : <ChevronsDownUp className="h-3 w-3" />}
+                </button>
+              </div>
             )}
             {collapsed && <div className="w-6 h-px bg-border my-1" />}
 
@@ -853,6 +886,15 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       className="shrink-0 p-0.5 rounded transition-colors opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-muted-foreground"
                     >
                       <Pin className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteProject(project.id)
+                      }}
+                      className="shrink-0 p-0.5 rounded transition-colors opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-destructive"
+                    >
+                      <Trash2 className="h-3 w-3" />
                     </button>
                     {projectsWithRunning.has(project.id) && (
                       <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />

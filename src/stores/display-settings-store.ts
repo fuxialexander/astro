@@ -45,10 +45,10 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
   },
   "plan-list": {
     groupBy: "milestone",
-    orderBy: "number",
+    orderBy: "dependency",
     orderDirection: "asc",
     showCompleted: true,
-    visibleProperties: ["status", "labels", "pr"],
+    visibleProperties: ["dueDate", "pr"],
     zoom: "day",
   },
   "my-tasks": {

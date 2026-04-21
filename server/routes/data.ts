@@ -195,6 +195,82 @@ app.post('/projects', async (c) => {
   return c.json(created, 201)
 })
 
+app.get('/projects/:id/notes', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const projectId = c.req.param('id')
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  // Fetch all non-deleted nodes
+  const allNodes = await db.select().from(planNodes).where(
+    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+  )
+
+  // Separate milestones and tasks-with-notes
+  const milestones = allNodes.filter(n => n.type === 'milestone')
+  const tasksWithNotes = allNodes.filter(n =>
+    n.type !== 'milestone' &&
+    (n.description !== null && n.description !== '' || n.content !== null && n.content !== '')
+  )
+
+  // Group tasks by milestoneId
+  const byMilestone = new Map<string | undefined, typeof tasksWithNotes>()
+  for (const task of tasksWithNotes) {
+    const key = task.milestoneId ?? undefined
+    if (!byMilestone.has(key)) byMilestone.set(key, [])
+    byMilestone.get(key)!.push(task)
+  }
+
+  // Build sections: milestone sections first (in order), then unassigned
+  const sections: Array<{
+    milestone?: { id: string; title: string }
+    tasks: Array<{ id: string; title: string; description: string | null; content: string | null; status: string }>
+  }> = []
+
+  for (const milestone of milestones) {
+    const tasks = byMilestone.get(milestone.clientId) ?? []
+    sections.push({
+      milestone: { id: milestone.clientId, title: milestone.title },
+      tasks: tasks.map(t => ({
+        id: t.clientId,
+        title: t.title,
+        description: t.description || null,
+        content: t.content || null,
+        status: t.status,
+      })),
+    })
+  }
+
+  // Tasks with no milestoneId
+  const unassigned = byMilestone.get(undefined) ?? []
+  if (unassigned.length > 0) {
+    sections.push({
+      milestone: undefined,
+      tasks: unassigned.map(t => ({
+        id: t.clientId,
+        title: t.title,
+        description: t.description || null,
+        content: t.content || null,
+        status: t.status,
+      })),
+    })
+  }
+
+  return c.json({
+    project: {
+      id: project.id,
+      name: project.name,
+      description: project.description || null,
+      visionDoc: project.visionDoc || null,
+    },
+    sections,
+  })
+})
+
 app.get('/projects/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('id')

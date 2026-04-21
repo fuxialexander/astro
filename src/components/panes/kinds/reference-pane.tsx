@@ -22,9 +22,8 @@ export function ReferencePane({ paneState }: Props) {
   const size = usePaneSize(ref)
 
   const reference = useReferenceStore((s) => {
-    if (!paneState.referenceId || !paneState.projectId) return undefined
-    const refs = s.referencesByProject.get(paneState.projectId) ?? []
-    return refs.find((r) => r.id === paneState.referenceId)
+    if (!paneState.referenceId) return undefined
+    return s.library.find((r) => r.id === paneState.referenceId)
   })
 
   const url = useMemo(() => (reference ? getPdfViewUrl(reference) : null), [reference])

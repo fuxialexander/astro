@@ -46,6 +46,13 @@ export interface ListGroup<T> {
   headerClassName?: string
   /** Extra class applied to each item row in this group */
   itemClassName?: string
+  /** Custom fold/unfold indicator. When provided, replaces the default ChevronRight. */
+  foldIcon?: (isCollapsed: boolean) => ReactNode
+  /**
+   * When provided the group header renders with the same column layout as task rows.
+   * Called for each visible non-name column id; return a ReactNode or null to leave it empty.
+   */
+  headerColumnRender?: (colId: string) => ReactNode
 }
 
 export interface BatchAction {
@@ -485,29 +492,79 @@ export function ItemListView<T>({
         <div key={group.key}>
           {/* Group header */}
           {showGroupHeaders && hasMultipleGroups && (
-            <div className={cn("flex items-center gap-2 px-6 pt-5 pb-1.5 w-full", group.headerClassName)}>
-              {selectable && (
-                <div className="w-10 shrink-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={allGroupSelected}
-                    onCheckedChange={() => toggleGroupItems(group.key)}
-                    aria-label={`Select all in ${group.label}`}
-                    className="h-[18px] w-[18px]"
-                  />
+            group.headerColumnRender ? (
+              /* Row-style header: matches task row layout exactly */
+              <div className={cn("flex items-center", group.headerClassName)}>
+                {withDnd && <div className="w-5 shrink-0" />}
+                <div className={cn(
+                  "flex flex-wrap sm:flex-nowrap items-center py-2 rounded-md mx-2 hover:bg-muted/30 transition-colors",
+                  withDnd ? "px-1" : "px-4",
+                  "flex-1 min-w-0",
+                )}>
+                  {selectable && (
+                    <div className="w-10 shrink-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={allGroupSelected}
+                        onCheckedChange={() => toggleGroupItems(group.key)}
+                        aria-label={`Select all in ${group.label}`}
+                        className="h-[18px] w-[18px]"
+                      />
+                    </div>
+                  )}
+                  {/* Name column — click to fold/unfold */}
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.key)}
+                    className={cn("flex items-center gap-2 text-left cursor-pointer transition-colors", nameCol?.width ?? "flex-1")}
+                  >
+                    {group.foldIcon
+                      ? group.foldIcon(isCollapsed)
+                      : <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
+                    }
+                    {group.icon}
+                    <span className="text-sm font-medium text-foreground/80">{group.label}</span>
+                    <span className="text-xs text-muted-foreground/50">{group.items.length}</span>
+                    {group.meta}
+                  </button>
+                  {/* Other columns */}
+                  <div className="flex items-center gap-2 sm:gap-0 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink sm:overflow-hidden mt-1 sm:mt-0">
+                    {otherCols.map((col) => (
+                      <div key={col.id} className={cn("flex items-center sm:justify-center sm:text-center shrink-0", col.width)}>
+                        {group.headerColumnRender!(col.id) ?? null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.key)}
-                className="flex items-center gap-2 flex-1 text-left cursor-pointer transition-colors"
-              >
-                <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
-                {group.icon}
-                <span className="text-[13px] font-semibold text-primary/80">{group.label}</span>
-                <span className="text-xs text-muted-foreground/50">{group.items.length}</span>
-                {group.meta}
-              </button>
-            </div>
+              </div>
+            ) : (
+              /* Section-style header: original compact header */
+              <div className={cn("flex items-center px-6 pt-5 pb-1.5 w-full", withDnd && "pl-8", group.headerClassName)}>
+                {selectable && (
+                  <div className="w-10 shrink-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={allGroupSelected}
+                      onCheckedChange={() => toggleGroupItems(group.key)}
+                      aria-label={`Select all in ${group.label}`}
+                      className="h-[18px] w-[18px]"
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex items-center gap-2 flex-1 text-left cursor-pointer transition-colors"
+                >
+                  {group.foldIcon
+                    ? group.foldIcon(isCollapsed)
+                    : <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
+                  }
+                  {group.icon}
+                  <span className="text-sm font-medium text-foreground/80">{group.label}</span>
+                  <span className="text-xs text-muted-foreground/50">{group.items.length}</span>
+                  {group.meta}
+                </button>
+              </div>
+            )
           )}
 
           {/* Rows */}
@@ -544,7 +601,10 @@ export function ItemListView<T>({
                     onClick={() => toggleGroup(group.key)}
                     className={cn("flex items-center gap-2 px-2 mb-3 w-full text-left", group.headerClassName)}
                   >
-                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isGroupCollapsed && "rotate-90")} />
+                    {group.foldIcon
+                      ? group.foldIcon(isGroupCollapsed)
+                      : <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isGroupCollapsed && "rotate-90")} />
+                    }
                     {group.icon}
                     <span className="text-sm font-semibold">{group.label}</span>
                     <span className="text-xs text-muted-foreground">({group.items.length})</span>
@@ -605,7 +665,7 @@ export function ItemListView<T>({
       )}
 
       {/* Column headers */}
-      <div className="flex items-center border-b border-border/40 px-6 h-9 shrink-0">
+      <div className={cn("flex items-center border-b border-border/40 px-6 h-9 shrink-0", dndEnabled && "pl-8")}>
         {selectable && (
           <div className="w-10 shrink-0 flex items-center justify-center">
             <Checkbox

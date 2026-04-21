@@ -59,4 +59,5 @@ export {
   scheduleRuns,
   loopIterations,
   deliveryBranches,
+  teamReferences,
 } from '../../../packages/core/src/db/schema.js'

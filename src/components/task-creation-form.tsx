@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useReferenceStore } from "@/stores/reference-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
 import { extractTitle } from "@/lib/text-utils"
@@ -52,6 +53,7 @@ export function TaskCreationForm({
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const projectReferences = useReferenceStore((s) => s.library)
   const loopNodesEnabled = useFeatureFlag('loop-nodes')
 
   const [title, setTitle] = useState("")
@@ -287,9 +289,10 @@ export function TaskCreationForm({
           machineId={project?.defaultMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
+          references={projectReferences}
           value={description}
           onChange={setDescription}
-          placeholder={`${t('taskCreation.descriptionPlaceholder', { ns: 'dialogs' })} (type @ to reference files)`}
+          placeholder={`${t('taskCreation.descriptionPlaceholder', { ns: 'dialogs' })} (@ for files · type [@ to cite a paper from your reference library)`}
           rows={mode === "dialog" ? 4 : 2}
           className={cn(
             "w-full bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground",

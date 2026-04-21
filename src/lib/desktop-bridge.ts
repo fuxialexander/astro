@@ -241,6 +241,10 @@ export const desktopBridge = {
       bridge().invoke<{ ok: true }>('layout:save', req),
   },
 
+  /** Generic invoke — use typed helpers above whenever possible */
+  invoke: <T = unknown>(channel: string, payload: unknown): Promise<T> =>
+    bridge().invoke<T>(channel, payload),
+
   platform: () => bridge().platform,
 
   auth: {
