@@ -969,6 +969,7 @@ dispatchRoute.post('/task', async (c) => {
     preferredProvider,
     targetMachineId,
     model,
+    effort,
     maxTurns,
     priority,
     workingDirectory,
@@ -1035,6 +1036,7 @@ async function dispatchViaRelay(
     preferredProvider?: ProviderType
     targetMachineId?: string
     model?: string
+    effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh'
     maxTurns?: number
     priority: DispatchPriority
     workingDirectory?: string
@@ -1098,6 +1100,7 @@ async function dispatchViaRelay(
     preferredProvider,
     targetMachineId,
     model,
+    effort,
     maxTurns,
     priority,
     workingDirectory,
