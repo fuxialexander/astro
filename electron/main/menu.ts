@@ -1,6 +1,57 @@
-import { app, Menu, shell } from 'electron'
-import { checkForUpdates } from './updater.js'
+import { app, Menu, shell, dialog } from 'electron'
+import { checkForUpdatesManual } from './updater.js'
 import { windowRegistry } from './windows/registry.js'
+
+async function handleCheckForUpdate(): Promise<void> {
+  const win = windowRegistry.get('main')
+  const version = app.getVersion()
+
+  const result = await checkForUpdatesManual()
+
+  switch (result.status) {
+    case 'up-to-date':
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'No Updates Available',
+        message: `Astro is up to date`,
+        detail: `Version ${version} is the latest release.`,
+        buttons: ['OK'],
+      })
+      break
+    case 'available':
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Available',
+        message: `Astro ${result.version} is available`,
+        detail: 'Downloading the update in the background. You\'ll be notified when it\'s ready to install.',
+        buttons: ['OK'],
+      })
+      break
+    case 'downloaded': {
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Ready',
+        message: `Astro ${result.version} is ready to install`,
+        detail: 'Restart Astro now to apply the update.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      })
+      if (response === 0 && win) {
+        win.webContents.send('updater:install')
+      }
+      break
+    }
+    case 'unavailable':
+      await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Update Check Failed',
+        message: 'Could not check for updates',
+        detail: result.reason,
+        buttons: ['OK'],
+      })
+      break
+  }
+}
 
 export function buildApplicationMenu(): void {
   const isMac = process.platform === 'darwin'
@@ -81,25 +132,18 @@ export function buildApplicationMenu(): void {
       ],
     },
 
-    // Help
+    // Help — use label (not role:'help') so macOS doesn't suppress custom items
     {
-      role: 'help' as const,
+      label: 'Help',
       submenu: [
         {
-          label: 'Check for Update',
-          click: () => {
-            checkForUpdates()
-            // Briefly focus the main window so the user sees any update banner
-            const win = windowRegistry.get('main')
-            if (win) win.focus()
-          },
+          label: 'Check for Update…',
+          click: () => { void handleCheckForUpdate() },
         },
         { type: 'separator' as const },
         {
           label: 'Learn More',
-          click: async () => {
-            await shell.openExternal('https://astroanywhere.com')
-          },
+          click: () => { void shell.openExternal('https://astroanywhere.com') },
         },
       ],
     },
