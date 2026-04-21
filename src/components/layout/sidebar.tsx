@@ -587,10 +587,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       )}
 
       {/* ─── Pages section (sticky, does NOT scroll) ─── */}
-      <div className="shrink-0 overflow-visible">
+      <div className="shrink-0">
         {/* Hover zone: nav items + customize button collapse/expand together */}
         <div
-          className="relative z-10"
           onMouseEnter={() => !collapsed && setNavHovered(true)}
           onMouseLeave={() => setNavHovered(false)}
         >
@@ -608,9 +607,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   const isItemActive = location.pathname === item.to
                     || (item.id === "projects" && location.pathname.startsWith("/project/"))
                   const shortcutLabel = showShortcuts && index < 9 ? `${isMac ? '⌘' : '^'}${index + 1}` : null
-
-                  // In shouldCollapseNav mode: only render active item in normal flow
-                  if (shouldCollapseNav && !isItemActive) return null
+                  const isVisible = shouldCollapseNav ? (isItemActive || navHovered) : true
 
                   if (collapsed) {
                     const active = isItemActive || location.pathname === item.to
@@ -642,7 +639,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   return (
                     <div
                       key={item.id}
-                      className="mb-1"
+                      className="overflow-hidden"
+                      style={{
+                        maxHeight: isVisible ? '52px' : '0px',
+                        marginBottom: isVisible ? '4px' : '0px',
+                        opacity: isVisible ? 1 : 0,
+                        transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), margin-bottom 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
+                      }}
                     >
                       <NavLink
                         to={item.to}
@@ -688,73 +691,16 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 })}
               </nav>
 
-              {/* Overlay: non-active nav items float above project list when collapsed */}
-              {shouldCollapseNav && navHovered && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-card border-x border-b border-border/40 rounded-b-[10px] shadow-sm animate-in fade-in-0 slide-in-from-top-1 duration-150 pt-1 pb-2 px-4">
-                  {visibleItems
-                    .filter((item) => {
-                      const isItemActive = location.pathname === item.to
-                        || (item.id === "projects" && location.pathname.startsWith("/project/"))
-                      return !isItemActive
-                    })
-                    .map((item) => {
-                      const Icon = iconMap[item.icon] || CheckSquare
-                      const badge = getBadge(item.id)
-                      const globalIndex = visibleItems.indexOf(item)
-                      const shortcutLabel = showShortcuts && globalIndex < 9 ? `${isMac ? '⌘' : '^'}${globalIndex + 1}` : null
-                      return (
-                        <div key={item.id} className="mb-1">
-                          <NavLink
-                            to={item.to}
-                            end
-                            data-tour-id={item.id}
-                            className={({ isActive }) => {
-                              const active = isActive || (item.id === "projects" && location.pathname.startsWith("/project/"))
-                              return cn(
-                                "group/navitem flex items-center rounded-[10px] text-[15px] font-medium transition-colors gap-3 px-3.5 py-2.5 w-full",
-                                active
-                                  ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
-                                  : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
-                              )
-                            }}
-                          >
-                            <Icon className="h-[18px] w-[18px] shrink-0" />
-                            <span className="flex-1 truncate">{getItemLabel(item)}</span>
-                            {badge && (
-                              <span className={cn(
-                                "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
-                                badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info",
-                              )}>
-                                {badge.variant === "info" && (
-                                  <div className="relative h-1.5 w-1.5">
-                                    <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
-                                  </div>
-                                )}
-                                {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
-                                {badge.count}
-                              </span>
-                            )}
-                            {shortcutLabel && (
-                              <span className="opacity-0 group-hover/navitem:opacity-100 transition-opacity text-[10px] text-muted-foreground/40 font-mono tabular-nums shrink-0 pr-0.5">
-                                {shortcutLabel}
-                              </span>
-                            )}
-                          </NavLink>
-                        </div>
-                      )
-                    })}
-                  <button
-                    onClick={() => setEditing(true)}
-                    className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
-                  >
-                    Customize sidebar...
-                  </button>
-                </div>
-              )}
-
-              {/* Customize button when nav is not in collapse-overlay mode */}
-              {!shouldCollapseNav && !collapsed && (
-                <div className="px-5 pb-1">
+              {/* Customize sidebar button — animates with nav hover zone */}
+              {!collapsed && (
+                <div
+                  className="px-5 overflow-hidden"
+                  style={{
+                    maxHeight: (!shouldCollapseNav || navHovered) ? '36px' : '0px',
+                    opacity: (!shouldCollapseNav || navHovered) ? 1 : 0,
+                    transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
+                  }}
+                >
                   <button
                     onClick={() => setEditing(true)}
                     className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
