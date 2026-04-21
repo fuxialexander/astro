@@ -587,18 +587,25 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       )}
 
       {/* ─── Pages section (sticky, does NOT scroll) ─── */}
-      <div className="shrink-0">
+      {/* min-height reserves space for one nav item when overlay mode is active */}
+      <div className="shrink-0" style={shouldCollapseNav && !collapsed ? { minHeight: '3.5rem' } : undefined}>
         {/* Hover zone: nav items + customize button collapse/expand together */}
         <div
+          className={cn(shouldCollapseNav && !collapsed && "relative z-10")}
           onMouseEnter={() => !collapsed && setNavHovered(true)}
           onMouseLeave={() => setNavHovered(false)}
         >
           {!isEditing ? (
             <>
+              {/* When shouldCollapseNav: nav is absolutely positioned so it overlays content below */}
               <nav
                 className={cn(
                   "flex flex-col py-2",
                   collapsed ? "items-center" : "px-4",
+                  shouldCollapseNav && !collapsed && cn(
+                    "absolute top-0 left-0 right-0",
+                    navHovered && "bg-card border-x border-b border-border/50 rounded-b-[10px] shadow-md",
+                  ),
                 )}
               >
                 {visibleItems.map((item, index) => {
@@ -689,15 +696,34 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                     </div>
                   )
                 })}
+
+                {/* Customize button lives inside the nav when in overlay mode */}
+                {shouldCollapseNav && !collapsed && (
+                  <div
+                    className="overflow-hidden"
+                    style={{
+                      maxHeight: navHovered ? '36px' : '0px',
+                      opacity: navHovered ? 1 : 0,
+                      transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
+                    }}
+                  >
+                    <button
+                      onClick={() => setEditing(true)}
+                      className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
+                    >
+                      Customize sidebar...
+                    </button>
+                  </div>
+                )}
               </nav>
 
-              {/* Customize sidebar button — animates with nav hover zone */}
-              {!collapsed && (
+              {/* Customize button in normal flow when not in overlay mode */}
+              {!shouldCollapseNav && !collapsed && (
                 <div
                   className="px-5 overflow-hidden"
                   style={{
-                    maxHeight: (!shouldCollapseNav || navHovered) ? '36px' : '0px',
-                    opacity: (!shouldCollapseNav || navHovered) ? 1 : 0,
+                    maxHeight: navHovered ? '36px' : '0px',
+                    opacity: navHovered ? 1 : 0,
                     transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
                   }}
                 >
