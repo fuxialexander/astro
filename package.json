@@ -47,7 +47,7 @@
     "flags": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts",
     "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
     "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
-    "postinstall": "([ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true) && (electron-rebuild -f -w node-pty || echo '[postinstall] electron-rebuild skipped or failed — terminal will use NOT_REBUILT fallback until you run: npx electron-rebuild -f -w node-pty')",
+    "postinstall": "([ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true) && (electron-rebuild -f -w node-pty || echo '[postinstall] electron-rebuild skipped or failed \u2014 terminal will use NOT_REBUILT fallback until you run: npx electron-rebuild -f -w node-pty')",
     "electron:build:main": "tsc -p electron/tsconfig.electron.json && tsc -p electron/tsconfig.preload.json",
     "electron:build:server": "tsx scripts/build-server.ts",
     "build:binaries": "tsx scripts/build-binaries.ts",
@@ -154,7 +154,8 @@
     "tippy.js": "^6.3.7",
     "ws": "^8.19.0",
     "zod": "^4.3.6",
-    "zustand": "^5.0.5"
+    "zustand": "^5.0.5",
+    "electron-updater": "^6.8.3"
   },
   "overrides": {
     "esbuild": ">=0.25.0"
@@ -194,7 +195,6 @@
     "dockview-react": "^5.2.0",
     "drizzle-kit": "^0.31.9",
     "electron": "^33.2.0",
-    "electron-updater": "^6.3.9",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
