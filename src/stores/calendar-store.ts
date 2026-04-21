@@ -84,7 +84,7 @@ export const useCalendarStore = create<CalendarStore>((set, get) => ({
           }
         } catch (err) {
           if (err instanceof CalendarPermissionError) {
-            set({ externalPermissionDenied: true })
+            set({ externalPermissionDenied: true, externalError: null })
           } else {
             console.error(`[calendar-store] Provider ${provider.id} error:`, err)
             set({ externalError: err instanceof Error ? err.message : 'Calendar provider error' })

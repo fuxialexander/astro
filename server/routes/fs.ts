@@ -701,6 +701,10 @@ fsRoute.get('/search', async (c) => {
     return c.json({ matches: [], error: 'machineId, root, and pattern are required' }, 400)
   }
 
+  if (root.includes('..') || !root.startsWith('/')) {
+    return c.json({ matches: [], error: 'Invalid root path' }, 400)
+  }
+
   if (!await verifyMachineAccess(machineId, user)) {
     return c.json({ matches: [], error: 'Machine not found' })
   }

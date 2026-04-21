@@ -208,6 +208,10 @@ async function createEventViaAppleScript(req: {
     : 'first calendar'
   const startD = new Date(req.startDate)
   const endD = new Date(req.endDate)
+  if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
+    console.error('[apple-calendar] Invalid date range: endDate must be >= startDate')
+    return { id: '', ok: false }
+  }
   const startStr = startD.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })
   const endStr = endD.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })
   const notesLine = req.notes ? `\nset description of newEvent to ${asString(req.notes)}` : ''

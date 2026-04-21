@@ -11,32 +11,32 @@ import { toBibTeX, parseBibTeX } from '@astro/core'
 import type { Reference } from '@astro/core/types'
 
 const referenceSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  authors: z.array(z.string()),
+  id: z.string().max(200),
+  title: z.string().max(2000),
+  authors: z.array(z.string().max(500)).max(100),
   year: z.number().optional(),
-  journal: z.string().optional(),
-  venue: z.string().optional(),
-  volume: z.string().optional(),
-  issue: z.string().optional(),
-  pages: z.string().optional(),
-  publisher: z.string().optional(),
-  entryType: z.string().optional(),
-  doi: z.string().optional(),
-  pmid: z.string().optional(),
-  arxivId: z.string().optional(),
-  url: z.string().optional(),
-  pdfUrl: z.string().optional(),
-  pdfPath: z.string().optional(),
+  journal: z.string().max(500).optional(),
+  venue: z.string().max(500).optional(),
+  volume: z.string().max(100).optional(),
+  issue: z.string().max(100).optional(),
+  pages: z.string().max(100).optional(),
+  publisher: z.string().max(500).optional(),
+  entryType: z.string().max(100).optional(),
+  doi: z.string().max(200).optional(),
+  pmid: z.string().max(50).optional(),
+  arxivId: z.string().max(50).optional(),
+  url: z.string().max(2000).optional(),
+  pdfUrl: z.string().max(2000).optional(),
+  pdfPath: z.string().max(2000).optional(),
   pdfDownloaded: z.boolean().optional(),
-  abstract: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  notes: z.string().optional(),
+  abstract: z.string().max(50_000).optional(),
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  notes: z.string().max(10_000).optional(),
   source: z.enum(['manual', 'doi', 'zotero', 'bibtex', 'crossref']).optional(),
-  zoteroKey: z.string().optional(),
+  zoteroKey: z.string().max(200).optional(),
   isOpenAccess: z.boolean().optional(),
-  oaSource: z.string().optional(),
-  addedAt: z.string().optional(),
+  oaSource: z.string().max(200).optional(),
+  addedAt: z.string().max(100).optional(),
 })
 
 const referencesRoute = new Hono()
@@ -126,6 +126,7 @@ referencesRoute.post('/import', async (c) => {
   } | null
   if (!body?.references?.length) return c.json({ error: 'No references provided' }, 400)
   if (body.references.length > 500) return c.json({ error: 'Too many references; split into batches of 500 or fewer' }, 400)
+  if (JSON.stringify(body.references).length > 5_000_000) return c.json({ error: 'References payload too large (max 5 MB)' }, 413)
 
   const mode = body.mode ?? 'insert'
 
@@ -500,6 +501,10 @@ referencesRoute.get('/pdf-proxy', async (c) => {
     responseHeaders.delete('content-security-policy')
 
     const cl = upstream.headers.get('content-length')
+    const MAX_PDF_SIZE = 50 * 1024 * 1024 // 50 MB
+    if (cl && parseInt(cl, 10) > MAX_PDF_SIZE) {
+      return c.json({ error: 'PDF too large (max 50 MB)' }, 413)
+    }
     if (cl) responseHeaders.set('Content-Length', cl)
 
     return new Response(upstream.body, {
