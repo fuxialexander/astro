@@ -23,7 +23,28 @@ import type { Reference } from '@astro/core/types'
 
 const ZOTERO_LOCAL_API = 'http://127.0.0.1:23119'
 
-async function fetchZoteroBibTeX(): Promise<string | null> {
+/**
+ * Try the Better BibTeX export endpoint (BBT plugin must be installed).
+ * This is the most reliable way to get BibTeX with proper cite keys.
+ * Endpoint: /better-bibtex/export/library?/1/library.bibtex
+ */
+async function fetchViaBBT(): Promise<string | null> {
+  try {
+    const url = `${ZOTERO_LOCAL_API}/better-bibtex/export/library?/1/library.bibtex`
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    if (!res.ok) return null
+    const text = await res.text()
+    return text.trim() && text.includes('@') ? text : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fallback: paginate via the Zotero local API with format=bibtex.
+ * Only works when Better BibTeX is installed (BBT overrides the format param).
+ */
+async function fetchViaLocalAPI(): Promise<string | null> {
   const chunks: string[] = []
   let start = 0
   const limit = 100
@@ -31,12 +52,11 @@ async function fetchZoteroBibTeX(): Promise<string | null> {
   try {
     while (true) {
       const url = `${ZOTERO_LOCAL_API}/api/users/0/items?format=bibtex&limit=${limit}&start=${start}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
       if (!res.ok) return null
       const text = await res.text()
-      if (!text.trim()) break
+      if (!text.trim() || !text.includes('@')) break
       chunks.push(text)
-      // If fewer than limit items were returned we've reached the end
       const entryCount = (text.match(/@\w+\{/g) ?? []).length
       if (entryCount < limit) break
       start += limit
@@ -45,6 +65,13 @@ async function fetchZoteroBibTeX(): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+async function fetchZoteroBibTeX(): Promise<string | null> {
+  // BBT endpoint is more reliable and returns proper cite keys
+  const bbt = await fetchViaBBT()
+  if (bbt) return bbt
+  return fetchViaLocalAPI()
 }
 
 // ── SQLite fallback ───────────────────────────────────────────────────
@@ -69,6 +96,29 @@ function findZoteroDb(): string | null {
   return null
 }
 
+// Maps Zotero internal typeName → BibTeX entry type
+const ZOTERO_TYPE_TO_BIBTEX: Record<string, string> = {
+  journalarticle: 'article',
+  conferencepaper: 'inproceedings',
+  book: 'book',
+  booksection: 'incollection',
+  thesis: 'phdthesis',
+  report: 'techreport',
+  preprint: 'misc',
+  document: 'misc',
+  webpage: 'misc',
+  manuscript: 'unpublished',
+  patent: 'misc',
+  presentation: 'misc',
+  artwork: 'misc',
+  film: 'misc',
+  interview: 'misc',
+  letter: 'misc',
+  magazinearticle: 'article',
+  newspaperarticle: 'article',
+  encyclopediaarticle: 'incollection',
+}
+
 function convertZoteroItem(
   item: Record<string, unknown>,
   creators: Record<string, unknown>[],
@@ -83,7 +133,11 @@ function convertZoteroItem(
   const dateStr = get('date') ?? ''
   const year = parseInt(dateStr.slice(0, 4) || '0', 10)
 
-  // Better BibTeX cite key stored in the extra field as "Citation Key: foo2024"
+  // Cite key priority:
+  // 1. Zotero 8 native citationKey column on the items table
+  // 2. BBT legacy: "Citation Key: foo2024" line in the extra field (Zotero 7)
+  // 3. Generated fallback: firstauthorYYYY
+  const nativeCiteKey = item.citationKey as string | undefined
   const extra = get('extra') ?? ''
   const bbtKeyMatch = extra.match(/Citation Key:\s*(\S+)/i)
   const bbtKey = bbtKeyMatch?.[1]
@@ -98,7 +152,7 @@ function convertZoteroItem(
     .filter(Boolean)
 
   const firstAuthor = (authors[0]?.split(',')[0] ?? 'unknown').replace(/[^a-z]/gi, '').toLowerCase()
-  const citeKey = bbtKey ?? `${firstAuthor}${year || 'nd'}`
+  const citeKey = (nativeCiteKey?.trim()) || bbtKey || `${firstAuthor}${year || 'nd'}`
 
   return {
     id: citeKey,
@@ -114,7 +168,7 @@ function convertZoteroItem(
     abstract: get('abstractNote'),
     source: 'zotero',
     zoteroKey: String(item.key ?? item.itemID ?? ''),
-    entryType: String(item.typeName ?? 'article').toLowerCase(),
+    entryType: ZOTERO_TYPE_TO_BIBTEX[String(item.typeName ?? '').toLowerCase()] ?? 'misc',
   }
 }
 
@@ -127,15 +181,31 @@ async function fetchZoteroSQLite(): Promise<string | null> {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true })
 
     try {
-      const itemRows = db.prepare(`
-        SELECT i.itemID, i.key, it.typeName
-        FROM items i
-        JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-        WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
-          AND it.typeName NOT IN ('attachment', 'note')
-        ORDER BY i.dateAdded
-        LIMIT 2000
-      `).all() as Record<string, unknown>[]
+      // Zotero 8 added a native citationKey column; Zotero 7 doesn't have it.
+      // Try with it first, fall back to without.
+      let itemRows: Record<string, unknown>[]
+      try {
+        itemRows = db.prepare(`
+          SELECT i.itemID, i.key, i.citationKey, it.typeName
+          FROM items i
+          JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+          WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
+            AND it.typeName NOT IN ('attachment', 'note')
+          ORDER BY i.dateAdded
+          LIMIT 2000
+        `).all() as Record<string, unknown>[]
+      } catch {
+        // Zotero 7 schema — no citationKey column
+        itemRows = db.prepare(`
+          SELECT i.itemID, i.key, it.typeName
+          FROM items i
+          JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+          WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
+            AND it.typeName NOT IN ('attachment', 'note')
+          ORDER BY i.dateAdded
+          LIMIT 2000
+        `).all() as Record<string, unknown>[]
+      }
 
       const references: Reference[] = []
       for (const item of itemRows) {
@@ -181,10 +251,10 @@ const zoteroScanSchema = {
 
 export function registerZoteroChannels(): void {
   defineHandler('zotero:scan', zoteroScanSchema, async () => {
-    // 1. Try local API (Zotero app must be running)
+    // 1. Try local API / BBT (Zotero app must be running)
     const apiBibtex = await fetchZoteroBibTeX()
     if (apiBibtex) {
-      console.log('[zotero] Retrieved library via local API')
+      console.log('[zotero] Retrieved library via local API (BBT or paginated)')
       return { found: true, bibtex: apiBibtex }
     }
 

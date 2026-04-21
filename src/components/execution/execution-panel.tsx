@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from "react"
-import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, ChevronDown, Bot, Boxes, Sparkles, GitBranch, WifiOff } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, ChevronDown, Bot, Boxes, GitBranch, WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -24,8 +23,6 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import type { PlanNode, ProviderStatus } from "@/types"
-import { refineContent } from "@/lib/api-client"
-import { marked } from "marked"
 import { deriveAvailableProviders, isProviderAvailable } from "./provider-utils"
 
 interface ExecutionPanelProps {
@@ -182,10 +179,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   }, [project?.deliveryMode, useWorktree])
 
   const [repoConfigOpen, setRepoConfigOpen] = useState(false)
-  const [isRefining, setIsRefining] = useState(false)
-  const [justRefined, setJustRefined] = useState(false)
-  const updateNode = usePlanStore((s) => s.updateNode)
-
   const handleExecute = async () => {
     try {
       // Flush any pending content saves before execution
@@ -211,21 +204,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       useWorktree,
     })
     navigate(`/project/${projectId}/task/${node.id}${viewMode ? `?from=${viewMode}` : ''}`)
-  }
-
-  const handleRefine = async () => {
-    setIsRefining(true)
-    try {
-      const result = await refineContent(node.title, node.content ? stripHtml(node.content) : (node.description ?? ""), "task")
-      if (result) {
-        // refinedDescription is markdown — convert to HTML for TipTap, keep markdown in description
-        const contentHtml = await marked.parse(result.refinedDescription, { async: false }) as string
-        updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription, content: contentHtml })
-        setJustRefined(true)
-        setTimeout(() => setJustRefined(false), 1500)
-      }
-    } catch { /* refinement is best-effort */ }
-    setIsRefining(false)
   }
 
   const handleCancel = () => {
@@ -484,40 +462,15 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex flex-1 gap-0">
-                  <Button
-                    size="sm"
-                    className="flex-1 rounded-r-none"
-                    onClick={handleExecute}
-                    disabled={!canExecuteNow || isRefining}
-                  >
-                    {justRefined ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                    ) : isRefining ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Play className="h-3.5 w-3.5" />
-                    )}
-                    {justRefined ? "Refined!" : isRefining ? "Refining..." : "Execute"}
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="sm"
-                        className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
-                        disabled={!canExecuteNow || isRefining}
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={handleRefine} className="gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        Refine
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  onClick={handleExecute}
+                  disabled={!canExecuteNow}
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Execute
+                </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">{executeTooltip}</TooltipContent>
             </Tooltip>

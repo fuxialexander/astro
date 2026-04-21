@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, CalendarDays, Columns3, Maximize2, Minimize2, MessageSquare, Microscope, AlertCircle } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Play, Pencil, GitBranch, ChevronLeft, ChevronDown, ChevronRight, MoreVertical, Clock, RotateCcw, RefreshCw, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Check, FileText, Loader2, CircleCheck, Target, Users, Download, Link2, BookOpen, List, Network, CalendarRange, CalendarDays, Columns3, Maximize2, Minimize2, MessageSquare, Microscope, AlertCircle, Wifi, FolderOpen } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { DraftPaperDialog } from "@/pages/project-overview"
@@ -36,6 +36,8 @@ import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { FileBrowser } from "@/components/file-browser"
 import { SyncHealthDot } from "@/components/github-sync-health"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -76,7 +78,8 @@ import { useReferenceStore } from "@/stores/reference-store"
 import { ProviderAgentPicker } from "@/components/execution/provider-agent-picker"
 import { MachineWorkdirPill } from "@/components/execution/machine-workdir-pill"
 import { isDesktop } from "@/lib/desktop-detect"
-import { desktopBridge } from "@/lib/desktop-bridge"
+import { EDITOR_APPS, type EditorAppId, buildEditorUrl, openWithEditor } from "@/lib/editor-utils"
+import { AppIcon } from "@/components/editor-app-icon"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -260,44 +263,9 @@ function ExecuteAllButton({ projectId }: { projectId: string }) {
   )
 }
 
-// --- Editor app definitions for "Open in" dropdown ---
-// --- Editor app icon helper ---
-function AppIcon({ appId, className }: { appId: string; className?: string }) {
-  return <img src={`/app-icons/${appId}.png`} alt="" className={cn("rounded-[3px]", className)} draggable={false} />
-}
-
-const EDITOR_APPS = [
-  { id: 'cursor', label: 'Cursor', scheme: 'cursor' },
-  { id: 'vscode', label: 'VS Code', scheme: 'vscode' },
-  { id: 'vscode-insiders', label: 'VS Code Insiders', scheme: 'vscode-insiders' },
-  { id: 'finder', label: 'Finder', scheme: 'finder' },
-  { id: 'terminal', label: 'Terminal', scheme: 'terminal' },
-  { id: 'iterm', label: 'iTerm2', scheme: 'iterm' },
-  { id: 'ghostty', label: 'Ghostty', scheme: 'ghostty' },
-  { id: 'xcode', label: 'Xcode', scheme: 'xcode' },
-] as const
-
-type EditorAppId = (typeof EDITOR_APPS)[number]['id']
-
-function buildEditorUrl(appId: EditorAppId, path: string, isRemote: boolean, machineName?: string): string | null {
-  const app = EDITOR_APPS.find((a) => a.id === appId)
-  if (!app || !path) return null
-  const scheme = app.scheme
-  // Terminal-type apps: open via x-man-page or custom handler
-  if (appId === 'finder') return `file://${path}`
-  if (appId === 'terminal') return `terminal://open?path=${encodeURIComponent(path)}`
-  if (appId === 'iterm') return `iterm2://open?path=${encodeURIComponent(path)}`
-  if (appId === 'ghostty') return `ghostty://open?path=${encodeURIComponent(path)}`
-  if (appId === 'xcode') return `xcode://open?path=${encodeURIComponent(path)}`
-  // VS Code / Cursor family
-  if (isRemote && machineName) {
-    return `${scheme}://vscode-remote/ssh-remote+${machineName}${path.startsWith('/') ? '' : '/'}${path}`
-  }
-  return `${scheme}://file${path}`
-}
 
 // --- Compact workdir bar shown at bottom of plan view ---
-function WorkdirBar({ project }: { project: Project }) {
+function WorkdirBar({ project, fileBrowserOpen, onToggleFileBrowser }: { project: Project; fileBrowserOpen?: boolean; onToggleFileBrowser?: () => void }) {
   const [repoOpen, setRepoOpen] = useState(false)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
@@ -306,8 +274,12 @@ function WorkdirBar({ project }: { project: Project }) {
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const editorType = useSettingsStore((s) => s.editorType)
   const setEditorType = useSettingsStore((s) => s.setEditorType)
+  const updateProject = useProjectStore((s) => s.updateProject)
   const [selectedApp, setSelectedApp] = useState<EditorAppId>(editorType === 'vscode' ? 'vscode' : 'cursor')
-  const [useRemote, setUseRemote] = useState(false)
+  const useRemote = project.terminalOpenIn === 'remote'
+  const toggleRemote = useCallback(() => {
+    updateProject(project.id, { terminalOpenIn: useRemote ? 'local' : 'remote' })
+  }, [project.id, useRemote, updateProject])
 
   useEffect(() => {
     if (machines.length === 0) fetchMachines()
@@ -334,12 +306,19 @@ function WorkdirBar({ project }: { project: Project }) {
 
   const hasWorkdir = !!(project.workingDirectory || project.repository)
 
-  // Sync selectedApp → settings store for apps that map to editor types
+  const openWithApp = useCallback((appId: EditorAppId) => {
+    const path = project.workingDirectory
+    if (!path) return
+    openWithEditor(appId, path, useRemote, defaultMachine?.name)
+  }, [project.workingDirectory, useRemote, defaultMachine?.name])
+
+  // Sync selectedApp → settings store for apps that map to editor types, then open
   const handleSelectApp = useCallback((appId: EditorAppId) => {
     setSelectedApp(appId)
     if (appId === 'vscode' || appId === 'vscode-insiders') setEditorType('vscode')
     else if (appId === 'cursor') setEditorType('cursor')
-  }, [setEditorType])
+    openWithApp(appId)
+  }, [setEditorType, openWithApp])
 
   return (
     <>
@@ -349,22 +328,16 @@ function WorkdirBar({ project }: { project: Project }) {
           <>
             <MachineWorkdirPill project={project} onClick={() => setRepoOpen(true)} />
 
-            {/* Open in editor: immediately after workdir */}
+            {/* Open in editor + Remote toggle: immediately after workdir */}
             {project.workingDirectory && (
-              <div className="flex items-center shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      disabled={!editorUrl}
-                      onClick={() => {
-                        if (!editorUrl) return
-                        if (isDesktop()) {
-                          desktopBridge.editor.openExternal(editorUrl)
-                        } else {
-                          window.open(editorUrl, '_blank')
-                        }
-                      }}
+                      disabled={selectedApp !== 'finder' && !editorUrl}
+                      onClick={() => openWithApp(selectedApp)}
                       className={cn(
                         "flex items-center justify-center h-6 w-6 rounded-l-full border border-border hover:bg-muted transition-colors",
                         !editorUrl && "opacity-40 cursor-not-allowed"
@@ -382,7 +355,7 @@ function WorkdirBar({ project }: { project: Project }) {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-52 p-1" align="start" side="top">
-                    {EDITOR_APPS.map((app) => (
+                    {EDITOR_APPS.filter((app) => !app.desktopOnly || isDesktop()).map((app) => (
                       <button
                         key={app.id}
                         type="button"
@@ -397,28 +370,52 @@ function WorkdirBar({ project }: { project: Project }) {
                         {app.id === selectedApp && <Check className="h-3.5 w-3.5 text-primary" />}
                       </button>
                     ))}
-                    <div className="border-t border-border mt-1 pt-1 px-3 py-2 flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Remote (SSH)</span>
-                      <button
-                        type="button"
-                        onClick={() => setUseRemote(!useRemote)}
-                        className={cn(
-                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
-                          useRemote ? "bg-primary" : "bg-muted-foreground/30"
-                        )}
-                      >
-                        <span className={cn(
-                          "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow-sm",
-                          useRemote ? "translate-x-[18px]" : "translate-x-[3px]"
-                        )} />
-                      </button>
-                    </div>
                   </PopoverContent>
                 </Popover>
+                </div>
+
+                {/* Remote (SSH) toggle — controls both editor URL and terminal */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleRemote}
+                      className={cn(
+                        "flex items-center gap-1 h-6 px-2 rounded-full border text-[11px] font-medium transition-colors",
+                        useRemote
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      <Wifi className="h-3 w-3" />
+                      Remote
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open in Remote (SSH) — affects editor and terminal</TooltipContent>
+                </Tooltip>
               </div>
             )}
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
+              {defaultMachine && project.workingDirectory && onToggleFileBrowser && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={onToggleFileBrowser}
+                      className={cn(
+                        "flex items-center justify-center h-6 w-6 rounded-full border transition-colors",
+                        fileBrowserOpen
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border hover:bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{fileBrowserOpen ? "Close files" : "Browse files"}</TooltipContent>
+                </Tooltip>
+              )}
               {project.discoveryMode && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2206,6 +2203,18 @@ export function PlanView() {
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
+  const isWide = useMediaQuery("(min-width: 1024px)")
+
+  // File browser sidebar
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
+  const [fileBrowserWidth, setFileBrowserWidth] = useState(320)
+  const [fileBrowserResizing, setFileBrowserResizing] = useState(false)
+  const machines = useMachinesStore((s) => s.machines)
+  const fileBrowserMachine = project
+    ? (project.defaultMachineId
+        ? machines.find((m) => m.id === project.defaultMachineId)
+        : machines.length === 1 ? machines[0] : undefined)
+    : undefined
   const [isRenaming, setIsRenaming] = useState(false)
 
   const handleRename = useCallback((newName: string) => {
@@ -2754,6 +2763,65 @@ export function PlanView() {
           </div>
 
 
+        {/* File browser sidebar — persistent on wide screens, sheet on mobile */}
+        {fileBrowserOpen && fileBrowserMachine && project?.workingDirectory && isWide && (
+          <div
+            className="flex flex-col bg-background border-l border-border shrink-0 relative overflow-hidden"
+            style={{
+              width: fileBrowserWidth,
+              transition: fileBrowserResizing ? 'none' : undefined,
+            }}
+          >
+            {/* Resize handle on left edge */}
+            <div
+              className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                const startX = e.clientX
+                const startWidth = fileBrowserWidth
+                setFileBrowserResizing(true)
+                const onMouseMove = (ev: MouseEvent) => {
+                  const delta = startX - ev.clientX
+                  setFileBrowserWidth(Math.max(240, Math.min(600, startWidth + delta)))
+                }
+                const onMouseUp = () => {
+                  setFileBrowserResizing(false)
+                  document.body.style.cursor = ''
+                  document.body.style.userSelect = ''
+                  document.removeEventListener('mousemove', onMouseMove)
+                  document.removeEventListener('mouseup', onMouseUp)
+                }
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+                document.addEventListener('mousemove', onMouseMove)
+                document.addEventListener('mouseup', onMouseUp)
+              }}
+            />
+            <FileBrowser
+              machineId={fileBrowserMachine.id}
+              machineName={fileBrowserMachine.name}
+              workingDirectory={project.workingDirectory}
+              embedded
+              onClose={() => setFileBrowserOpen(false)}
+            />
+          </div>
+        )}
+
+        {/* Mobile file browser sheet */}
+        {fileBrowserOpen && fileBrowserMachine && project?.workingDirectory && !isWide && (
+          <Sheet open={fileBrowserOpen} onOpenChange={setFileBrowserOpen}>
+            <SheetContent side="right" className="w-[85vw] max-w-[400px] p-0 flex flex-col">
+              <FileBrowser
+                machineId={fileBrowserMachine.id}
+                machineName={fileBrowserMachine.name}
+                workingDirectory={project.workingDirectory}
+                embedded
+                onClose={() => setFileBrowserOpen(false)}
+              />
+            </SheetContent>
+          </Sheet>
+        )}
+
         {/* Chat panel — pushes content left, expands from right edge */}
         {chatPanelMode !== 'hidden' && !isMobile && (
           <div
@@ -2824,7 +2892,11 @@ export function PlanView() {
       </div>
 
       {/* Working directory bar — bottom of plan view */}
-      <WorkdirBar project={project} />
+      <WorkdirBar
+        project={project}
+        fileBrowserOpen={fileBrowserOpen}
+        onToggleFileBrowser={fileBrowserMachine && project.workingDirectory ? () => setFileBrowserOpen((v) => !v) : undefined}
+      />
 
       {/* Mobile chat bottom sheet */}
       {isMobile && chatPanelMode !== 'hidden' && (

@@ -210,7 +210,7 @@ referencesRoute.get('/export', async (c) => {
 
     const nodes = await db.select({ description: planNodes.description, content: planNodes.content })
       .from(planNodes)
-      .where(and(eq(planNodes.projectId, projectId), eq(planNodes.teamId, teamId)))
+      .where(eq(planNodes.projectId, projectId))
 
     const keys = new Set<string>()
     for (const k of extractCiteKeys(project.description ?? '')) keys.add(k)
@@ -398,6 +398,81 @@ referencesRoute.post('/lookup', async (c) => {
     )
   }
   return c.json({ items: result.items, identifier: result.identifier, source: result.source })
+})
+
+/**
+ * GET /api/references/pdf-proxy?url=<encoded>
+ *
+ * Fetches a remote PDF and strips X-Frame-Options / CSP frame-ancestors so it
+ * can be displayed inside an iframe. Restricted to authenticated users only.
+ * Basic SSRF guard: only http/https URLs pointing to non-private hosts allowed.
+ */
+referencesRoute.get('/pdf-proxy', async (c) => {
+  const raw = c.req.query('url')
+  if (!raw) return c.json({ error: 'Missing url parameter' }, 400)
+
+  let target: URL
+  try {
+    target = new URL(raw)
+  } catch {
+    return c.json({ error: 'Invalid URL' }, 400)
+  }
+
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    return c.json({ error: 'Only http/https URLs are allowed' }, 400)
+  }
+
+  // Reject RFC-1918 / loopback addresses
+  const host = target.hostname.toLowerCase()
+  const isPrivate =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.') ||
+    host.endsWith('.local')
+  if (isPrivate) return c.json({ error: 'Private addresses not allowed' }, 400)
+
+  try {
+    const upstream = await fetch(target.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Astro/1.0; +https://astroanywhere.com)',
+        'Accept': 'application/pdf,*/*',
+      },
+      redirect: 'follow',
+    })
+
+    if (!upstream.ok) {
+      return c.json({ error: `Upstream returned ${upstream.status}` }, 502)
+    }
+
+    const contentType = upstream.headers.get('content-type') ?? 'application/pdf'
+
+    // Reject HTML responses — these are "preparing to download" interstitial pages
+    // that contain JS which would hijack window.top.location and navigate our app.
+    if (contentType.includes('text/html')) {
+      return c.json({ error: 'upstream_html', message: 'Upstream returned an HTML page instead of a PDF. The PDF may require a direct browser download.' }, 422)
+    }
+
+    // Stream the body while stripping frame-blocking headers
+    const responseHeaders = new Headers()
+    responseHeaders.set('Content-Type', contentType)
+    responseHeaders.set('Content-Disposition', 'inline')
+    // Explicitly allow framing from our own origin
+    responseHeaders.set('X-Frame-Options', 'SAMEORIGIN')
+    responseHeaders.delete('content-security-policy')
+
+    const cl = upstream.headers.get('content-length')
+    if (cl) responseHeaders.set('Content-Length', cl)
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Fetch failed' }, 502)
+  }
 })
 
 export { referencesRoute }

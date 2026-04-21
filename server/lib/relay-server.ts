@@ -387,6 +387,17 @@ interface DirectoryEntry {
   isSymlink?: boolean;
 }
 
+/** Agent runner's content search response message format */
+interface AgentRunnerContentSearchResponseMessage {
+  type: 'content_search_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    matches: Array<{ path: string; lineNo: number; line: string; matchStart: number; matchEnd: number }>;
+    error?: string;
+  };
+}
+
 /** Agent runner's directory list response message format */
 interface AgentRunnerDirectoryListResponseMessage {
   type: 'directory_list_response';
@@ -1137,6 +1148,10 @@ export class RelayServer extends EventEmitter {
 
       case 'file_content_response':
         this.handleAgentRunnerFileContentResponse(message as unknown as AgentRunnerFileContentResponseMessage);
+        break;
+
+      case 'content_search_response':
+        this.handleAgentRunnerContentSearchResponse(message as unknown as AgentRunnerContentSearchResponseMessage);
         break;
 
       // File upload response from agent runner (for writing remote files)
@@ -4474,6 +4489,46 @@ export class RelayServer extends EventEmitter {
       }
     }
     return false;
+  }
+
+  // ============================================================================
+  // Content Search Handlers (ripgrep via agent runner)
+  // ============================================================================
+
+  requestContentSearch(machineId: string, root: string, pattern: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'content_search_request',
+        timestamp: new Date().toISOString(),
+        payload: { root, pattern, correlationId },
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'content_search_request',
+        payload: { root, pattern, correlationId },
+      }).catch((err) => console.error('[relay] Redis proxy content_search_request failed:', err));
+      return true;
+    }
+
+    console.error(`[relay] Machine ${machineId} not reachable for content search`);
+    return false;
+  }
+
+  private handleAgentRunnerContentSearchResponse(message: AgentRunnerContentSearchResponseMessage): void {
+    this.emit('content_search:response', {
+      correlationId: message.payload.correlationId,
+      matches: message.payload.matches,
+      error: message.payload.error,
+    });
   }
 }
 

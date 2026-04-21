@@ -12,6 +12,7 @@ import { registerFsChannels } from './fs.js'
 import { registerGitChannels } from './git.js'
 import { registerWatcherChannels } from './watcher.js'
 import { registerTerminalChannels } from './terminal.js'
+import { registerShellChannels } from './shell.js'
 import { registerPdfChannels } from './pdf.js'
 import { registerEditorChannels } from './editor.js'
 import { registerDialogChannels } from './dialog.js'
@@ -21,6 +22,8 @@ import { registerPluginChannels } from './plugin.js'
 import { registerLayoutChannels } from './layout.js'
 import { registerUpdaterChannels } from './updater.js'
 import { registerZoteroChannels } from './zotero.js'
+import { registerAppleCalendarChannels } from './apple-calendar.js'
+import { registerAgentChannels } from './agent.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -33,6 +36,7 @@ export function registerAllChannels(): void {
   registerGitChannels()
   registerWatcherChannels()
   registerTerminalChannels()
+  registerShellChannels()
 
   // App control
   registerWindowsChannels()
@@ -41,4 +45,6 @@ export function registerAllChannels(): void {
   registerLayoutChannels()
   registerUpdaterChannels()
   registerZoteroChannels()
+  registerAppleCalendarChannels()
+  registerAgentChannels()
 }

@@ -2,26 +2,9 @@
 
 /* CSS Variables for theming */
 :root {
-  /* Dark theme (default) */
-  --cp-bg: #17171C;
-  --cp-bg-elevated: #1F1F24;
-  --cp-border: rgba(255, 255, 255, 0.1);
-  --cp-text-primary: #FAFAF9;
-  --cp-text-secondary: #A8A8AD;
-  --cp-text-tertiary: #6B6B70;
-  --cp-accent-primary: #0EA5E9;
-  --cp-accent-secondary: #06B6D4;
-  --cp-accent-warm: #F59E0B;
-  --cp-focus-glow: rgba(14, 165, 233, 0.4);
-  --cp-hover-bg: rgba(255, 255, 255, 0.05);
-  --cp-selected-bg: rgba(14, 165, 233, 0.12);
-  --cp-selected-border: rgba(14, 165, 233, 0.3);
-  --cp-backdrop: rgba(0, 0, 0, 0.6);
-}
-
-[data-theme="light"] {
-  --cp-bg: #FFFFFF;
-  --cp-bg-elevated: #F8F9FA;
+  /* Light theme */
+  --cp-bg: var(--background);
+  --cp-bg-elevated: var(--card);
   --cp-border: rgba(0, 0, 0, 0.08);
   --cp-text-primary: #1A1A1F;
   --cp-text-secondary: #6B6B70;
@@ -36,9 +19,25 @@
   --cp-backdrop: rgba(0, 0, 0, 0.3);
 }
 
+.dark {
+  --cp-bg: var(--background);
+  --cp-bg-elevated: var(--card);
+  --cp-border: rgba(255, 255, 255, 0.1);
+  --cp-text-primary: #FAFAF9;
+  --cp-text-secondary: #A8A8AD;
+  --cp-text-tertiary: #6B6B70;
+  --cp-accent-primary: #0EA5E9;
+  --cp-accent-secondary: #06B6D4;
+  --cp-accent-warm: #F59E0B;
+  --cp-focus-glow: rgba(14, 165, 233, 0.4);
+  --cp-hover-bg: rgba(255, 255, 255, 0.05);
+  --cp-selected-bg: rgba(14, 165, 233, 0.12);
+  --cp-selected-border: rgba(14, 165, 233, 0.3);
+  --cp-backdrop: rgba(0, 0, 0, 0.6);
+}
+
 /* Backdrop */
 .command-palette-backdrop {
-  backdrop-filter: blur(12px);
   animation: backdrop-fade-in 200ms ease-out;
 }
 
@@ -55,9 +54,7 @@
 .command-palette-container {
   background: var(--cp-bg);
   border: 1px solid var(--cp-border);
-  box-shadow:
-    0 24px 48px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 80px 20px rgba(0, 0, 0, 0.35);
   animation: palette-enter 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -294,22 +291,6 @@
   border: 1px solid var(--cp-border);
 }
 
-/* List item stagger animation */
-.command-item {
-  animation: item-reveal 200ms ease-out backwards;
-  animation-delay: calc(30ms * var(--item-index, 0));
-}
-
-@keyframes item-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 /* Empty state */
 .command-empty-state {

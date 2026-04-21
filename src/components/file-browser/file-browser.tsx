@@ -34,18 +34,21 @@ import {
   FileSpreadsheet,
   File,
   FileJson,
+  Search,
+  ScanText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EditorOpenControls, type EditorType } from "@/components/ui/editor-open-controls"
 import { cn } from "@/lib/utils"
 import { buildFileUrlSync } from "@/lib/path-utils"
-import { useFileBrowser, type DirectoryEntry } from "./use-file-browser"
+import { useFileBrowser, useContentSearch, type DirectoryEntry, type ContentSearchMatch } from "./use-file-browser"
 import { FileActionsMenu } from "./file-actions-menu"
 import { useFileUpload } from "./use-file-upload"
 import { UploadManager } from "./upload-manager"
 import { FilePreview } from "./file-preview"
 import { getFileCategory } from "./file-type-utils"
 import { downloadFile } from "./download-utils"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 
 // ---------------------------------------------------------------------------
 // Props
@@ -166,12 +169,17 @@ export function FileBrowser({
   onFileSelect,
   initialFilePath,
 }: FileBrowserProps) {
+  const hasContentSearch = useFeatureFlag('file-content-search')
   const [activeEditor, setActiveEditor] = useState<EditorType>(initialEditorType)
   const [useLocal, setUseLocal] = useState(true)
   const [isDragOver, setIsDragOver] = useState(false)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchMode, setSearchMode] = useState<'name' | 'content'>('name')
+  const [contentQuery, setContentQuery] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const contentSearchRef = useRef<HTMLInputElement>(null)
   const machine = { name: machineName, hostname: machineHostname }
 
   // Resizable width (desktop non-embedded only)
@@ -242,6 +250,28 @@ export function FileBrowser({
     breadcrumbs,
     entries,
   } = useFileBrowser({ machineId, workingDirectory, fallbackDirectory })
+
+  const {
+    matches: contentMatches,
+    loading: contentLoading,
+    error: contentError,
+    search: runContentSearch,
+    clear: clearContentSearch,
+  } = useContentSearch(machineId, workingDirectory)
+
+  // Reset search when navigating to a new directory
+  const prevPathRef = useRef(path)
+  useEffect(() => {
+    if (path !== prevPathRef.current) {
+      prevPathRef.current = path
+      setSearchQuery("")
+    }
+  }, [path])
+
+  const query = searchQuery.trim().toLowerCase()
+  const filteredDirectories = query ? directories.filter((e) => e.name.toLowerCase().includes(query)) : directories
+  const filteredFiles = query ? files.filter((e) => e.name.toLowerCase().includes(query)) : files
+  const filteredEntries = query ? entries.filter((e) => e.name.toLowerCase().includes(query)) : entries
 
   // Navigate to initialFilePath when provided
   useEffect(() => {
@@ -448,8 +478,10 @@ export function FileBrowser({
       />
 
       {/* Header */}
-      {!embedded && (
-        <div className="flex items-center gap-1.5 px-2 py-2 md:py-1.5 border-b border-border shrink-0">
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0">
+        {embedded ? (
+          <span className="text-xs font-medium text-foreground/70 px-1 flex-1">Files</span>
+        ) : (
           <EditorOpenControls
             path={path}
             machine={machine}
@@ -457,53 +489,44 @@ export function FileBrowser({
             onEditorChange={setActiveEditor}
             onLocalChange={setUseLocal}
           />
-          <div className="flex-1" />
+        )}
+        <div className="flex items-center gap-0.5 ml-auto shrink-0">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 md:h-6 md:w-6"
+            className="h-7 w-7"
             onClick={handleUploadClick}
             disabled={isUploading}
             title="Upload files"
           >
-            <Upload className={cn("h-4 w-4 md:h-3 md:w-3", isUploading && "animate-pulse")} />
+            <Upload className={cn("h-3.5 w-3.5", isUploading && "animate-pulse")} />
           </Button>
           <Button
             variant={showHiddenFiles ? "secondary" : "ghost"}
             size="icon"
-            className="h-8 w-8 md:h-6 md:w-6"
+            className="h-7 w-7"
             onClick={toggleHiddenFiles}
             title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
           >
-            {showHiddenFiles ? (
-              <EyeOff className="h-4 w-4 md:h-3 md:w-3" />
-            ) : (
-              <Eye className="h-4 w-4 md:h-3 md:w-3" />
-            )}
+            {showHiddenFiles ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 md:h-6 md:w-6"
+            className="h-7 w-7"
             onClick={refresh}
             disabled={loading}
             title="Refresh"
           >
-            <RefreshCw className={cn("h-4 w-4 md:h-3 md:w-3", loading && "animate-spin")} />
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </Button>
           {onClose && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 md:h-6 md:w-6"
-              onClick={onClose}
-              title="Close"
-            >
-              <X className="h-4 w-4 md:h-3 md:w-3" />
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} title="Close">
+              <X className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
-      )}
+      </div>
 
       {/* Breadcrumbs */}
       <div className="flex items-center gap-1 px-2 py-2 md:py-1.5 text-xs md:text-[11px] overflow-x-auto border-b border-border bg-muted/40 shrink-0">
@@ -549,48 +572,105 @@ export function FileBrowser({
           })}
         </div>
 
-        {/* Embedded mode: extra controls in breadcrumb bar */}
-        {embedded && (
-          <div className="flex items-center gap-0.5 ml-auto shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 md:h-5 md:w-5"
-              onClick={handleUploadClick}
-              disabled={isUploading}
-              title="Upload files"
-            >
-              <Upload className={cn("h-3.5 w-3.5 md:h-2.5 md:w-2.5", isUploading && "animate-pulse")} />
-            </Button>
-            <Button
-              variant={showHiddenFiles ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7 md:h-5 md:w-5"
-              onClick={toggleHiddenFiles}
-              title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
-            >
-              {showHiddenFiles ? (
-                <EyeOff className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />
-              ) : (
-                <Eye className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 md:h-5 md:w-5"
-              onClick={refresh}
-              disabled={loading}
-              title="Refresh"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5 md:h-2.5 md:w-2.5", loading && "animate-spin")} />
-            </Button>
-          </div>
+      </div>
+
+      {/* Search row */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border shrink-0">
+        {hasContentSearch && (
+          <button
+            title={searchMode === 'name' ? "Switch to content search (ripgrep)" : "Switch to filename filter"}
+            onClick={() => {
+              const next = searchMode === 'name' ? 'content' : 'name'
+              setSearchMode(next)
+              if (next === 'content') { setSearchQuery(""); setTimeout(() => contentSearchRef.current?.focus(), 50) }
+              else { setContentQuery(""); clearContentSearch() }
+            }}
+            className={cn(
+              "shrink-0 p-0.5 rounded transition-colors",
+              searchMode === 'content' ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {searchMode === 'content' ? <ScanText className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
+          </button>
+        )}
+        {!hasContentSearch && <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+
+        {searchMode === 'name' ? (
+          <>
+            <input
+              type="text"
+              placeholder="Filter files..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="p-0.5 rounded hover:bg-accent text-muted-foreground shrink-0">
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <input
+              ref={contentSearchRef}
+              type="text"
+              placeholder="Search content… (Enter)"
+              value={contentQuery}
+              onChange={(e) => setContentQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && contentQuery.trim()) runContentSearch(contentQuery.trim())
+                if (e.key === 'Escape') { setContentQuery(""); clearContentSearch() }
+              }}
+              className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+            />
+            {contentQuery && (
+              <button onClick={() => { setContentQuery(""); clearContentSearch() }} className="p-0.5 rounded hover:bg-accent text-muted-foreground shrink-0">
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </>
         )}
       </div>
 
-      {/* Preview panel — replaces file listing when active */}
-      {previewPath && (
+      {/* Content search results — shown in content mode */}
+      {searchMode === 'content' && (
+        <div className="flex-1 overflow-y-auto">
+          {contentLoading ? (
+            <div className="flex items-center justify-center h-24">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : contentError ? (
+            <div className="flex flex-col items-center justify-center h-24 gap-1 p-3">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <p className="text-xs text-destructive text-center">{contentError}</p>
+            </div>
+          ) : contentMatches.length === 0 && contentQuery ? (
+            <div className="flex items-center justify-center h-24">
+              <p className="text-xs text-muted-foreground">No matches</p>
+            </div>
+          ) : contentMatches.length === 0 ? (
+            <div className="flex items-center justify-center h-24">
+              <p className="text-xs text-muted-foreground">Type a pattern and press Enter</p>
+            </div>
+          ) : (
+            <ContentSearchResults
+              matches={contentMatches}
+              root={workingDirectory}
+              onSelect={(match) => {
+                const parentDir = match.path.substring(0, match.path.lastIndexOf('/'))
+                if (parentDir) navigateTo(parentDir)
+                setPreviewPath(match.path)
+                setSearchMode('name')
+                clearContentSearch()
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Preview panel and file listing — hidden in content search mode */}
+      {searchMode === 'name' && previewPath && (
         <FilePreview
           machineId={machineId}
           filePath={previewPath}
@@ -599,10 +679,10 @@ export function FileBrowser({
         />
       )}
 
-      {/* File listing — hidden when preview is active */}
+      {/* File listing — hidden when preview is active or in content search mode */}
       <div
         ref={listRef}
-        className={cn("flex-1 overflow-y-auto", previewPath && "hidden")}
+        className={cn("flex-1 overflow-y-auto", (previewPath || searchMode === 'content') && "hidden")}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
@@ -618,15 +698,15 @@ export function FileBrowser({
               Retry
             </Button>
           </div>
-        ) : entries.length === 0 ? (
+        ) : filteredEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2 p-3">
             <FolderOpen className="h-5 w-5 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Empty directory</p>
+            <p className="text-xs text-muted-foreground">{query ? "No matches" : "Empty directory"}</p>
           </div>
         ) : (
           <div>
             {/* Directories */}
-            {directories.map((entry, index) => (
+            {filteredDirectories.map((entry, index) => (
               <button
                 key={entry.path}
                 data-entry-index={index}
@@ -645,8 +725,8 @@ export function FileBrowser({
             ))}
 
             {/* Files */}
-            {files.map((entry, index) => {
-              const entryIndex = directories.length + index
+            {filteredFiles.map((entry, index) => {
+              const entryIndex = filteredDirectories.length + index
               const isHovered = hoveredIndex === entryIndex
               const FileIcon = getFileIcon(entry.name)
               return (
@@ -746,6 +826,72 @@ export function FileBrowser({
         onRejectOverwrite={rejectOverwrite}
         onDismissValidationError={dismissValidationError}
       />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Content search results
+// ---------------------------------------------------------------------------
+
+function ContentSearchResults({
+  matches,
+  root,
+  onSelect,
+}: {
+  matches: ContentSearchMatch[]
+  root: string
+  onSelect: (match: ContentSearchMatch) => void
+}) {
+  // Group matches by file path
+  const byFile = matches.reduce<Map<string, ContentSearchMatch[]>>((acc, m) => {
+    const group = acc.get(m.path) ?? []
+    group.push(m)
+    acc.set(m.path, group)
+    return acc
+  }, new Map())
+
+  return (
+    <div className="divide-y divide-border">
+      {Array.from(byFile.entries()).map(([filePath, fileMatches]) => {
+        const relativePath = filePath.startsWith(root)
+          ? filePath.slice(root.length).replace(/^\//, '')
+          : filePath
+        const fileName = relativePath.split('/').pop() ?? relativePath
+        const fileDir = relativePath.includes('/')
+          ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+          : ''
+        return (
+          <div key={filePath}>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/30 sticky top-0">
+              <File className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="text-[11px] font-medium truncate flex-1" title={relativePath}>
+                {fileName}
+              </span>
+              {fileDir && (
+                <span className="text-[10px] text-muted-foreground/60 truncate max-w-[100px]" title={fileDir}>
+                  {fileDir}
+                </span>
+              )}
+            </div>
+            {fileMatches.map((m) => (
+              <button
+                key={`${m.path}:${m.lineNo}`}
+                type="button"
+                onClick={() => onSelect(m)}
+                className="w-full flex items-start gap-2 px-3 py-1.5 text-left hover:bg-accent transition-colors group"
+              >
+                <span className="text-[10px] text-muted-foreground/50 shrink-0 pt-px w-8 text-right font-mono">
+                  {m.lineNo}
+                </span>
+                <span className="text-[11px] font-mono truncate flex-1 text-foreground/80 group-hover:text-foreground">
+                  {m.line.trim()}
+                </span>
+              </button>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }

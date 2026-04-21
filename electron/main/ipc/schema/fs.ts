@@ -86,6 +86,28 @@ export const search = {
   }),
 }
 
+export const searchContent = {
+  req: z.object({
+    root: z.string(),
+    pattern: z.string(),
+    caseSensitive: z.boolean().optional(),
+    maxMatchesPerFile: z.number().optional(),
+    limit: z.number().optional(),
+  }),
+  res: z.object({
+    matches: z.array(
+      z.object({
+        path: z.string(),
+        lineNo: z.number(),
+        line: z.string(),
+        matchStart: z.number(),
+        matchEnd: z.number(),
+      })
+    ),
+    error: z.string().optional(),
+  }),
+}
+
 export const channels = {
   'fs:read-file': readFile,
   'fs:write-file': writeFile,
@@ -95,4 +117,5 @@ export const channels = {
   'fs:mkdir': mkdir,
   'fs:rm': rm,
   'fs:search': search,
+  'fs:search-content': searchContent,
 } as const

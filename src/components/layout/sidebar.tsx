@@ -7,7 +7,7 @@ import {
   Cpu, Zap, Sun, Moon, CheckSquare, GitBranch, Github, Terminal,
   Radio, Target, Plus, Minus, GripVertical, BookOpen, Palette,
   Globe, FileText, Layers, Box, Wrench, Code, Sparkles, X, LayoutTemplate,
-  Pin, PinOff, ChevronRight, Search, ChevronsDownUp, ChevronsUpDown, Trash2, Lightbulb,
+  Pin, PinOff, ChevronRight, Search, ChevronsDownUp, ChevronsUpDown, Trash2, Lightbulb, Calendar, CalendarDays,
 } from "lucide-react"
 import {
   DndContext,
@@ -88,7 +88,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare, GitBranch, Github, Terminal, Radio, Target, Cpu,
   BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench,
   Code, Sparkles, FlaskConical, LayoutTemplate, Inbox, Activity,
-  Folder, Server, Plus, Minus,
+  Folder, Server, Plus, Minus, Calendar, CalendarDays,
 }
 
 const EMPTY_FLAGS: Record<string, boolean> = {}
@@ -999,7 +999,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         </div>
       ) : (
         <div className="flex items-center gap-3 px-5 py-2 border-t border-border">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5" data-tour-id="model-tier">
             <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
             {(["small", "medium", "large"] as const).map((tier) => (
               <Tooltip key={tier}>

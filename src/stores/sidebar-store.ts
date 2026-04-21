@@ -62,6 +62,8 @@ const defaultItems: SidebarItem[] = [
   { id: "active", to: "/active", icon: "Activity", label: "Active", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "Folder", label: "Projects", visible: true, protected: true },
   { id: "sessions", to: "/sessions", icon: "FlaskConical", label: "Sessions", visible: true, protected: false },
+  { id: "scheduled", to: "/scheduled", icon: "Calendar", label: "Scheduled", visible: true, protected: false },
+  { id: "calendar", to: "/calendar", icon: "CalendarDays", label: "Calendar", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
   { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false },
   { id: "references", to: "/references", icon: "BookOpen", label: "References", visible: true, protected: false },

@@ -43,7 +43,6 @@ import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { useBranchList } from "@/hooks/use-branch-list"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
-import { InboxTour } from "@/components/inbox-tour"
 import type { ProjectSource } from "@/types"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -495,8 +494,7 @@ export function InboxHome() {
   }, [])
 
   return (
-    <div className="@container flex flex-col gap-8 p-6 @2xl:px-10 @2xl:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
-      <InboxTour />
+    <div className="@container flex flex-col gap-8 p-6 @2xl:px-10 @2xl:py-8 max-w-[1100px] mx-auto w-full">
       {/* Greeting */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl @xl:text-[28px] font-secondary font-light tracking-wide leading-tight">
@@ -759,6 +757,7 @@ export function InboxHome() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
+                      data-tour-id="yolo-mode"
                       onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
                       className={`flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer ${
                         playgroundYolo

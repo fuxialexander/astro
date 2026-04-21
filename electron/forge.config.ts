@@ -30,7 +30,13 @@ const repoRoot = path.resolve(__dirname, '..')
 // Hono backend, PGlite, or bundled skills. Native modules (node-pty, ssh2,
 // cpu-features) are still packaged via `afterCopy` + `asar.unpack` because
 // the desktop shell needs them for the local terminal/SSH flows.
-const extraResources: string[] = []
+//
+// binaries/ contains the esbuild-bundled astro-agent.mjs and astro-cli.mjs
+// built by scripts/build-binaries.ts. The agent:setup IPC handler copies
+// them to ~/.astro/bin/ on first run so `astro-agent` and `astro-cli` are
+// available in the user's shell.
+const binariesDir = path.join(repoRoot, 'electron', 'resources', 'binaries')
+const extraResources: string[] = fs.existsSync(binariesDir) ? [binariesDir] : []
 
 // Apple signing/notarization — only attach the blocks when all three env
 // vars are present. Missing any one means "local dev build, skip signing".

@@ -8,6 +8,8 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
+import { isDesktop } from "@/lib/desktop-detect"
+import { desktopBridge } from "@/lib/desktop-bridge"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -315,4 +317,67 @@ export function useFileBrowser({
     handleKeyDown,
     breadcrumbs,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Content search
+// ---------------------------------------------------------------------------
+
+export interface ContentSearchMatch {
+  path: string
+  lineNo: number
+  line: string
+  matchStart: number
+  matchEnd: number
+}
+
+export interface UseContentSearchReturn {
+  matches: ContentSearchMatch[]
+  loading: boolean
+  error: string | null
+  search: (pattern: string) => Promise<void>
+  clear: () => void
+}
+
+export function useContentSearch(machineId: string, root: string): UseContentSearchReturn {
+  const [matches, setMatches] = useState<ContentSearchMatch[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const search = useCallback(async (pattern: string) => {
+    if (!pattern.trim()) { setMatches([]); return }
+    setLoading(true)
+    setError(null)
+    try {
+      // Desktop app with local workdir: use ripgrep via IPC directly (faster, no relay hop)
+      if (isDesktop()) {
+        const result = await desktopBridge.fs.searchContent({ root, pattern })
+        setMatches(result.matches)
+        if (result.error) setError(result.error)
+        return
+      }
+      // Browser or remote machine: relay through the server
+      const headers: Record<string, string> = {}
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const params = new URLSearchParams({ machineId, root, pattern })
+      const res = await fetch(apiUrl(`/api/fs/search?${params}`), { headers })
+      if (!res.ok) throw new Error(`Search failed: ${res.statusText}`)
+      const data = await res.json() as { matches: ContentSearchMatch[]; error?: string }
+      setMatches(data.matches ?? [])
+      if (data.error) setError(data.error)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed')
+      setMatches([])
+    } finally {
+      setLoading(false)
+    }
+  }, [machineId, root])
+
+  const clear = useCallback(() => {
+    setMatches([])
+    setError(null)
+  }, [])
+
+  return { matches, loading, error, search, clear }
 }

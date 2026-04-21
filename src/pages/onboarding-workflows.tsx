@@ -43,83 +43,83 @@ interface Workflow {
 const WORKFLOWS: Workflow[] = [
   {
     id: "sessions",
-    name: "Sessions",
-    tagline: "Chat & Execute",
+    name: "Session",
+    tagline: "Like Claude Code or Codex",
     description:
-      "The fastest path from thought to action. Type a goal, point at a directory, and a single agent session executes directly — no plan graph, no branches, no overhead. Ideal for exploration, one-off tasks, and ad-hoc queries where you want streaming output and immediate feedback.",
+      "Start a chat, describe what you want done, and pick where to run it. The AI gets to work immediately. You can follow up, steer, or ask questions as many times as you want — no structure required. Results stream back in real time.",
     accent: "#5ba3d0",
     accentRgb: "91, 163, 208",
     accentDim: "rgba(91, 163, 208, 0.12)",
     icon: MessageSquare,
     steps: [
-      { icon: Terminal, label: "Type goal", sublabel: "in inbox" },
-      { icon: Zap, label: "Session starts", sublabel: "single agent" },
-      { icon: FolderOpen, label: "Direct exec", sublabel: "in workdir" },
-      { icon: MessageSquare, label: "Stream results", sublabel: "back to you" },
+      { icon: Terminal, label: "Type your goal", sublabel: "in the compose box" },
+      { icon: Zap, label: "Agent starts", sublabel: "immediately" },
+      { icon: FolderOpen, label: "Runs in place", sublabel: "your chosen folder" },
+      { icon: MessageSquare, label: "Results stream", sublabel: "back to you" },
     ],
     features: [
-      "No plan graph — agent executes directly",
-      "Streaming output visible in real time",
-      "Optional YOLO mode — auto-approve all decisions",
-      "Persistent chat history, re-steer anytime",
-      "Works without a git repo",
+      "No planning step — agent acts on your goal directly",
+      "Output streams back in real time as it works",
+      "Follow up or redirect the agent at any point",
+      "Works anywhere — no git repo required",
+      "Auto-approve mode available for hands-off runs",
     ],
-    bestFor: ["Quick explorations", "One-off scripts", "Answering codebase questions", "Prototyping ideas"],
-    notIdealFor: "Large, multi-step goals where parallel execution matters",
+    bestFor: ["Quick one-off tasks", "Exploring an unfamiliar codebase", "Prototyping ideas", "Answering questions about your project"],
+    notIdealFor: "Large goals with many independent parts that would benefit from running in parallel",
   },
   {
     id: "development",
-    name: "PR + Worktree",
-    tagline: "Software Development",
+    name: "Work Tree",
+    tagline: "Parallel, isolated branches",
     description:
-      "The full planning lifecycle for software projects. Astro decomposes your goal into a dependency graph, dispatches each task into an isolated git worktree on its own branch, and auto-creates GitHub PRs when each task completes. Tasks with no dependencies run in parallel. You review and merge — Astro does the execution.",
+      "Work on multiple independent parts of the same project at the same time. AI breaks your goal into separate tasks — each one runs in its own isolated copy of your code so they never interfere with each other. When each part finishes, a pull request is created automatically. You review and decide what to merge.",
     accent: "#d4a574",
     accentRgb: "212, 165, 116",
     accentDim: "rgba(212, 165, 116, 0.12)",
     icon: GitBranch,
     steps: [
-      { icon: Terminal, label: "Goal in inbox", sublabel: "+ git repo" },
-      { icon: Layers, label: "Plan graph", sublabel: "AI-generated" },
-      { icon: GitBranch, label: "Worktrees", sublabel: "per task, isolated" },
-      { icon: GitPullRequest, label: "Auto PRs", sublabel: "on completion" },
-      { icon: GitMerge, label: "You review", sublabel: "& merge" },
+      { icon: Terminal, label: "Describe your goal", sublabel: "in the compose box" },
+      { icon: Layers, label: "AI plans it out", sublabel: "as a task breakdown" },
+      { icon: GitBranch, label: "Each task runs", sublabel: "in isolation" },
+      { icon: GitPullRequest, label: "Pull requests", sublabel: "created for each" },
+      { icon: GitMerge, label: "You review", sublabel: "and decide what to keep" },
     ],
     features: [
-      "Dependency-aware task graph — tasks wait for upstream results",
-      "Each task in an isolated git worktree, no conflicts",
-      "Automatic GitHub PR creation per task",
-      "Parallel execution for independent tasks",
-      "Re-plan anytime — edit nodes, add dependencies",
+      "AI breaks your goal into tasks — you can edit the breakdown before it runs",
+      "Tasks that don't depend on each other run at the same time",
+      "Each task works in its own isolated copy — no conflicts",
+      "A pull request is created automatically when each task completes",
+      "Change the plan at any point — add tasks, skip steps, redirect",
     ],
-    bestFor: ["Feature development", "Large refactors", "Multi-file changes", "Team-scale codebases"],
-    notIdealFor: "Exploratory research or tasks without a code deliverable",
+    bestFor: ["Building multiple features at once", "Large refactors across many files", "Any goal that ends with a pull request"],
+    notIdealFor: "Exploratory work or research without a code deliverable",
   },
   {
     id: "discovery",
     name: "Discovery",
-    tagline: "Research & Science",
+    tagline: "Separate folders, always parallel",
     description:
-      "Built for scientists and researchers running multi-step analyses. Each task writes scripts and outputs to its own isolated directory under analysis/{milestone}/{task}/. Tasks inherit upstream outputs by path. Your reference library (papers, PDFs, web pages) is injected as context. A final synthesis task can compile findings into a report.",
+      "Every task gets its own folder and all outputs stay completely separate. Tasks that don't depend on each other always run at the same time. Great for exploring many approaches in parallel. Because there's no shared code or version history, this isn't the right choice for iterating on a program — but it's ideal for analysis, research, and experiments.",
     accent: "#6ec07a",
     accentRgb: "110, 192, 122",
     accentDim: "rgba(110, 192, 122, 0.12)",
     icon: Microscope,
     steps: [
-      { icon: Terminal, label: "Goal + data dir", sublabel: "research context" },
-      { icon: Layers, label: "Milestone plan", sublabel: "AI-decomposed" },
-      { icon: FolderOpen, label: "analysis/ dirs", sublabel: "task-scoped" },
-      { icon: BookOpen, label: "Refs injected", sublabel: "papers + PDFs" },
-      { icon: FileText, label: "Synthesis", sublabel: "report generated" },
+      { icon: Terminal, label: "Describe your goal", sublabel: "and point to your data" },
+      { icon: Layers, label: "AI plans it out", sublabel: "as milestones" },
+      { icon: FolderOpen, label: "Each task", sublabel: "gets its own folder" },
+      { icon: BookOpen, label: "Papers and docs", sublabel: "fed in as context" },
+      { icon: FileText, label: "Final summary", sublabel: "compiled at the end" },
     ],
     features: [
-      "Each task owns analysis/{milestone}/{task}/ — no clobbering",
-      "Upstream outputs referenced by path across tasks",
-      "Reference library (papers, PDFs) injected into context",
-      "No git worktrees — directory isolation instead",
-      "Final task can synthesize a paper / report",
+      "Every task writes to its own folder — outputs never overwrite each other",
+      "Tasks with no dependencies always run at the same time",
+      "Papers, PDFs, and web pages you've saved get injected as context",
+      "No shared code or version history — just separate results",
+      "A final task can compile all findings into a report",
     ],
-    bestFor: ["Data analysis pipelines", "Bioinformatics", "Literature reviews", "HPC batch workflows"],
-    notIdealFor: "Software development where PRs and branch isolation are needed",
+    bestFor: ["Data analysis and experiments", "Running many variations in parallel", "Literature review and research synthesis"],
+    notIdealFor: "Building or iterating on software where you need version control and code that builds on itself",
   },
 ]
 
@@ -451,7 +451,7 @@ export function OnboardingWorkflows() {
               color: "var(--foreground)",
               marginBottom: "0.875rem",
             }}>
-              Three ways to build with Astro
+              Three ways to work
             </h1>
             <p style={{
               fontSize: "0.9375rem",
@@ -460,8 +460,8 @@ export function OnboardingWorkflows() {
               lineHeight: 1.7,
               maxWidth: 540,
             }}>
-              Same inbox. Different execution paths. Choose the workflow that matches your goal —
-              you can switch or mix per project.
+              Same starting point — the compose box. Different paths depending on what you're trying
+              to accomplish. You can switch between them per project.
             </p>
           </div>
 

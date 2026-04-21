@@ -632,6 +632,78 @@ async function requestFileUpload(
   })
 }
 
+// ============================================================================
+// Content Search (ripgrep on remote machine via relay)
+// ============================================================================
+
+interface ContentSearchMatch {
+  path: string
+  lineNo: number
+  line: string
+  matchStart: number
+  matchEnd: number
+}
+
+/**
+ * GET /search?machineId=yyy&root=/path&pattern=query
+ *
+ * Full-text content search on a remote machine via relay (ripgrep).
+ * Agent runner must handle content_search_request for this to return results.
+ */
+fsRoute.get('/search', async (c) => {
+  const machineId = c.req.query('machineId')
+  const root = c.req.query('root')
+  const pattern = c.req.query('pattern')
+
+  if (!machineId || !root || !pattern) {
+    return c.json({ matches: [], error: 'machineId, root, and pattern are required' }, 400)
+  }
+
+  const reachable = await relayServer.isMachineReachable(machineId)
+  if (!reachable) {
+    return c.json({ matches: [], error: 'Machine not connected' })
+  }
+
+  try {
+    const matches = await requestContentSearch(machineId, root, pattern)
+    return c.json({ matches })
+  } catch (error) {
+    console.error('[fs] Content search error:', error)
+    return c.json({ matches: [], error: 'Search failed' }, 500)
+  }
+})
+
+async function requestContentSearch(
+  machineId: string,
+  root: string,
+  pattern: string,
+): Promise<ContentSearchMatch[]> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<ContentSearchMatch[]>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('content_search:response', handler)
+      resolve([])
+    }, 15000)
+
+    function handler(data: { correlationId: string; matches: ContentSearchMatch[]; error?: string }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('content_search:response', handler)
+      resolve(data.matches ?? [])
+    }
+
+    relayServer.on('content_search:response', handler)
+
+    const sent = relayServer.requestContentSearch(machineId, root, pattern, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('content_search:response', handler)
+      resolve([])
+    }
+  })
+}
+
 /**
  * Request file list from a remote machine via relay
  */

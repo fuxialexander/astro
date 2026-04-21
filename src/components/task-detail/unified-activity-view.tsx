@@ -7,7 +7,6 @@ import {
   XCircle,
   ArrowDown,
   Info,
-  FolderOpen,
   Paperclip,
 } from "lucide-react"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
@@ -15,7 +14,6 @@ import { apiUrl } from "@/lib/api-url"
 import { authHeaders } from "@/lib/auth-headers"
 import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea, type ChatImageAttachment } from "@/components/ui/file-completion-textarea"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
@@ -33,9 +31,6 @@ import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"
 import type { GitHubReviewThread, TaskActivityEvent } from "@/types"
-import { FileBrowser } from "@/components/file-browser"
-import { useMediaQuery } from "@/hooks/use-media-query"
-import { projectWorktreePath, resolveFilePathForBrowsing } from "./file-path-utils"
 import { useAutoScroll } from "@/hooks/use-auto-scroll"
 import { useChatSession } from "@/hooks/use-chat-session"
 import { useActivityFeed } from "@/hooks/use-activity-feed"
@@ -51,6 +46,7 @@ interface UnifiedActivityViewProps {
   isRunning: boolean
   executionId: string
   machineId?: string
+  onFileSelect?: (path: string) => void
 }
 
 export function UnifiedActivityView({
@@ -61,6 +57,7 @@ export function UnifiedActivityView({
   isRunning,
   executionId,
   machineId,
+  onFileSelect,
 }: UnifiedActivityViewProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
@@ -68,54 +65,10 @@ export function UnifiedActivityView({
   /** When set, the next send will truncate the conversation from this message before re-sending */
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const taskFilePickerRef = useRef<(() => void) | null>(null)
-  const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
-  const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const isMobile = useMediaQuery("(max-width: 767px)")
 
   // Clear stale edit state when switching tasks
   useEffect(() => { setEditingMessageId(null) }, [node.id])
-
-  // Resizable file browser panel (desktop only)
-  const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("astro:fileBrowserWidth")
-      if (stored) return Math.max(200, Math.min(500, parseInt(stored, 10)))
-    }
-    return 280
-  })
-  const isDraggingRef = useRef(false)
-  const dragStartPosRef = useRef(0)
-  const dragStartSizeRef = useRef(0)
-
-  useEffect(() => {
-    localStorage.setItem("astro:fileBrowserWidth", String(fileBrowserWidth))
-  }, [fileBrowserWidth])
-
-  useEffect(() => {
-    const handleMove = (clientX: number) => {
-      if (!isDraggingRef.current) return
-      const delta = dragStartPosRef.current - clientX
-      const maxW = Math.min(500, window.innerWidth * 0.5)
-      setFileBrowserWidth(Math.max(200, Math.min(maxW, dragStartSizeRef.current + delta)))
-    }
-    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX)
-    const handleTouchMove = (e: TouchEvent) => {
-      if (isDraggingRef.current) e.preventDefault()
-      handleMove(e.touches[0].clientX)
-    }
-    const handleEnd = () => { isDraggingRef.current = false }
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleEnd)
-    document.addEventListener("touchmove", handleTouchMove, { passive: false })
-    document.addEventListener("touchend", handleEnd)
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleEnd)
-      document.removeEventListener("touchmove", handleTouchMove)
-      document.removeEventListener("touchend", handleEnd)
-    }
-  }, [])
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const projectReferences = useReferenceStore((s) => s.library)
@@ -427,19 +380,7 @@ export function UnifiedActivityView({
 
   const isInputDisabled = sending || isChatStreaming
 
-  const baseWorkDir = project?.workingDirectory || ""
-  const fileBrowserDir = useMemo(() => {
-    if (baseWorkDir && project?.projectBranch) {
-      return projectWorktreePath(baseWorkDir, project.projectBranch)
-    }
-    return baseWorkDir
-  }, [baseWorkDir, project?.projectBranch])
 
-  const handleFileSelect = useCallback((filePath: string) => {
-    const resolved = resolveFilePathForBrowsing(filePath, fileBrowserDir)
-    setInitialFilePath(resolved)
-    setFileBrowserOpen(true)
-  }, [fileBrowserDir])
 
   const renderPrStatus = useCallback((block: import("@/components/activity-blocks").DisplayBlock, key: string) => {
     const prEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'pr_status' }>
@@ -484,21 +425,6 @@ export function UnifiedActivityView({
   return (
     <div className="flex h-full">
     <div className="flex flex-col flex-1 min-w-0 relative">
-      {/* File browser toggle */}
-      {machineId && fileBrowserDir && (
-        <div className="absolute top-2 right-2 z-10">
-          <Button
-            variant={fileBrowserOpen ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
-            title={fileBrowserOpen ? "Close file browser" : "Open file browser"}
-          >
-            <FolderOpen className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      )}
-
       {/* Timeline */}
       <div
         ref={containerRef}
@@ -540,16 +466,14 @@ export function UnifiedActivityView({
           isStreaming={isRunning || isChatStreaming}
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
-          onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
+          onFileSelect={onFileSelect}
           onLinkClick={(href) => {
             if (href.startsWith('astro:')) return false
             if (href.startsWith('http://') || href.startsWith('https://')) return false
-            // Relative file path — open file browser if available
-            if (machineId && fileBrowserDir) {
-              handleFileSelect(href)
-              return true
+            if (onFileSelect) {
+              onFileSelect(href)
+              return false
             }
-            // No file browser available — just prevent broken navigation
             return true
           }}
           onEditMessage={!isRunning && !isChatStreaming ? handleEditMessage : undefined}
@@ -660,7 +584,7 @@ export function UnifiedActivityView({
           </span>
         </div>
       )}
-      <div className="flex items-end gap-2 p-3 pt-1.5">
+      <div className="flex items-end gap-2 mx-3 mb-3 mt-1.5 rounded-lg border border-border bg-background px-3 py-1.5">
         <FileCompletionTextarea
           projectId={projectId}
           machineId={machineId || project?.defaultMachineId}
@@ -678,7 +602,7 @@ export function UnifiedActivityView({
               : "Ask about this task... (@ for files · type [@ to cite a paper from your reference library)"
           }
           rows={2}
-          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 bg-transparent px-0 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none"
           {...(!canSteer ? {
             images: taskImages,
             onImagesChange: setTaskImages,
@@ -729,46 +653,6 @@ export function UnifiedActivityView({
       </div>
     </div>
 
-    {/* File Browser Sidebar */}
-    {fileBrowserOpen && machineId && fileBrowserDir && !isMobile && (
-      <div className="relative shrink-0 flex border-l border-border" style={{ width: fileBrowserWidth }}>
-        <div
-          className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 shrink-0 touch-none"
-          onMouseDown={(e) => {
-            isDraggingRef.current = true
-            dragStartPosRef.current = e.clientX
-            dragStartSizeRef.current = fileBrowserWidth
-          }}
-          onTouchStart={(e) => {
-            isDraggingRef.current = true
-            dragStartPosRef.current = e.touches[0].clientX
-            dragStartSizeRef.current = fileBrowserWidth
-          }}
-        />
-        <FileBrowser
-          machineId={machineId}
-          workingDirectory={fileBrowserDir}
-          fallbackDirectory={baseWorkDir}
-          embedded
-          onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
-          initialFilePath={initialFilePath}
-        />
-      </div>
-    )}
-    {isMobile && machineId && fileBrowserDir && (
-      <Sheet open={fileBrowserOpen} onOpenChange={(open) => { setFileBrowserOpen(open); if (!open) setInitialFilePath(null) }}>
-        <SheetContent side="bottom" className="h-[70vh] p-0">
-          <FileBrowser
-            machineId={machineId}
-            workingDirectory={fileBrowserDir}
-            fallbackDirectory={baseWorkDir}
-            embedded
-            onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
-            initialFilePath={initialFilePath}
-          />
-        </SheetContent>
-      </Sheet>
-    )}
     </div>
   )
 }

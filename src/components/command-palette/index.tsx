@@ -493,7 +493,7 @@ export function CommandPalette() {
       <div className="fixed inset-0 z-50">
         {/* Backdrop */}
       <div
-        className="command-palette-backdrop fixed inset-0 bg-black/60"
+        className="command-palette-backdrop fixed inset-0"
         onClick={() => {
           setOpen(false)
           clearCommandSelection()

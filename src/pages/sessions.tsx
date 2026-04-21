@@ -1,15 +1,18 @@
 import { useMemo, useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { FlaskConical, MessageSquare, Trash2, AlertCircle, CheckCircle2, Clock, Loader2, XCircle, Plus, Monitor, FolderGit2 } from "lucide-react"
+import { FlaskConical, MessageSquare, Trash2, AlertCircle, CheckCircle2, Clock, Loader2, XCircle, Plus, Monitor, FolderGit2, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { FilterPopover, FilterRow } from "@/components/views/filter-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useScheduleStore } from "@/stores/schedule-store"
+import { ScheduleForm } from "@/components/schedule/schedule-form"
 import { cn } from "@/lib/utils"
 import { formatShortDate } from "@/lib/date-utils"
 import type { Project, Session, SessionStatus } from "@/types"
@@ -94,6 +97,7 @@ function SessionStatusBadge({ status }: { status: SessionStatus | null | undefin
 
 function getColumns(
   machines: { id: string; name?: string | null }[],
+  scheduledProjectIds: Set<string>,
 ): ListColumn<SessionRow>[] {
   return [
     {
@@ -104,10 +108,18 @@ function getColumns(
       render: (row) => {
         const isPlayground = row.kind === "playground"
         const Icon = isPlayground ? FlaskConical : MessageSquare
+        const projectId = row.kind === "playground" ? row.project.id : row.project.id
+        const isScheduled = scheduledProjectIds.has(projectId)
         return (
           <div className="flex items-center gap-2.5 min-w-0 w-full">
             <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="text-sm truncate min-w-0 flex-1">{rowName(row)}</span>
+            {isScheduled && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 gap-1">
+                <Calendar className="h-2.5 w-2.5" />
+                scheduled
+              </Badge>
+            )}
           </div>
         )
       },
@@ -206,6 +218,7 @@ export function Sessions() {
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const addToast = useToastStore((s) => s.add)
+  const allSchedules = useScheduleStore((s) => s.allSchedules)
   const navigate = useNavigate()
 
   useEffect(() => { if (machines.length === 0) fetchMachines() }, [machines.length, fetchMachines])
@@ -213,6 +226,7 @@ export function Sessions() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [orderBy, setOrderBy] = useState<"name" | "updatedAt" | "createdAt">("updatedAt")
   const [orderDir, setOrderDir] = useState<"asc" | "desc">("desc")
+  const [scheduleDialogRow, setScheduleDialogRow] = useState<SessionRow | null>(null)
 
   const playgroundProjects = useMemo(
     () => allProjects.filter((p) => p.projectType === "playground"),
@@ -279,9 +293,27 @@ export function Sessions() {
     { key: "all", label: "All Sessions", items: sorted }
   ], [sorted])
 
-  const columns = useMemo(() => getColumns(machines), [machines])
+  const scheduledProjectIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const s of allSchedules) {
+      if (s.scope === "project") ids.add(s.projectId)
+    }
+    return ids
+  }, [allSchedules])
+
+  const columns = useMemo(() => getColumns(machines, scheduledProjectIds), [machines, scheduledProjectIds])
 
   const getBatchActions = useCallback((_selectedIds: string[]): BatchAction[] => [
+    {
+      id: "schedule",
+      label: "Schedule",
+      icon: <Calendar className="h-3.5 w-3.5" />,
+      onAction: (ids) => {
+        const id = ids[0]
+        const row = allRows.find((r) => rowId(r) === id)
+        if (row) setScheduleDialogRow(row)
+      },
+    },
     {
       id: "delete",
       label: "Delete",
@@ -289,7 +321,6 @@ export function Sessions() {
       variant: "destructive",
       onAction: (ids) => {
         for (const id of ids) {
-          // Only playground rows can be deleted (they map to project ids)
           const row = allRows.find((r) => rowId(r) === id)
           if (row?.kind === "playground") deleteProject(row.project.id)
         }
@@ -420,6 +451,26 @@ export function Sessions() {
           sortDirection={orderDir}
           onSort={handleSort}
         />
+      )}
+
+      {/* Schedule dialog */}
+      {scheduleDialogRow && (
+        <Dialog open onOpenChange={(open) => { if (!open) setScheduleDialogRow(null) }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Schedule session
+              </DialogTitle>
+            </DialogHeader>
+            <ScheduleForm
+              projectId={scheduleDialogRow.project.id}
+              scope="project"
+              onSave={() => setScheduleDialogRow(null)}
+              onCancel={() => setScheduleDialogRow(null)}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

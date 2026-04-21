@@ -34,27 +34,46 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 interface ScheduleState {
   schedules: Schedule[]
+  allSchedules: Schedule[]
   runs: Record<string, ScheduleRun[]>
   loading: boolean
+  allLoaded: boolean
 
   loadSchedules: (projectId: string) => Promise<void>
+  loadAllSchedules: () => Promise<void>
   loadRuns: (scheduleId: string) => Promise<void>
   createSchedule: (data: Omit<Schedule, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'nextRunAt' | 'lastRunAt'>) => Promise<Schedule>
   updateSchedule: (id: string, data: Partial<Schedule>) => Promise<void>
   deleteSchedule: (id: string) => Promise<void>
   triggerSchedule: (id: string) => Promise<ScheduleRun>
+  isNodeScheduled: (nodeId: string) => boolean
+  isProjectScheduled: (projectId: string) => boolean
 }
 
 export const useScheduleStore = create<ScheduleState>((set, get) => ({
   schedules: [],
+  allSchedules: [],
   runs: {},
   loading: false,
+  allLoaded: false,
 
   loadSchedules: async (projectId: string) => {
     set({ loading: true })
     try {
       const res = await fetchJson<{ data: Schedule[] }>(`/api/schedules?projectId=${projectId}`)
       set({ schedules: res.data })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  loadAllSchedules: async () => {
+    set({ loading: true })
+    try {
+      const res = await fetchJson<{ data: Schedule[] }>('/api/schedules')
+      set({ allSchedules: res.data ?? [], allLoaded: true })
+    } catch {
+      set({ allLoaded: true })
     } finally {
       set({ loading: false })
     }
@@ -70,7 +89,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       method: 'POST',
       body: JSON.stringify(data),
     })
-    set((s) => ({ schedules: [res.data, ...s.schedules] }))
+    set((s) => ({
+      schedules: [res.data, ...s.schedules],
+      allSchedules: [res.data, ...s.allSchedules],
+    }))
     return res.data
   },
 
@@ -81,6 +103,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     })
     set((s) => ({
       schedules: s.schedules.map((sched) => (sched.id === id ? res.data : sched)),
+      allSchedules: s.allSchedules.map((sched) => (sched.id === id ? res.data : sched)),
     }))
   },
 
@@ -88,6 +111,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     await fetchJson(`/api/schedules/${id}`, { method: 'DELETE' })
     set((s) => ({
       schedules: s.schedules.filter((sched) => sched.id !== id),
+      allSchedules: s.allSchedules.filter((sched) => sched.id !== id),
       runs: Object.fromEntries(Object.entries(s.runs).filter(([key]) => key !== id)),
     }))
   },
@@ -96,8 +120,15 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     const res = await fetchJson<{ data: ScheduleRun }>(`/api/schedules/${id}/trigger`, {
       method: 'POST',
     })
-    // Refresh runs
     get().loadRuns(id)
     return res.data
+  },
+
+  isNodeScheduled: (nodeId: string) => {
+    return get().allSchedules.some((s) => s.scope === 'node' && s.nodeId === nodeId && s.enabled)
+  },
+
+  isProjectScheduled: (projectId: string) => {
+    return get().allSchedules.some((s) => s.scope === 'project' && s.projectId === projectId && s.enabled)
   },
 }))
