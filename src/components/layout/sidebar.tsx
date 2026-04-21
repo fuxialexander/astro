@@ -588,7 +588,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       )}
 
       {/* ─── Pages section (sticky, does NOT scroll) ─── */}
-      <div className="shrink-0">
+      <div className="shrink-0 overflow-visible">
         {/* Hover zone: nav items + customize button collapse/expand together */}
         <div
           className="relative z-10"
@@ -612,8 +612,6 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
                   // In shouldCollapseNav mode: only render active item in normal flow
                   if (shouldCollapseNav && !isItemActive) return null
-
-                  const isVisible = shouldCollapseNav ? true : (isItemActive || navHovered)
 
                   if (collapsed) {
                     const active = isItemActive || location.pathname === item.to
@@ -645,13 +643,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   return (
                     <div
                       key={item.id}
-                      className="overflow-hidden"
-                      style={{
-                        maxHeight: isVisible ? '52px' : '0px',
-                        marginBottom: isVisible ? '4px' : '0px',
-                        opacity: isVisible ? 1 : 0,
-                        transition: shouldCollapseNav ? 'none' : 'max-height 220ms cubic-bezier(0.4,0,0.2,1), margin-bottom 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
-                      }}
+                      className="mb-1"
                     >
                       <NavLink
                         to={item.to}
@@ -761,16 +753,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 </div>
               )}
 
-              {/* Animate-in customize button when nav is not in collapse-overlay mode */}
+              {/* Customize button when nav is not in collapse-overlay mode */}
               {!shouldCollapseNav && !collapsed && (
-                <div
-                  className="px-5 overflow-hidden"
-                  style={{
-                    maxHeight: navHovered ? '36px' : '0px',
-                    opacity: navHovered ? 1 : 0,
-                    transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
-                  }}
-                >
+                <div className="px-5 pb-1">
                   <button
                     onClick={() => setEditing(true)}
                     className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
