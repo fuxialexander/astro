@@ -38,6 +38,8 @@ interface SidebarStore {
   projectOrder: string[]
   isEditing: boolean
   loaded: boolean
+  autoCollapse: boolean
+  setAutoCollapse: (v: boolean) => void
   load: () => Promise<void>
   save: () => Promise<void>
   setEditing: (editing: boolean) => void
@@ -115,6 +117,14 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   projectOrder: [],
   isEditing: false,
   loaded: false,
+  autoCollapse: typeof localStorage !== 'undefined'
+    ? localStorage.getItem('sidebar-auto-collapse') !== 'false'
+    : true,
+
+  setAutoCollapse: (v: boolean) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('sidebar-auto-collapse', String(v))
+    set({ autoCollapse: v })
+  },
 
   load: async () => {
     const loadFromProfile = (profile: { sidebarConfig?: SidebarItem[]; pinnedSidebarItems?: PinnedSidebarItem[]; collapsedInitiatives?: string[]; projectOrder?: string[] } | null) => {

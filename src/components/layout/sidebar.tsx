@@ -157,6 +157,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const setAllInitiativesCollapsed = useSidebarStore((s) => s.setAllInitiativesCollapsed)
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
   const dismissAutoReveal = useSidebarStore((s) => s.dismissAutoReveal)
+  const autoCollapse = useSidebarStore((s) => s.autoCollapse)
+  const setAutoCollapse = useSidebarStore((s) => s.setAutoCollapse)
   const executions = useExecutionStore((s) => s.executions)
   const batchExecutions = useExecutionStore((s) => s.batchExecutions)
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
@@ -467,6 +469,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       window.matchMedia('(display-mode: fullscreen)').matches
     )
   )
+  // Collapse nav to only active item when there are >3 pinned items/projects/sessions
+  const shouldCollapseNav = !collapsed && autoCollapse && (activeProjects.length + recentSessions.length > 3)
 
   return (
     <aside
@@ -587,105 +591,195 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       <div className="shrink-0">
         {/* Hover zone: nav items + customize button collapse/expand together */}
         <div
+          className="relative z-10"
           onMouseEnter={() => !collapsed && setNavHovered(true)}
           onMouseLeave={() => setNavHovered(false)}
         >
           {!isEditing ? (
-            <nav
-              className={cn(
-                "flex flex-col py-2",
-                collapsed ? "items-center" : "px-4",
-              )}
-            >
-              {visibleItems.map((item, index) => {
-                const Icon = iconMap[item.icon] || CheckSquare
-                const badge = getBadge(item.id)
-                const isItemActive = location.pathname === item.to
-                  || (item.id === "projects" && location.pathname.startsWith("/project/"))
-                const shortcutLabel = showShortcuts && index < 9 ? `${isMac ? '⌘' : '^'}${index + 1}` : null
-                const isVisible = isItemActive || navHovered
+            <>
+              <nav
+                className={cn(
+                  "flex flex-col py-2",
+                  collapsed ? "items-center" : "px-4",
+                )}
+              >
+                {visibleItems.map((item, index) => {
+                  const Icon = iconMap[item.icon] || CheckSquare
+                  const badge = getBadge(item.id)
+                  const isItemActive = location.pathname === item.to
+                    || (item.id === "projects" && location.pathname.startsWith("/project/"))
+                  const shortcutLabel = showShortcuts && index < 9 ? `${isMac ? '⌘' : '^'}${index + 1}` : null
 
-                if (collapsed) {
-                  const active = isItemActive || location.pathname === item.to
+                  // In shouldCollapseNav mode: only render active item in normal flow
+                  if (shouldCollapseNav && !isItemActive) return null
+
+                  const isVisible = shouldCollapseNav ? true : (isItemActive || navHovered)
+
+                  if (collapsed) {
+                    const active = isItemActive || location.pathname === item.to
+                    return (
+                      <div key={item.id} className="flex justify-center w-full mb-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => navigate(item.to)}
+                              data-tour-id={item.id}
+                              className={cn(
+                                "flex items-center justify-center h-9 w-9 rounded-[10px] transition-colors",
+                                active
+                                  ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground"
+                                  : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                              )}
+                            >
+                              <Icon className="h-[18px] w-[18px] shrink-0" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            {getItemLabel(item)}{shortcutLabel ? ` (${shortcutLabel})` : ''}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    )
+                  }
+
                   return (
-                    <div key={item.id} className="flex justify-center w-full mb-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => navigate(item.to)}
-                            data-tour-id={item.id}
-                            className={cn(
-                              "flex items-center justify-center h-9 w-9 rounded-[10px] transition-colors",
-                              active
-                                ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground"
-                                : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
-                            )}
-                          >
-                            <Icon className="h-[18px] w-[18px] shrink-0" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {getItemLabel(item)}{shortcutLabel ? ` (${shortcutLabel})` : ''}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  )
-                }
-
-                return (
-                  <div
-                    key={item.id}
-                    className="overflow-hidden"
-                    style={{
-                      maxHeight: isVisible ? '52px' : '0px',
-                      marginBottom: isVisible ? '4px' : '0px',
-                      opacity: isVisible ? 1 : 0,
-                      transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), margin-bottom 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
-                    }}
-                  >
-                    <NavLink
-                      to={item.to}
-                      end
-                      data-tour-id={item.id}
-                      className={({ isActive }) => {
-                        const active = isActive || isItemActive
-                        return cn(
-                          "group/navitem flex items-center rounded-[10px] text-[15px] font-medium transition-colors",
-                          "gap-3 px-3.5 py-2.5 w-full",
-                          active
-                            ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
-                            : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
-                        )
+                    <div
+                      key={item.id}
+                      className="overflow-hidden"
+                      style={{
+                        maxHeight: isVisible ? '52px' : '0px',
+                        marginBottom: isVisible ? '4px' : '0px',
+                        opacity: isVisible ? 1 : 0,
+                        transition: shouldCollapseNav ? 'none' : 'max-height 220ms cubic-bezier(0.4,0,0.2,1), margin-bottom 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
                       }}
                     >
-                      <Icon className="h-[18px] w-[18px] shrink-0" />
-                      <span className="flex-1 truncate">{getItemLabel(item)}</span>
-                      {badge && (
-                        <span
-                          className={cn(
-                            "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
-                            badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info",
-                          )}
-                        >
-                          {badge.variant === "info" && (
-                            <div className="relative h-1.5 w-1.5">
-                              <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
-                            </div>
-                          )}
-                          {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
-                          {badge.count}
-                        </span>
-                      )}
-                      {shortcutLabel && (
-                        <span className="opacity-0 group-hover/navitem:opacity-100 transition-opacity text-[10px] text-muted-foreground/40 font-mono tabular-nums shrink-0 pr-0.5">
-                          {shortcutLabel}
-                        </span>
-                      )}
-                    </NavLink>
-                  </div>
-                )
-              })}
-            </nav>
+                      <NavLink
+                        to={item.to}
+                        end
+                        data-tour-id={item.id}
+                        className={({ isActive }) => {
+                          const active = isActive || isItemActive
+                          return cn(
+                            "group/navitem flex items-center rounded-[10px] text-[15px] font-medium transition-colors",
+                            "gap-3 px-3.5 py-2.5 w-full",
+                            active
+                              ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
+                              : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                          )
+                        }}
+                      >
+                        <Icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="flex-1 truncate">{getItemLabel(item)}</span>
+                        {badge && (
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
+                              badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info",
+                            )}
+                          >
+                            {badge.variant === "info" && (
+                              <div className="relative h-1.5 w-1.5">
+                                <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                              </div>
+                            )}
+                            {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
+                            {badge.count}
+                          </span>
+                        )}
+                        {shortcutLabel && (
+                          <span className="opacity-0 group-hover/navitem:opacity-100 transition-opacity text-[10px] text-muted-foreground/40 font-mono tabular-nums shrink-0 pr-0.5">
+                            {shortcutLabel}
+                          </span>
+                        )}
+                      </NavLink>
+                    </div>
+                  )
+                })}
+              </nav>
+
+              {/* Overlay: non-active nav items float above project list when collapsed */}
+              {shouldCollapseNav && navHovered && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-card border-x border-b border-border/40 rounded-b-[10px] shadow-sm animate-in fade-in-0 slide-in-from-top-1 duration-150 pt-1 pb-2 px-4">
+                  {visibleItems
+                    .filter((item) => {
+                      const isItemActive = location.pathname === item.to
+                        || (item.id === "projects" && location.pathname.startsWith("/project/"))
+                      return !isItemActive
+                    })
+                    .map((item) => {
+                      const Icon = iconMap[item.icon] || CheckSquare
+                      const badge = getBadge(item.id)
+                      const globalIndex = visibleItems.indexOf(item)
+                      const shortcutLabel = showShortcuts && globalIndex < 9 ? `${isMac ? '⌘' : '^'}${globalIndex + 1}` : null
+                      return (
+                        <div key={item.id} className="mb-1">
+                          <NavLink
+                            to={item.to}
+                            end
+                            data-tour-id={item.id}
+                            className={({ isActive }) => {
+                              const active = isActive || (item.id === "projects" && location.pathname.startsWith("/project/"))
+                              return cn(
+                                "group/navitem flex items-center rounded-[10px] text-[15px] font-medium transition-colors gap-3 px-3.5 py-2.5 w-full",
+                                active
+                                  ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
+                                  : "text-muted-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+                              )
+                            }}
+                          >
+                            <Icon className="h-[18px] w-[18px] shrink-0" />
+                            <span className="flex-1 truncate">{getItemLabel(item)}</span>
+                            {badge && (
+                              <span className={cn(
+                                "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
+                                badge.variant === "warning" ? "bg-warning/10 text-warning" : "bg-info/10 text-info",
+                              )}>
+                                {badge.variant === "info" && (
+                                  <div className="relative h-1.5 w-1.5">
+                                    <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                                  </div>
+                                )}
+                                {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
+                                {badge.count}
+                              </span>
+                            )}
+                            {shortcutLabel && (
+                              <span className="opacity-0 group-hover/navitem:opacity-100 transition-opacity text-[10px] text-muted-foreground/40 font-mono tabular-nums shrink-0 pr-0.5">
+                                {shortcutLabel}
+                              </span>
+                            )}
+                          </NavLink>
+                        </div>
+                      )
+                    })}
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
+                  >
+                    Customize sidebar...
+                  </button>
+                </div>
+              )}
+
+              {/* Animate-in customize button when nav is not in collapse-overlay mode */}
+              {!shouldCollapseNav && !collapsed && (
+                <div
+                  className="px-5 overflow-hidden"
+                  style={{
+                    maxHeight: navHovered ? '36px' : '0px',
+                    opacity: navHovered ? 1 : 0,
+                    transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
+                  }}
+                >
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
+                  >
+                    Customize sidebar...
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={isEditing ? handleNavDragEnd : handlePinnedDragEnd}>
               <nav className="flex flex-col gap-1 py-2 px-4">
@@ -773,37 +867,37 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   })}
                 </SortableContext>
 
-                {/* Edit mode Done button */}
+                {/* Edit mode: auto-collapse toggle + Done */}
                 {isEditing && (
-                  <button
-                    onClick={() => setEditing(false)}
-                    className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    Done
-                  </button>
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-[10px] bg-muted/20">
+                      <ChevronsDownUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground flex-1">Auto-collapse</span>
+                      <button
+                        onClick={() => setAutoCollapse(!autoCollapse)}
+                        className={cn(
+                          "relative h-5 w-9 rounded-full transition-colors shrink-0",
+                          autoCollapse ? "bg-primary" : "bg-muted-foreground/25"
+                        )}
+                      >
+                        <div className={cn(
+                          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                          autoCollapse ? "translate-x-4" : "translate-x-0.5"
+                        )} />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setEditing(false)}
+                      className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                      Done
+                    </button>
+                  </>
                 )}
               </nav>
             </DndContext>
           )}
 
-          {/* Customize sidebar button — collapses with nav hover zone */}
-          {!isEditing && !collapsed && (
-            <div
-              className="px-5 overflow-hidden"
-              style={{
-                maxHeight: navHovered ? '36px' : '0px',
-                opacity: navHovered ? 1 : 0,
-                transition: 'max-height 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease',
-              }}
-            >
-              <button
-                onClick={() => setEditing(true)}
-                className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors whitespace-nowrap"
-              >
-                Customize sidebar...
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Pinned items in pages section (rendered in both editing and non-editing modes) */}
