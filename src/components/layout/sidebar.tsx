@@ -175,6 +175,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const setYoloMode = useSettingsStore((s) => s.setYoloMode)
   const [effortPopoverTier, setEffortPopoverTier] = useState<string | null>(null)
   const effortPopoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [navHovered, setNavHovered] = useState(false)
   const showAuth = isServerMode()
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const activeProjectId = params.id
@@ -206,6 +207,19 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   })
 
   const visibleItems = editableItems.filter((item) => item.visible)
+
+  // ⌘/Ctrl+1-9 navigate to visible page items in order
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(isMac ? e.metaKey : e.ctrlKey)) return
+      const idx = parseInt(e.key, 10) - 1
+      if (isNaN(idx) || idx < 0 || idx >= visibleItems.length) return
+      e.preventDefault()
+      navigate(visibleItems[idx].to)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [visibleItems, navigate, isMac])
 
   const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.id)), [pinnedItems])
 
@@ -565,15 +579,20 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       {/* ─── Pages section (sticky, does NOT scroll) ─── */}
       <div className="shrink-0">
         {!isEditing ? (
-          <nav className={cn(
-            "flex flex-col gap-1 py-2",
-            collapsed ? "items-center" : "px-4",
-          )}>
-            {visibleItems.map((item) => {
+          <nav
+            className={cn(
+              "flex flex-col gap-1 py-2",
+              collapsed ? "items-center" : "px-4",
+            )}
+            onMouseEnter={() => !collapsed && setNavHovered(true)}
+            onMouseLeave={() => setNavHovered(false)}
+          >
+            {visibleItems.map((item, index) => {
               const Icon = iconMap[item.icon] || CheckSquare
               const badge = getBadge(item.id)
               const isItemActive = location.pathname === item.to
                 || (item.id === "projects" && location.pathname.startsWith("/project/"))
+              const shortcutLabel = index < 9 ? `${isMac ? '⌘' : '^'}${index + 1}` : null
 
               if (collapsed) {
                 const active = isItemActive || location.pathname === item.to
@@ -594,14 +613,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           <Icon className="h-[18px] w-[18px] shrink-0" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="right">{getItemLabel(item)}</TooltipContent>
+                      <TooltipContent side="right">
+                        {getItemLabel(item)}{shortcutLabel ? ` (${shortcutLabel})` : ''}
+                      </TooltipContent>
                     </Tooltip>
                   </div>
                 )
               }
 
+              // Collapsed: only active item visible; on hover all items fade in
+              if (!navHovered && !isItemActive) return null
+
               return (
-                <div key={item.id}>
+                <div
+                  key={item.id}
+                  className={cn(!isItemActive && "animate-in fade-in-0 duration-150")}
+                >
                   <NavLink
                     to={item.to}
                     end
@@ -609,7 +636,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                     className={({ isActive }) => {
                       const active = isActive || isItemActive
                       return cn(
-                        "flex items-center rounded-[10px] text-[15px] font-medium transition-colors",
+                        "group/navitem flex items-center rounded-[10px] text-[15px] font-medium transition-colors",
                         "gap-3 px-3.5 py-2.5 w-full",
                         active
                           ? "bg-foreground/[0.08] dark:bg-foreground/[0.12] text-foreground font-semibold"
@@ -633,6 +660,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                         )}
                         {badge.variant === "warning" && <AlertCircle className="h-3 w-3" />}
                         {badge.count}
+                      </span>
+                    )}
+                    {shortcutLabel && (
+                      <span className="opacity-0 group-hover/navitem:opacity-100 transition-opacity text-[10px] text-muted-foreground/40 font-mono tabular-nums shrink-0 pr-0.5">
+                        {shortcutLabel}
                       </span>
                     )}
                   </NavLink>
