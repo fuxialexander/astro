@@ -856,24 +856,30 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
         </div>
 
-        {/* Pinned items in pages section (rendered in both editing and non-editing modes) */}
-        {!isEditing && !collapsed && resolvedPinnedItems.length > 0 && (
-          <div className="flex flex-col gap-0.5 px-4 pb-2">
-            {resolvedPinnedItems.map((item, index) => (
-              <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
-            ))}
-          </div>
-        )}
-
-        {/* Pinned items collapsed mode */}
-        {!isEditing && resolvedPinnedItems.length > 0 && collapsed && (
-          <div className="flex flex-col items-center gap-1 pb-2">
-            {resolvedPinnedItems.map((item, index) => (
-              <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
-            ))}
-          </div>
-        )}
       </div>
+
+      {/* Pinned items — outside nav overlay zone so expanding nav doesn't cover them */}
+      {!isEditing && resolvedPinnedItems.length > 0 && (
+        <div className={cn(
+          "shrink-0 border-b border-border/40",
+          shouldCollapseNav && !collapsed && "relative z-0",
+        )}>
+          {!collapsed && (
+            <div className="flex flex-col gap-0.5 px-4 py-1.5">
+              {resolvedPinnedItems.map((item, index) => (
+                <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
+              ))}
+            </div>
+          )}
+          {collapsed && (
+            <div className="flex flex-col items-center gap-1 py-1.5">
+              {resolvedPinnedItems.map((item, index) => (
+                <div key={item.id}>{renderProjectRow(item.project, index, true)}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── Scrollable area: projects + sessions ─── */}
       <div className="flex-1 min-h-0 overflow-y-auto" style={collapsed ? { scrollbarWidth: "none" } : undefined}>

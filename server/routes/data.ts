@@ -330,6 +330,7 @@ app.patch('/projects/:id', async (c) => {
   if (patch.discoveryMode === true) patch.deliveryMode = 'direct'
   if (body.projectType !== undefined) patch.projectType = body.projectType
   if (body.computeBackends !== undefined) patch.computeBackends = body.computeBackends
+  if (body.terminalOpenIn !== undefined) patch.terminalOpenIn = body.terminalOpenIn || null
   if (body.references !== undefined) {
     // Cap JSONB payload size so a runaway client can't bloat the row.
     // 1 MB easily covers thousands of typical CSL-JSON entries.
