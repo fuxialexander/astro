@@ -8,6 +8,11 @@
 
 import { defineConfig } from 'vite'
 import { builtinModules } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(__dirname, '..')
 
 const nodeBuiltins = [
   ...builtinModules,
@@ -21,6 +26,11 @@ export default defineConfig({
   ssr: { target: 'node', noExternal: true },
   resolve: {
     conditions: ['node'],
+    alias: [
+      // Workspace package — not hoisted by pnpm, must be aliased explicitly
+      { find: /^@astro\/core\/(.+)$/, replacement: path.resolve(repoRoot, 'packages/core/src/$1') },
+      { find: /^@astro\/core$/, replacement: path.resolve(repoRoot, 'packages/core/src/index.ts') },
+    ],
   },
   build: {
     ssr: true,
