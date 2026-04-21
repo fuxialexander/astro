@@ -4,20 +4,8 @@ import { db } from '../lib/db/index.js'
 import { teamReferences, planNodes, projects } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { generateDocx } from '../lib/export/docx-generator.js'
+import { extractCiteKeys } from '../lib/references/cite-key-extractor.js'
 import type { Reference } from '@astro/core/types'
-
-function extractCiteKeys(text: string): string[] {
-  const keys: string[] = []
-  const re = /\[(@[\w-]+(?:\s*;\s*@[\w-]+)*)\]/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    for (const part of m[1].split(';')) {
-      const k = part.trim().replace(/^@/, '')
-      if (k) keys.push(k)
-    }
-  }
-  return keys
-}
 
 const exportRoute = new Hono()
 exportRoute.use('/*', requireAuth)
@@ -77,7 +65,7 @@ exportRoute.post('/docx', async (c) => {
   }
 
   const buffer = await generateDocx({ title, description, citationStyle, references: refs })
-  const filename = `${title.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'document'}.docx`
+  const filename = `${title.replace(/[\r\n\t]/g, ' ').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'document'}.docx`
 
   return new Response(buffer, {
     headers: {

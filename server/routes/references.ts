@@ -2,25 +2,12 @@ import { Hono } from 'hono'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { lookupIdentifier } from '../lib/references/translation-client.js'
 import { enrichAbstracts } from '../lib/references/crossref-enrichment.js'
+import { extractCiteKeys } from '../lib/references/cite-key-extractor.js'
 import { db } from '../lib/db/index.js'
 import { teamReferences, planNodes, projects } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { toBibTeX, parseBibTeX } from '@astro/core'
 import type { Reference } from '@astro/core/types'
-
-/** Extract [@key] cite keys from text — mirrors src/lib/citation/parser.ts */
-function extractCiteKeys(text: string): string[] {
-  const keys: string[] = []
-  const re = /\[(@[\w-]+(?:\s*;\s*@[\w-]+)*)\]/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    for (const part of m[1].split(';')) {
-      const k = part.trim().replace(/^@/, '')
-      if (k) keys.push(k)
-    }
-  }
-  return keys
-}
 
 const referencesRoute = new Hono()
 referencesRoute.use('/*', requireAuth)
@@ -169,16 +156,21 @@ referencesRoute.post('/import', async (c) => {
         .returning()
     : []
 
-  // Batch updates
-  const updatedRows = []
-  for (const { rowId, ref } of toUpdate) {
-    const [row] = await db
-      .update(teamReferences)
-      .set({ data: ref, citeKey: ref.id, updatedAt: new Date() })
-      .where(and(eq(teamReferences.id, rowId), eq(teamReferences.teamId, teamId)))
-      .returning()
-    if (row) updatedRows.push(row)
-  }
+  // Batch updates in a transaction to avoid partial failure
+  const updatedRows = toUpdate.length
+    ? await db.transaction(async (tx) => {
+        const rows = []
+        for (const { rowId, ref } of toUpdate) {
+          const [row] = await tx
+            .update(teamReferences)
+            .set({ data: ref, citeKey: ref.id, updatedAt: new Date() })
+            .where(and(eq(teamReferences.id, rowId), eq(teamReferences.teamId, teamId)))
+            .returning()
+          if (row) rows.push(row)
+        }
+        return rows
+      })
+    : []
 
   const allRefs = [
     ...insertedRows.map(r => ({ ...r.data, id: r.citeKey })),
@@ -337,12 +329,17 @@ referencesRoute.post('/import-bibtex', async (c) => {
   const insertedRows = enriched.length
     ? await db.insert(teamReferences).values(enriched.map(r => ({ teamId, citeKey: r.id, data: r }))).returning()
     : []
-  const updatedRows = []
-  for (const { rowId, ref } of toUpdate) {
-    const [row] = await db.update(teamReferences).set({ data: ref, citeKey: ref.id, updatedAt: new Date() })
-      .where(and(eq(teamReferences.id, rowId), eq(teamReferences.teamId, teamId))).returning()
-    if (row) updatedRows.push(row)
-  }
+  const updatedRows = toUpdate.length
+    ? await db.transaction(async (tx) => {
+        const rows = []
+        for (const { rowId, ref } of toUpdate) {
+          const [row] = await tx.update(teamReferences).set({ data: ref, citeKey: ref.id, updatedAt: new Date() })
+            .where(and(eq(teamReferences.id, rowId), eq(teamReferences.teamId, teamId))).returning()
+          if (row) rows.push(row)
+        }
+        return rows
+      })
+    : []
 
   return c.json({
     imported: insertedRows.length,
