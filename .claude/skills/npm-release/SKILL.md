@@ -278,3 +278,16 @@ git checkout dev && git merge main && git push origin dev
   will be behind on the version bump commit and future PRs will have merge conflicts.
 - The `--provenance` flag in the release Action requires OIDC (`id-token: write`
   permission). This is already configured — don't remove it.
+- **After releasing `@astroanywhere/cli`, bump the `@astroanywhere/cli` dependency
+  in `packages/agent-runner/package.json`** — the agent bundles the CLI binary at
+  publish time. The range `^0.X.Y` won't cross a minor boundary, so a minor-version
+  CLI release (e.g. `0.5.x → 0.6.x`) will NOT be picked up automatically. Always
+  open a PR on `astro-anywhere/astro-agent` to update the range, then cut a new
+  agent release so the desktop app bundles the latest CLI:
+  ```bash
+  # Check current pinned range
+  grep @astroanywhere/cli packages/agent-runner/package.json
+  # Bump to new minor floor
+  # e.g. "^0.5.1" → "^0.6.1"
+  # Then open PR → merge → new agent release
+  ```
