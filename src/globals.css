@@ -392,9 +392,16 @@ html {
 }
 
 
-/* Desktop (md+): locked app-shell layout — scrolling inside containers */
+/* Desktop (md+): locked app-shell layout — scrolling inside containers.
+   overflow: hidden on <html> is intentionally excluded: Chromium breaks
+   backdrop-filter on position:fixed portal elements (Radix Popover, etc.)
+   when <html> has overflow: hidden. Body + #root alone are sufficient to
+   prevent document-level scrolling. */
 @media (min-width: 768px) {
-  html, body, #root {
+  html {
+    height: 100%;
+  }
+  body, #root {
     overflow: hidden;
     height: 100%;
   }
