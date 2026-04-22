@@ -1023,7 +1023,7 @@ html[lang="zh-CN"] h3 {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .cal-month-cell-today {
-  background: color-mix(in srgb, var(--primary) 4%, var(--card));
+  /* no background shade — today is indicated by the red circle on the day number only */
 }
 .cal-month-cell-outside {
   opacity: 0.45;

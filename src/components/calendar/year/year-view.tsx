@@ -14,11 +14,11 @@ interface YearViewProps {
   focusedDate: string
 }
 
-/** Same formula as MonthHeatOverlay: 4%–28% primary color. */
+/** Background heat matching the legend: 4%–28% primary color as background. */
 function heatStyle(heat: number): React.CSSProperties | undefined {
   if (heat <= 0) return undefined
   const pct = Math.round((0.04 + heat * 0.24) * 100)
-  return { color: `color-mix(in srgb, var(--primary) ${pct + 40}%, var(--foreground))` }
+  return { background: `color-mix(in srgb, var(--primary) ${pct}%, transparent)` }
 }
 
 interface MiniMonthProps {
@@ -100,8 +100,8 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
               onClick={() => inMonth && onDateClick(dateStr)}
               className={cn(
                 'flex items-center justify-center text-[11px] leading-none w-full rounded-sm transition-colors',
-                inMonth  ? 'cursor-pointer hover:bg-accent/50' : 'opacity-20 pointer-events-none',
-                !isToday && !hasEvents && inMonth && 'text-foreground/75',
+                inMonth ? 'cursor-pointer hover:bg-accent/50' : 'opacity-20 pointer-events-none',
+                inMonth && !isToday && 'text-foreground/75',
               )}
               style={style}
               tabIndex={inMonth ? 0 : -1}
@@ -111,7 +111,7 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
                   {day}
                 </span>
               ) : (
-                <span className={cn(hasEvents && inMonth && 'font-semibold')}>{day}</span>
+                <span>{day}</span>
               )}
             </button>
           )
