@@ -721,6 +721,10 @@ app.get('/plan/:projectId', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
 
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) {
+    return c.json({ error: 'Invalid project ID' }, 400)
+  }
+
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
     and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
