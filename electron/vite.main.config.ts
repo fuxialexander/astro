@@ -45,7 +45,6 @@ export default defineConfig({
     rollupOptions: {
       external: [
         'electron',
-        'electron-updater',
         'better-sqlite3',
         '@electric-sql/pglite',
         'node-pty',
