@@ -4,13 +4,13 @@ interface MonthHeatOverlayProps {
 
 export function MonthHeatOverlay({ intensity }: MonthHeatOverlayProps) {
   if (intensity <= 0) return null
-  const opacity = 0.04 + intensity * 0.24
+  const pct = Math.round(15 + intensity * 50)
   return (
     <div
       aria-hidden
       className="cal-heat-overlay"
       style={{
-        background: `color-mix(in srgb, var(--primary) ${Math.round(opacity * 100)}%, transparent)`,
+        background: `color-mix(in srgb, #F97316 ${pct}%, transparent)`,
       }}
     />
   )

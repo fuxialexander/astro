@@ -168,7 +168,7 @@ export function CalendarFilterPopover() {
                 key={i}
                 className="flex-1 h-2 rounded-sm"
                 style={{
-                  background: `color-mix(in srgb, var(--primary) ${Math.round((0.04 + i * 0.24) * 100)}%, transparent)`,
+                  background: `color-mix(in srgb, #F97316 ${Math.round(15 + i * 50)}%, transparent)`,
                 }}
               />
             ))}

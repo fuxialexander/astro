@@ -14,11 +14,11 @@ interface YearViewProps {
   focusedDate: string
 }
 
-/** Background heat matching the legend: 4%–28% primary color as background. */
+/** Background heat using orange: 15%–65% of #F97316, matching the filter legend. */
 function heatStyle(heat: number): React.CSSProperties | undefined {
   if (heat <= 0) return undefined
-  const pct = Math.round((0.04 + heat * 0.24) * 100)
-  return { background: `color-mix(in srgb, var(--primary) ${pct}%, transparent)` }
+  const pct = Math.round(15 + heat * 50)
+  return { background: `color-mix(in srgb, #F97316 ${pct}%, transparent)` }
 }
 
 interface MiniMonthProps {
