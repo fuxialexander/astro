@@ -81,7 +81,6 @@ const config: ForgeConfig = {
     extendInfo: {
       NSCalendarsUsageDescription: 'Astro reads your calendars to display events alongside your planned tasks.',
       NSRemindersUsageDescription: 'Astro reads your Reminders to display them alongside your planned tasks.',
-      NSAppleEventsUsageDescription: 'Astro uses Apple Events to read calendar data from Calendar.app.',
     },
     // @electron/universal merges the per-arch packaged apps and bails on any
     // file that differs between x64 and arm64 without a rule saying which
