@@ -788,9 +788,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendChatMessage: (params) => {
-    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs, taskType, _fromQueue } = params
+    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, imageRefs, taskType, _fromQueue } = params
     const session = get().sessions.get(sid)
     if (!session) return
+
+    // When draining a queued message, re-read messages from the current session state
+    // so the history includes any assistant responses completed since the message was enqueued.
+    // (The stale params.messages captured at enqueue time may be missing the previous
+    // assistant reply if it was still streaming or in the 50ms throttle window.)
+    let messages = params.messages
+    if (_fromQueue) {
+      const currentSession = get().sessions.get(sid)
+      const currentMessages = currentSession?.messages || []
+      messages = currentMessages
+        .slice(0, -2)
+        .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+    }
 
     // If already streaming, enqueue and show queued user message in feed
     if (get().streamingSessions.has(sid)) {
@@ -1061,9 +1075,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendPlaygroundChat: (params) => {
-    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl, imageRefs, _fromQueue } = params
+    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, branchName, prUrl, imageRefs, _fromQueue } = params
     const session = get().sessions.get(sid)
     if (!session) return
+
+    // Re-read messages from current session state when draining a queued message
+    let messages = params.messages
+    if (_fromQueue) {
+      const currentSession = get().sessions.get(sid)
+      const currentMessages = currentSession?.messages || []
+      messages = currentMessages
+        .slice(0, -2)
+        .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+    }
 
     // If already streaming, enqueue and show queued user message in feed
     if (get().streamingSessions.has(sid)) {

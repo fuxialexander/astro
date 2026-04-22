@@ -82,15 +82,52 @@ export function useStreamEvents(
     legacySessionMessages?: SessionMessage[]
     execution?: TaskExecution
     projectId?: string
+    /** Previous execution stream IDs to merge before the primary stream (follow-up continuity) */
+    additionalStreamIds?: string[]
   },
 ): StreamEventsResult {
-  const { legacySessionMessages, execution, projectId } = options ?? {}
+  const { legacySessionMessages, execution, projectId, additionalStreamIds } = options ?? {}
+
+  // Stabilize additional IDs as a comma-joined string to avoid selector churn
+  const additionalIdsKey = useMemo(
+    () => (additionalStreamIds ?? []).filter(Boolean).join(','),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [(additionalStreamIds ?? []).join(',')]
+  )
 
   // Subscribe to realtime-store taskStreams for this streamId
   const taskStream = useRealtimeStore(
     useCallback((s) => streamId ? s.taskStreams.get(streamId) : undefined, [streamId])
   )
+
+  // Subscribe to additional (previous) streams — events pre-pended before primary
+  const additionalActivityEvents = useRealtimeStore(
+    useCallback((s): TaskActivityEvent[] => {
+      if (!additionalIdsKey) return EMPTY_EVENTS
+      const ids = additionalIdsKey.split(',')
+      const events: TaskActivityEvent[] = []
+      for (const id of ids) {
+        const stream = s.taskStreams.get(id)
+        if (stream?.activityEvents?.length) events.push(...stream.activityEvents)
+      }
+      if (events.length === 0) return EMPTY_EVENTS
+      return events.slice().sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    }, [additionalIdsKey])
+  )
+
   const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
+
+  // Hydrate additional (previous) streams once per ID
+  const hydratedAdditionalRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!additionalIdsKey) return
+    const ids = additionalIdsKey.split(',').filter(id => !hydratedAdditionalRef.current.has(id))
+    if (!ids.length) return
+    ids.forEach(id => hydratedAdditionalRef.current.add(id))
+    hydrateFromCatchUp(ids, 0).catch((err) => {
+      console.warn('[useStreamEvents] additional stream hydration failed:', err)
+    })
+  }, [additionalIdsKey, hydrateFromCatchUp])
 
   // Track hydration state
   const hydratedRef = useRef<string | null>(null)
@@ -229,6 +266,13 @@ export function useStreamEvents(
         }
       }
 
+      // Prepend events from previous executions (follow-up continuity)
+      if (additionalActivityEvents.length > 0) {
+        const merged = [...additionalActivityEvents, ...events]
+        merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        return merged
+      }
+
       return events
     }
 
@@ -251,8 +295,11 @@ export function useStreamEvents(
       return events
     }
 
+    // Only additional events (no primary stream yet — follow-up dispatched before primary hydrates)
+    if (additionalActivityEvents.length > 0) return additionalActivityEvents
+
     return EMPTY_EVENTS
-  }, [taskStream?.activityEvents, execution?.activityEvents, legacySessionMessages])
+  }, [taskStream?.activityEvents, execution?.activityEvents, legacySessionMessages, additionalActivityEvents])
 
   // Group into display blocks
   const displayBlocks = useMemo(

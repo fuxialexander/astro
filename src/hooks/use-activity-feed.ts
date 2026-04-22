@@ -28,6 +28,8 @@ interface UseActivityFeedOptions {
   projectId?: string
   /** Legacy session messages for chat hydration */
   chatMessages?: SessionMessage[]
+  /** Previous execution IDs to merge before the primary stream (follow-up continuity) */
+  additionalExecutionIds?: string[]
 }
 
 interface UseActivityFeedReturn {
@@ -53,11 +55,12 @@ export function useActivityFeed({
   execution,
   projectId,
   chatMessages,
+  additionalExecutionIds,
 }: UseActivityFeedOptions): UseActivityFeedReturn {
-  // Execution events
+  // Execution events (with optional previous execution IDs for follow-up continuity)
   const { activityEvents: execActivityEvents, isHydrating: isRestoring } = useStreamEvents(
     executionId,
-    { execution, projectId },
+    { execution, projectId, additionalStreamIds: additionalExecutionIds },
   )
 
   // Chat events

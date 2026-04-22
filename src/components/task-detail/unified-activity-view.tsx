@@ -47,6 +47,8 @@ interface UnifiedActivityViewProps {
   executionId: string
   machineId?: string
   onFileSelect?: (path: string) => void
+  /** Previous execution IDs to show before the current one (follow-up continuity) */
+  additionalExecutionIds?: string[]
 }
 
 export function UnifiedActivityView({
@@ -58,6 +60,7 @@ export function UnifiedActivityView({
   executionId,
   machineId,
   onFileSelect,
+  additionalExecutionIds,
 }: UnifiedActivityViewProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
@@ -124,6 +127,7 @@ export function UnifiedActivityView({
     execution,
     projectId,
     chatMessages: sessionMessages,
+    additionalExecutionIds,
   })
 
   const { autoScroll, handleScroll, scrollToBottom } = useAutoScroll(

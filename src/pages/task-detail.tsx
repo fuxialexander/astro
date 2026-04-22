@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { useProjectData } from "@/hooks/use-project-data"
 import { ArrowLeft, Square, Loader2, RotateCcw, Check, AlertCircle, CheckCircle2, XCircle, FileText, Info, FileDiff, Folder } from "lucide-react"
@@ -175,6 +175,23 @@ export function TaskDetail() {
   const defaultExecutionId = node?.executionId || execution?.executionId || ""
   const executionId = overrideExecutionId || defaultExecutionId
   const activeExecution = overrideExecution || execution
+
+  // Track execution chain for follow-up continuity: when the active execution changes
+  // (follow-up dispatched), accumulate previous IDs so the activity feed shows them all.
+  // Reset when the node changes (navigating to a different task).
+  const [prevExecutionIds, setPrevExecutionIds] = useState<string[]>([])
+  const lastDefaultIdRef = useRef("")
+  useEffect(() => {
+    const prev = lastDefaultIdRef.current
+    if (prev && prev !== defaultExecutionId && defaultExecutionId) {
+      setPrevExecutionIds((ids) => ids.includes(prev) ? ids : [...ids, prev])
+    }
+    lastDefaultIdRef.current = defaultExecutionId
+  }, [defaultExecutionId])
+  useEffect(() => {
+    setPrevExecutionIds([])
+    lastDefaultIdRef.current = ""
+  }, [nodeId])
 
   // Check for pending approval
   const pendingApproval = nodeId ? getPendingApprovalForNode(nodeId) : undefined
@@ -567,6 +584,7 @@ export function TaskDetail() {
               isRunning={isRunning}
               executionId={executionId}
               machineId={machineId}
+              additionalExecutionIds={prevExecutionIds.filter(id => id !== executionId)}
               onFileSelect={(filePath) => {
                 const wd = project?.workingDirectory
                 const fbWorkDir = wd
