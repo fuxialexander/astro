@@ -88,12 +88,11 @@ async function listEventsViaAppleScript(from: string, to: string): Promise<Apple
   const script = `
     set fromDate to date "${new Date(from).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}"
     set toDate to date "${new Date(to).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}"
-    set toDate to toDate + (86400 * time scale)
+    set toDate to toDate + 1 * days
     set output to {}
     tell application "Calendar"
       repeat with aCal in every calendar
         set calName to name of aCal
-        set calId to uid of aCal
         try
           set calEvents to every event of aCal whose start date >= fromDate and start date <= toDate
           repeat with anEvent in calEvents
@@ -118,25 +117,27 @@ async function listEventsViaAppleScript(from: string, to: string): Promise<Apple
                 set evUrl to url of anEvent
                 if evUrl is missing value then set evUrl to ""
               end try
-              set record to evId & "|" & evTitle & "|" & evStart & "|" & evEnd & "|" & evAllDay & "|" & evDesc & "|" & evLoc & "|" & evUrl & "|" & calName & "|" & calId
-              set end of output to record
+              set evRow to evId & "|" & evTitle & "|" & evStart & "|" & evEnd & "|" & evAllDay & "|" & evDesc & "|" & evLoc & "|" & evUrl & "|" & calName & "|" & calName
+              set end of output to evRow
             end try
           end repeat
         end try
       end repeat
     end tell
-    set AppleScript's text item delimiters to "\\n"
+    set AppleScript's text item delimiters to return
     set outputStr to output as string
     set AppleScript's text item delimiters to ""
     return outputStr
   `
 
   try {
+    console.log('[apple-calendar] running osascript for events', from, to)
     const raw = await runAppleScript(script, 20000)
+    console.log('[apple-calendar] osascript success, raw length:', raw.length)
     if (!raw) return []
 
     const events: AppleCalendarEvent[] = []
-    for (const line of raw.split('\n')) {
+    for (const line of raw.split(/\r\n|\r|\n/)) {
       const parts = line.split('|')
       if (parts.length < 10) continue
       const [evId, evTitle, evStart, evEnd, evAllDay,, evLoc, evUrl,, calId] = parts
@@ -159,12 +160,12 @@ async function listEventsViaAppleScript(from: string, to: string): Promise<Apple
     return events
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
+    console.error('[apple-calendar] osascript FAILED:', JSON.stringify(msg))
     // TCC error codes: 1743 = "not authorized to send Apple events to Calendar"
     if (msg.includes('Not authorized') || msg.includes('1743') || msg.includes('not allowed to send') || msg.includes('NSAppleEventsUsageDescription')) {
       return null // permission denied signal
     }
     // Other errors (Calendar.app not running, timeout, etc.) — not a permission issue
-    console.error('[apple-calendar] AppleScript error:', msg)
     return []
   }
 }
@@ -174,13 +175,12 @@ async function listCalendarsViaAppleScript(): Promise<AppleCalendarInfo[] | null
     set output to {}
     tell application "Calendar"
       repeat with aCal in every calendar
-        set calId to uid of aCal
         set calName to name of aCal
-        set record to calId & "|" & calName
-        set end of output to record
+        set calRow to calName & "|" & calName
+        set end of output to calRow
       end repeat
     end tell
-    set AppleScript's text item delimiters to "\\n"
+    set AppleScript's text item delimiters to return
     set outputStr to output as string
     set AppleScript's text item delimiters to ""
     return outputStr
@@ -188,7 +188,7 @@ async function listCalendarsViaAppleScript(): Promise<AppleCalendarInfo[] | null
   try {
     const raw = await runAppleScript(script, 10000)
     if (!raw) return []
-    return raw.split('\n').filter(Boolean).map((line) => {
+    return raw.split(/\r\n|\r|\n/).filter(Boolean).map((line) => {
       const [id, name] = line.split('|')
       return { id: id?.trim() ?? '', name: name?.trim() ?? '', color: null, isSubscribed: false, isWritable: true }
     })
@@ -375,6 +375,7 @@ const listEventsSchema = {
     events: z.array(appleEventSchema),
     source: z.enum(['applescript', 'ics-fallback']),
     permissionDenied: z.boolean(),
+    debugError: z.string().optional(),
   }),
 }
 
@@ -425,15 +426,22 @@ export function registerAppleCalendarChannels(): void {
   if (process.platform !== 'darwin') return
 
   defineHandler('apple-calendar:list-events', listEventsSchema, async ({ from, to }) => {
-    const appleEvents = await listEventsViaAppleScript(from, to)
+    let lastError = ''
+    const _origError = console.error.bind(console)
+    // Capture the last error logged by listEventsViaAppleScript
+    const appleEvents = await listEventsViaAppleScript(from, to).catch((e: unknown) => {
+      lastError = String(e)
+      return null
+    })
+
     if (appleEvents !== null) {
       return { events: appleEvents, source: 'applescript' as const, permissionDenied: false }
     }
 
     // Permission denied or error — fall back to ICS
-    console.log('[apple-calendar] Falling back to ICS parsing')
+    console.log('[apple-calendar] Falling back to ICS parsing, lastError:', lastError)
     const icsEvents = await listEventsViaICS(from, to)
-    return { events: icsEvents, source: 'ics-fallback' as const, permissionDenied: appleEvents === null }
+    return { events: icsEvents, source: 'ics-fallback' as const, permissionDenied: appleEvents === null, debugError: lastError }
   })
 
   defineHandler('apple-calendar:list-calendars', listCalendarsSchema, async () => {
