@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EditorOpenControls, type EditorType } from "@/components/ui/editor-open-controls"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { buildFileUrlSync } from "@/lib/path-utils"
 import { useFileBrowser, useContentSearch, type DirectoryEntry, type ContentSearchMatch } from "./use-file-browser"
@@ -576,24 +577,32 @@ export function FileBrowser({
 
       {/* Search row */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border shrink-0">
-        {hasContentSearch && (
-          <button
-            title={searchMode === 'name' ? "Switch to content search (ripgrep)" : "Switch to filename filter"}
-            onClick={() => {
-              const next = searchMode === 'name' ? 'content' : 'name'
-              setSearchMode(next)
-              if (next === 'content') { setSearchQuery(""); setTimeout(() => contentSearchRef.current?.focus(), 50) }
-              else { setContentQuery(""); clearContentSearch() }
-            }}
-            className={cn(
-              "shrink-0 p-0.5 rounded transition-colors",
-              searchMode === 'content' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            )}
+        {hasContentSearch ? (
+          <label
+            className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground"
+            title="Search file contents with ripgrep"
           >
-            {searchMode === 'content' ? <ScanText className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
-          </button>
+            <Switch
+              checked={searchMode === 'content'}
+              onCheckedChange={(checked) => {
+                const next = checked ? 'content' : 'name'
+                setSearchMode(next)
+                if (next === 'content') {
+                  setSearchQuery("")
+                  setTimeout(() => contentSearchRef.current?.focus(), 50)
+                } else {
+                  setContentQuery("")
+                  clearContentSearch()
+                }
+              }}
+              aria-label="Search file content"
+            />
+            <span className="hidden md:inline">Search file content</span>
+            <ScanText className="h-3.5 w-3.5 md:hidden" />
+          </label>
+        ) : (
+          <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         )}
-        {!hasContentSearch && <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
 
         {searchMode === 'name' ? (
           <>

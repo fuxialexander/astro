@@ -18,7 +18,7 @@ import { ApprovalCard } from "@/components/approval-card"
 import { TaskPropertiesBar } from "@/components/task-properties-bar"
 import { TaskWorkdirBar } from "@/components/task-detail/task-workdir-bar"
 import { FileBrowser } from "@/components/file-browser"
-import { projectWorktreePath, resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
+import { getProjectFileBrowserRoot, resolveFilePathForBrowsing } from "@/components/task-detail/file-path-utils"
 import { PrStatusCard } from "@/components/task-detail/pr-status-card"
 import { formatDuration } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
@@ -586,12 +586,7 @@ export function TaskDetail() {
               machineId={machineId}
               additionalExecutionIds={prevExecutionIds.filter(id => id !== executionId)}
               onFileSelect={(filePath) => {
-                const wd = project?.workingDirectory
-                const fbWorkDir = wd
-                  ? (project?.projectBranch
-                      ? projectWorktreePath(wd, project.projectBranch)
-                      : wd)
-                  : undefined
+                const fbWorkDir = getProjectFileBrowserRoot(project)
                 if (fbWorkDir) {
                   setInitialFilePath(resolveFilePathForBrowsing(filePath, fbWorkDir))
                 }
@@ -607,11 +602,7 @@ export function TaskDetail() {
           const fbMachine = project?.defaultMachineId
             ? machines.find((m) => m.id === project.defaultMachineId)
             : machines.length === 1 ? machines[0] : undefined
-          const fbWorkDir = project?.workingDirectory
-            ? (project.projectBranch
-                ? projectWorktreePath(project.workingDirectory, project.projectBranch)
-                : project.workingDirectory)
-            : undefined
+          const fbWorkDir = getProjectFileBrowserRoot(project)
           return fileBrowserOpen && fbMachine && fbWorkDir && isWide ? (
             <div
               className="flex flex-col bg-background border-l border-border shrink-0 relative overflow-hidden"
@@ -678,11 +669,7 @@ export function TaskDetail() {
               const fbMachine = project.defaultMachineId
                 ? machines.find((m) => m.id === project.defaultMachineId)
                 : machines.length === 1 ? machines[0] : undefined
-              const fbWorkDir = project.workingDirectory
-                ? (project.projectBranch
-                    ? projectWorktreePath(project.workingDirectory, project.projectBranch)
-                    : project.workingDirectory)
-                : undefined
+              const fbWorkDir = getProjectFileBrowserRoot(project)
               return fbMachine && fbWorkDir ? () => setFileBrowserOpen((v) => !v) : undefined
             })()
           }
@@ -691,4 +678,3 @@ export function TaskDetail() {
     </div>
   )
 }
-

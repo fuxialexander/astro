@@ -28,7 +28,7 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
   const [text, setText] = useState('')
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [zoteroStatus, setZoteroStatus] = useState<'idle' | 'detecting' | 'found' | 'notfound' | 'importing'>('idle')
+  const [zoteroStatus, setZoteroStatus] = useState<'idle' | 'detecting' | 'found' | 'notfound' | 'importing' | 'error'>('idle')
   const [zoteroBibTeX] = useState<string>('')
   const [zoteroCount, setZoteroCount] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -84,7 +84,7 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
       onImported(imported)
       onClose()
     } catch (err) {
-      setZoteroStatus('notfound')
+      setZoteroStatus('error')
       setError(err instanceof Error ? err.message : 'Zotero import failed')
     }
   }, [desktop, importBibTeX, onImported, onClose])
@@ -178,6 +178,15 @@ function ImportDialog({ onClose, onImported }: ImportDialogProps) {
                   <Button size="sm" variant="outline" onClick={detectAndImportZotero}>Try again</Button>
                 </div>
               )}
+              {zoteroStatus === 'error' && (
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-sm text-muted-foreground">Zotero import failed.</p>
+                  <p className="text-xs text-muted-foreground/70 text-center">
+                    Astro found your library, but importing it hit an error.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={detectAndImportZotero}>Try again</Button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -246,7 +255,7 @@ export function References() {
       autoSelectedRef.current = true
       setSelectedProjectId(projectsWithCitations[0].project.id)
     }
-  }, [projectsWithCitations.length])
+  }, [projectsWithCitations])
 
   const selectedProject = projects.find(p => p.id === selectedProjectId)
   const selectedRefs = selectedProject

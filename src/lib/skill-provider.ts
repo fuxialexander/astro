@@ -61,7 +61,6 @@ export class WebSkillProvider implements SkillProvider {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async installSkill(_name: string, _content: string): Promise<OpenClawSkill> {
     // Skill installation from the renderer is not supported; the local server
     // owns the filesystem and exposes management endpoints separately.

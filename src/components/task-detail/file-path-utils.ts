@@ -1,11 +1,12 @@
 /**
  * Utility functions for resolving file paths in the file browser.
  *
- * After task completion, files live in the persistent project worktree
- * (.astro/worktrees/{shortProjectId}/), not the base working directory.
- * These functions derive the worktree path and resolve file_change event
- * paths into browsable absolute paths.
+ * These functions derive the effective browse root for a project and resolve
+ * file_change event paths into browsable absolute paths.
  */
+
+import type { Project } from "@/types"
+import { deriveDeliveryMode } from "@/lib/project-source"
 
 /**
  * Derive the project worktree path from working directory + project branch.
@@ -16,6 +17,27 @@ export function projectWorktreePath(workingDirectory: string, projectBranch: str
   const parts = projectBranch.split('/')
   const suffix = parts[parts.length - 1]
   return `${workingDirectory.replace(/\/$/, '')}/.astro/worktrees/${suffix}`
+}
+
+/**
+ * Resolve the directory the UI should browse for a project.
+ *
+ * Only PR/push delivery should default to the persistent project worktree.
+ * Direct delivery works in-place, and branch delivery should browse the
+ * project directory rather than forcing the hidden worktree path.
+ */
+export function getProjectFileBrowserRoot(project: Project | undefined): string | undefined {
+  if (!project?.workingDirectory) return undefined
+
+  const deliveryMode = project.deliveryMode ?? (project.source ? deriveDeliveryMode(project.source) : undefined)
+  const shouldBrowseProjectWorktree =
+    !!project.projectBranch &&
+    project.useWorktree !== false &&
+    (deliveryMode === 'pr' || deliveryMode === 'push')
+
+  return shouldBrowseProjectWorktree && project.projectBranch
+    ? projectWorktreePath(project.workingDirectory, project.projectBranch)
+    : project.workingDirectory
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { Project } from '@/types'
+import { getProjectFileBrowserRoot } from '@/components/task-detail/file-path-utils'
 
 import type { InitialPane } from './PaneHost'
 
@@ -27,7 +28,7 @@ export function getPaneForProject(project: Project | undefined, kind: ShortcutPa
         id: `files-${project.id}`,
         title: 'Files',
         kind: 'file-browser',
-        state: { projectId: project.id, cwd: project.workingDirectory ?? undefined },
+        state: { projectId: project.id, cwd: getProjectFileBrowserRoot(project) },
       }
     case 'git':
       return {

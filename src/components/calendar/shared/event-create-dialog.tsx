@@ -131,7 +131,7 @@ export function EventCreateDialog({ draft, onClose }: EventCreateDialogProps) {
 
   return (
     <div
-      className="glass-panel rounded-xl border border-border shadow-xl p-3 w-72 flex flex-col gap-2"
+      className="calendar-popup-surface rounded-xl p-3 w-72 flex flex-col gap-2"
       onKeyDown={handleKeyDown}
     >
       {/* Kind selector */}

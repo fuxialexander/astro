@@ -709,7 +709,7 @@ export function ActiveTasks() {
             workspaceFilter,
           })
         : new Map<string, ActiveTaskEntry[]>(),
-    [showCompleted, rawNodes, projects, projectsLoaded, workspaceFilter],
+    [showCompleted, rawNodes, projects, workspaceFilter],
   )
 
   // Merge active + completed tasks

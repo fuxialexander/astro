@@ -80,6 +80,8 @@ import { MachineWorkdirPill } from "@/components/execution/machine-workdir-pill"
 import { isDesktop } from "@/lib/desktop-detect"
 import { EDITOR_APPS, type EditorAppId, buildEditorUrl, openWithEditor } from "@/lib/editor-utils"
 import { AppIcon } from "@/components/editor-app-icon"
+import { useUIStore } from "@/stores/ui-store"
+import { getProjectFileBrowserRoot } from "@/components/task-detail/file-path-utils"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -267,6 +269,8 @@ function ExecuteAllButton({ projectId }: { projectId: string }) {
 // --- Compact workdir bar shown at bottom of plan view ---
 function WorkdirBar({ project, fileBrowserOpen, onToggleFileBrowser }: { project: Project; fileBrowserOpen?: boolean; onToggleFileBrowser?: () => void }) {
   const [repoOpen, setRepoOpen] = useState(false)
+  const rightPanelStack = useUIStore((s) => s.rightPanelStack)
+  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const liveMachines = useExecutionStore((s) => s.machines)
@@ -305,6 +309,15 @@ function WorkdirBar({ project, fileBrowserOpen, onToggleFileBrowser }: { project
   const selectedAppDef = EDITOR_APPS.find((a) => a.id === selectedApp)!
 
   const hasWorkdir = !!(project.workingDirectory || project.repository)
+  const desktopFileBrowserOpen = rightPanelStack.includes('file-browser')
+  const effectiveFileBrowserOpen = isDesktop() ? desktopFileBrowserOpen : !!fileBrowserOpen
+  const handleFileBrowserToggle = useCallback(() => {
+    if (isDesktop()) {
+      toggleRightPanel('file-browser')
+      return
+    }
+    onToggleFileBrowser?.()
+  }, [onToggleFileBrowser, toggleRightPanel])
 
   const openWithApp = useCallback((appId: EditorAppId) => {
     const path = project.workingDirectory
@@ -397,15 +410,15 @@ function WorkdirBar({ project, fileBrowserOpen, onToggleFileBrowser }: { project
             )}
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
-              {defaultMachine && project.workingDirectory && onToggleFileBrowser && (
+              {defaultMachine && project.workingDirectory && (isDesktop() || onToggleFileBrowser) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={onToggleFileBrowser}
+                      onClick={handleFileBrowserToggle}
                       className={cn(
                         "flex items-center justify-center h-6 w-6 rounded-full border transition-colors",
-                        fileBrowserOpen
+                        effectiveFileBrowserOpen
                           ? "border-primary/40 bg-primary/10 text-primary"
                           : "border-border hover:bg-muted text-muted-foreground"
                       )}
@@ -413,7 +426,7 @@ function WorkdirBar({ project, fileBrowserOpen, onToggleFileBrowser }: { project
                       <FolderOpen className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{fileBrowserOpen ? "Close files" : "Browse files"}</TooltipContent>
+                  <TooltipContent>{effectiveFileBrowserOpen ? "Close files" : "Browse files"}</TooltipContent>
                 </Tooltip>
               )}
               {project.discoveryMode && (
@@ -2764,7 +2777,7 @@ export function PlanView() {
 
 
         {/* File browser sidebar — persistent on wide screens, sheet on mobile */}
-        {fileBrowserOpen && fileBrowserMachine && project?.workingDirectory && isWide && (
+        {fileBrowserOpen && fileBrowserMachine && getProjectFileBrowserRoot(project) && isWide && (
           <div
             className="flex flex-col bg-background border-l border-border shrink-0 relative overflow-hidden"
             style={{
@@ -2800,7 +2813,7 @@ export function PlanView() {
             <FileBrowser
               machineId={fileBrowserMachine.id}
               machineName={fileBrowserMachine.name}
-              workingDirectory={project.workingDirectory}
+              workingDirectory={getProjectFileBrowserRoot(project)!}
               embedded
               onClose={() => setFileBrowserOpen(false)}
             />
@@ -2808,13 +2821,13 @@ export function PlanView() {
         )}
 
         {/* Mobile file browser sheet */}
-        {fileBrowserOpen && fileBrowserMachine && project?.workingDirectory && !isWide && (
+        {fileBrowserOpen && fileBrowserMachine && getProjectFileBrowserRoot(project) && !isWide && (
           <Sheet open={fileBrowserOpen} onOpenChange={setFileBrowserOpen}>
             <SheetContent side="right" className="w-[85vw] max-w-[400px] p-0 flex flex-col">
               <FileBrowser
                 machineId={fileBrowserMachine.id}
                 machineName={fileBrowserMachine.name}
-                workingDirectory={project.workingDirectory}
+                workingDirectory={getProjectFileBrowserRoot(project)!}
                 embedded
                 onClose={() => setFileBrowserOpen(false)}
               />
@@ -2895,7 +2908,7 @@ export function PlanView() {
       <WorkdirBar
         project={project}
         fileBrowserOpen={fileBrowserOpen}
-        onToggleFileBrowser={fileBrowserMachine && project.workingDirectory ? () => setFileBrowserOpen((v) => !v) : undefined}
+        onToggleFileBrowser={fileBrowserMachine && getProjectFileBrowserRoot(project) ? () => setFileBrowserOpen((v) => !v) : undefined}
       />
 
       {/* Mobile chat bottom sheet */}

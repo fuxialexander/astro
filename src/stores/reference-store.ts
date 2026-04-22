@@ -44,6 +44,48 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+const MAX_IMPORT_BATCH_SIZE = 500
+const MAX_IMPORT_PAYLOAD_BYTES = 4_500_000
+
+function mergeImportedReferences(library: Reference[], references: Reference[]): Reference[] {
+  const updatedMap = new Map(references.map(r => [r.id, r]))
+  const merged = library.map(r => updatedMap.get(r.id) ?? r)
+  const existingIds = new Set(library.map(r => r.id))
+  const newRefs = references.filter(r => !existingIds.has(r.id))
+  return [...merged, ...newRefs]
+}
+
+async function importReferenceBatches(references: Reference[]): Promise<{ imported: number; updated: number; references: Reference[] }> {
+  let imported = 0
+  let updated = 0
+  const mergedById = new Map<string, Reference>()
+
+  let index = 0
+  while (index < references.length) {
+    const batch: Reference[] = []
+    while (index < references.length && batch.length < MAX_IMPORT_BATCH_SIZE) {
+      const next = references[index]
+      const nextBatch = [...batch, next]
+      const payload = JSON.stringify({ references: nextBatch, mode: 'upsert' })
+      if (batch.length > 0 && payload.length > MAX_IMPORT_PAYLOAD_BYTES) break
+      batch.push(next)
+      index++
+      if (payload.length > MAX_IMPORT_PAYLOAD_BYTES) break
+    }
+
+    const data = await fetchJson<{ references: Reference[]; imported: number; updated: number }>(
+      '/api/references/import',
+      { method: 'POST', body: JSON.stringify({ references: batch, mode: 'upsert' }) },
+    )
+
+    imported += data.imported
+    updated += data.updated
+    for (const ref of data.references) mergedById.set(ref.id, ref)
+  }
+
+  return { imported, updated, references: Array.from(mergedById.values()) }
+}
+
 // ── BibTeX / NBIB parsers ─────────────────────────────────────────────
 
 /** Generate a cite key from author + year: "smith2024" */
@@ -365,17 +407,8 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
       ...ref,
       id: (citeKey || generateCiteKey(ref)).replace(/[^a-z0-9_:-]/gi, ''),
     } as Reference))
-    const data = await fetchJson<{ references: Reference[]; imported: number; updated: number }>(
-      '/api/references/import',
-      { method: 'POST', body: JSON.stringify({ references: withKeys, mode: 'upsert' }) },
-    )
-    set(s => {
-      const updatedMap = new Map(data.references.map(r => [r.id, r]))
-      const merged = s.library.map(r => updatedMap.get(r.id) ?? r)
-      const existingIds = new Set(s.library.map(r => r.id))
-      const newRefs = data.references.filter(r => !existingIds.has(r.id))
-      return { library: [...merged, ...newRefs] }
-    })
+    const data = await importReferenceBatches(withKeys)
+    set(s => ({ library: mergeImportedReferences(s.library, data.references) }))
     return data.imported
   },
 
@@ -387,17 +420,8 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
   importReferences: async (refs) => {
     if (refs.length === 0) return 0
     const withKeys = refs.map(ref => ({ ...ref, id: generateCiteKey(ref) } as Reference))
-    const data = await fetchJson<{ references: Reference[]; imported: number; updated: number }>(
-      '/api/references/import',
-      { method: 'POST', body: JSON.stringify({ references: withKeys, mode: 'upsert' }) },
-    )
-    set(s => {
-      const updatedMap = new Map(data.references.map(r => [r.id, r]))
-      const merged = s.library.map(r => updatedMap.get(r.id) ?? r)
-      const existingIds = new Set(s.library.map(r => r.id))
-      const newRefs = data.references.filter(r => !existingIds.has(r.id))
-      return { library: [...merged, ...newRefs] }
-    })
+    const data = await importReferenceBatches(withKeys)
+    set(s => ({ library: mergeImportedReferences(s.library, data.references) }))
     return data.imported
   },
 

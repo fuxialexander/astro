@@ -14,6 +14,7 @@ import { FileBrowser } from '@/components/file-browser'
 import { useProjectStore } from '@/stores/project-store'
 import { usePaneSize } from '../use-pane-size'
 import type { PaneState } from '../types'
+import { getProjectFileBrowserRoot } from '@/components/task-detail/file-path-utils'
 
 interface Props {
   paneState: PaneState
@@ -28,7 +29,7 @@ export function FileBrowserPane({ paneState }: Props) {
   )
 
   const machineId = project?.defaultMachineId
-  const workingDirectory = paneState.cwd ?? project?.workingDirectory ?? ''
+  const workingDirectory = paneState.cwd ?? getProjectFileBrowserRoot(project) ?? ''
 
   if (!machineId) {
     return (

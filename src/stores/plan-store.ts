@@ -527,7 +527,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     //   - dependencies: derived from edges in the graph, not stored per-node in DB
     // If future graph-computed fields are added to PlanNode (e.g., children,
     // blockingTasks), they must be destructured out here to avoid DB overwrites.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { dependencies: _deps, ...dbFields } = dbNode
 
     // DB is authoritative for status — no monotonic guard needed here.

@@ -503,7 +503,7 @@ export function FileCompletionTextarea({
       dismiss()
       dismissCite()
     },
-    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, dismissCite, canCompleteFiles, hasFileTree, hasMentionItems, hasReferences, autoResize],
+    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, dismissCite, canCompleteFiles, hasFileTree, hasMentionItems, hasReferences, autoResize, computeDropdownPosition],
   )
 
   // Auto-resize on mount and when value changes externally

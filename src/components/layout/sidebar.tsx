@@ -478,13 +478,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         "group/sidebar flex flex-col overflow-hidden h-full w-full",
         desktopMode
           ? cn(
-              "rounded-lg bg-background",
+              "rounded-lg border bg-sidebar text-sidebar-foreground border-sidebar-border",
               "shadow-[0_0_6px_-2px_rgba(0,0,0,0.16),0_0_18px_-10px_rgba(0,0,0,0.16)]",
               "dark:shadow-[0_0_6px_-2px_rgba(0,0,0,0.65),0_0_18px_-10px_rgba(0,0,0,0.65)]",
             )
           : "border-r bg-card",
       )}
-      style={desktopMode && isDark ? { backgroundColor: '#121212', border: '1px solid #202020' } : undefined}
     >
 
       {/* ─── Header ─── desktop: workspace switcher; web: Astro branding + search. */}

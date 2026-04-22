@@ -25,6 +25,7 @@ import { AppIcon } from "@/components/editor-app-icon"
 import { isDesktop } from "@/lib/desktop-detect"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import { cn } from "@/lib/utils"
+import { useUIStore } from "@/stores/ui-store"
 import type { PlanNode, Project, ProviderStatus } from "@/types"
 
 interface TaskWorkdirBarProps {
@@ -43,6 +44,8 @@ export function TaskWorkdirBar({ node, project, viewMode = "list", fileBrowserOp
   const editorType = useSettingsStore((s) => s.editorType)
   const setEditorType = useSettingsStore((s) => s.setEditorType)
   const [selectedApp, setSelectedApp] = useState<EditorAppId>(editorType === 'vscode' ? 'vscode' : 'cursor')
+  const rightPanelStack = useUIStore((s) => s.rightPanelStack)
+  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel)
 
   // Remote toggle (stored per-project)
   const updateProject = useProjectStore((s) => s.updateProject)
@@ -163,6 +166,15 @@ export function TaskWorkdirBar({ node, project, viewMode = "list", fileBrowserOp
   const pillClass = "flex h-6 items-center gap-1 px-2 rounded-full border border-border hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-[11px] text-muted-foreground shrink-0"
 
   const hasWorkdir = !!(project.workingDirectory || project.repository)
+  const desktopFileBrowserOpen = rightPanelStack.includes('file-browser')
+  const effectiveFileBrowserOpen = isDesktop() ? desktopFileBrowserOpen : !!fileBrowserOpen
+  const handleFileBrowserToggle = useCallback(() => {
+    if (isDesktop()) {
+      toggleRightPanel('file-browser')
+      return
+    }
+    onToggleFileBrowser?.()
+  }, [onToggleFileBrowser, toggleRightPanel])
 
   return (
     <>
@@ -257,15 +269,15 @@ export function TaskWorkdirBar({ node, project, viewMode = "list", fileBrowserOp
 
             <div className="flex items-center gap-2 ml-auto shrink-0">
               {/* File browser toggle */}
-              {defaultMachine && project.workingDirectory && onToggleFileBrowser && (
+              {defaultMachine && project.workingDirectory && (isDesktop() || onToggleFileBrowser) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={onToggleFileBrowser}
+                      onClick={handleFileBrowserToggle}
                       className={cn(
                         "flex items-center justify-center h-6 w-6 rounded-full border transition-colors",
-                        fileBrowserOpen
+                        effectiveFileBrowserOpen
                           ? "border-primary/40 bg-primary/10 text-primary"
                           : "border-border hover:bg-muted text-muted-foreground"
                       )}
@@ -273,7 +285,7 @@ export function TaskWorkdirBar({ node, project, viewMode = "list", fileBrowserOp
                       <FolderOpen className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{fileBrowserOpen ? "Close files" : "Browse files"}</TooltipContent>
+                  <TooltipContent>{effectiveFileBrowserOpen ? "Close files" : "Browse files"}</TooltipContent>
                 </Tooltip>
               )}
 

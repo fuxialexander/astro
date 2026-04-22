@@ -186,7 +186,6 @@ export class ResultRouter {
   /**
    * Route a cancelled task
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private routeCancelled(_node: PlanNode): RoutingDecision {
     return {
       autoClose: false,

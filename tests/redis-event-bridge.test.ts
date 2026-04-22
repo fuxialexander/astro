@@ -39,7 +39,6 @@ function createIoredisMock() {
       hgetall = vi.fn().mockResolvedValue({})
       expire = vi.fn().mockResolvedValue(1)
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       constructor(..._args: unknown[]) {
         super()
          

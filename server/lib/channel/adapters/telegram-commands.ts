@@ -964,7 +964,6 @@ const MODEL_PROVIDERS: Array<{ id: string; label: string; models: string[] }> = 
   },
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleModel(_ctx: CommandContext): Promise<CommandResult> {
   // Emit the initial provider keyboard. The callback handler in
   // telegram-channel.ts responds to `mp:<provider>` (show model list) and
@@ -986,7 +985,6 @@ export function getModelProviders(): typeof MODEL_PROVIDERS {
   return MODEL_PROVIDERS
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleHelp(_ctx: CommandContext): Promise<CommandResult> {
   return (
     '<b>🤖 Astro Bot Commands</b>\n\n'

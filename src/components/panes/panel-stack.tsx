@@ -14,6 +14,7 @@ import type { Project } from '@/types'
 import { paneInnerComponents } from './pane-registry'
 import { PANEL_META } from './panel-meta'
 import type { PaneState } from './types'
+import { getProjectFileBrowserRoot } from '@/components/task-detail/file-path-utils'
 
 interface PanelStackProps {
   project: Project | undefined
@@ -29,7 +30,12 @@ function buildPaneState(kind: RightPanelKind, project: Project | undefined): Pan
     case 'file-browser':
     case 'git':
     case 'terminal':
-      return { projectId: project.id, cwd: project.workingDirectory ?? undefined }
+      return {
+        projectId: project.id,
+        cwd: kind === 'file-browser'
+          ? getProjectFileBrowserRoot(project)
+          : project.workingDirectory ?? undefined,
+      }
   }
 }
 

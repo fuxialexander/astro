@@ -136,7 +136,7 @@ export function AppLayout() {
     // listener — otherwise Ctrl+` reaches the shell and may cause side effects.
     document.addEventListener('keydown', onKeyDown, true)
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [toggleRightPanel, hasCwd])
+  }, [desktop, toggleRightPanel, hasCwd])
 
   const isEmbedded =
     typeof window !== "undefined" &&

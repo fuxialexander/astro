@@ -38,6 +38,8 @@ import type { Reference } from '@/lib/citation/types'
 import { getCiteKey } from '@/lib/citation/cite-key'
 import { useReferenceStore } from '@/stores/reference-store'
 
+const getReferenceLibraryState = useReferenceStore.getState
+
 export interface RichTextEditorRef {
   focus: () => void
   getHTML: () => string
@@ -105,9 +107,6 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     useEffect(() => {
       referencesRef.current = references
     }, [references])
-    // Always have a live path to the store regardless of prop update timing
-    const getLibrary = useReferenceStore.getState
-
     const mentionExtension = useMemo(() => {
       if (!mentionItems) return null
       return Mention.configure({
@@ -188,7 +187,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
           char: '[@',
           allowSpaces: false,
           items: ({ query }: { query: string }) => {
-            const refs = (referencesRef.current?.length ? referencesRef.current : null) ?? getLibrary().library
+            const refs = (referencesRef.current?.length ? referencesRef.current : null) ?? getReferenceLibraryState().library
             const q = query.toLowerCase()
             return refs
               .filter(r =>

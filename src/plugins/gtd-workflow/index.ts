@@ -18,7 +18,6 @@ const plugin: AstroPlugin = {
     capabilities: ["routes", "sidebar", "node-metadata"],
   },
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   activate: async (_context: PluginContext): Promise<PluginContributions> => {
     return {
       sidebarItems: [

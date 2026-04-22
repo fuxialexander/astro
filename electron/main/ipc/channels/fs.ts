@@ -11,8 +11,11 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { defineHandler } from '../registry.js'
 import * as schema from '../schema/fs.js'
+
+const require = createRequire(import.meta.url)
 
 export function registerFsChannels(): void {
   defineHandler('fs:read-file', schema.readFile, async (req) => {
@@ -126,10 +129,9 @@ export function registerFsChannels(): void {
   defineHandler('fs:search-content', schema.searchContent, (req) => {
     return new Promise((resolve) => {
       // @vscode/ripgrep ships a pre-built rg binary for all platforms.
-      // We require() at call-time to avoid a hard startup dependency.
+      // Use createRequire() because the Electron main process runs as ESM.
       let rgBin: string
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         rgBin = (require('@vscode/ripgrep') as { rgPath: string }).rgPath
       } catch {
         resolve({ matches: [], error: 'ripgrep not available' })

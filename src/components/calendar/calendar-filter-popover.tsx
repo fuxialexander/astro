@@ -64,7 +64,7 @@ export function CalendarFilterPopover() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-3 glass-panel" align="end" sideOffset={6}>
+      <PopoverContent className="calendar-popup-surface w-64 p-3" align="end" sideOffset={6}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-semibold text-foreground">Filter events</span>
           {hasFilters && (
