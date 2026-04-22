@@ -18,6 +18,14 @@ export function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Returns today's date in YYYY-MM-DD using the local timezone (not UTC). */
+export function localDateStr(d = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function diffDays(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000)
 }
@@ -91,7 +99,7 @@ export function assignDefaultDates(nodes: PlanNode[], edges: PlanEdge[]): PlanNo
     if (!sorted.includes(n.id)) sorted.push(n.id)
   }
 
-  const today = fmtDate(new Date())
+  const today = localDateStr()
 
   for (const id of sorted) {
     const node = nodeMap.get(id)

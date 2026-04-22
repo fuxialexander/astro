@@ -4,6 +4,7 @@ import { useCalendarStore } from '@/stores/calendar-store'
 import { CalendarFilterPopover } from './calendar-filter-popover'
 import type { CalendarView } from './types'
 import { cn } from '@/lib/utils'
+import { localDateStr } from '@/lib/timeline-utils'
 
 const VIEWS: { key: CalendarView; label: string }[] = [
   { key: 'day',   label: 'Day'   },
@@ -53,7 +54,7 @@ export function CalendarToolbar() {
   const setFocusedDate = useCalendarStore((s) => s.setFocusedDate)
   const setCreateDraft = useCalendarStore((s) => s.setCreateDraft)
 
-  const todayStr  = new Date().toISOString().slice(0, 10)
+  const todayStr  = localDateStr()
   const isToday   = focusedDate === todayStr
   const { month, rest } = formatTitle(view, focusedDate)
 

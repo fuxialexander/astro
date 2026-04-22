@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useCalendarEvents } from '@/hooks/use-calendar-events'
 import { useCalendarStore } from '@/stores/calendar-store'
+import { localDateStr } from '@/lib/timeline-utils'
 import { MonthDayCell } from './month-day-cell'
 import { DayCreatePopover } from '../day/day-create-popover'
 import { parseDate, fmtDate, addDays } from '@/lib/timeline-utils'
@@ -34,9 +35,7 @@ function isCurrentMonth(dateStr: string, focusedDate: string): boolean {
   return dateStr.slice(0, 7) === focusedDate.slice(0, 7)
 }
 
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+const todayStr = localDateStr
 
 interface MonthViewProps {
   focusedDate: string

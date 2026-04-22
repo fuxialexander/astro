@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useCalendarEvents } from '@/hooks/use-calendar-events'
 import { useCalendarStore } from '@/stores/calendar-store'
+import { localDateStr } from '@/lib/timeline-utils'
 import { TimeRuler } from '../shared/time-ruler'
 import { DayHourColumn, AllDayEventsRow } from '../day/day-hour-column'
 import { DayCreatePopover } from '../day/day-create-popover'
@@ -17,9 +18,7 @@ function getWeekDays(focusedDate: string): string[] {
   return Array.from({ length: 7 }, (_, i) => fmtDate(addDays(monday, i)))
 }
 
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+const todayStr = localDateStr
 
 interface WeekViewProps {
   focusedDate: string

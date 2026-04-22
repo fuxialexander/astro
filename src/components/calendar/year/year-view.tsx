@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useCalendarEvents } from '@/hooks/use-calendar-events'
 import { useCalendarStore } from '@/stores/calendar-store'
+import { localDateStr } from '@/lib/timeline-utils'
 import { cn } from '@/lib/utils'
 
 const DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
@@ -126,7 +127,7 @@ export function YearView({ focusedDate }: YearViewProps) {
   const setFocusedDate      = useCalendarStore((s) => s.setFocusedDate)
 
   const year  = parseInt(focusedDate.slice(0, 4), 10)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
 
   const countByDay = useMemo(() => {
     const m = new Map<string, number>()

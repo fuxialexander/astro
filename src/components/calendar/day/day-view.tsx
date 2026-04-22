@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useCalendarEvents } from '@/hooks/use-calendar-events'
+import { localDateStr } from '@/lib/timeline-utils'
 import { TimeRuler } from '../shared/time-ruler'
 import { DayHourColumn, AllDayEventsRow } from './day-hour-column'
 import { DayCreatePopover } from './day-create-popover'
@@ -12,9 +13,7 @@ interface DayViewProps {
   focusedDate: string
 }
 
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+const todayStr = localDateStr
 
 export function DayView({ focusedDate }: DayViewProps) {
   const { byDay } = useCalendarEvents()

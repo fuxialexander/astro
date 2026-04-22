@@ -5,10 +5,7 @@ import { getAvailableProviders, CalendarPermissionError } from '@/lib/calendar-p
 import { appleEventToCalendarEvent } from '@/components/calendar/event-adapters'
 import { isDesktop } from '@/lib/desktop-detect'
 import { desktopBridge } from '@/lib/desktop-bridge'
-
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { localDateStr } from '@/lib/timeline-utils'
 
 export interface AvailableCalendar {
   id: string
@@ -49,7 +46,7 @@ interface CalendarStore {
 
 export const useCalendarStore = create<CalendarStore>((set, get) => ({
   view: 'week',
-  focusedDate: todayStr(),
+  focusedDate: localDateStr(),
 
   setView: (v) => set({ view: v }),
   setFocusedDate: (d) => set({ focusedDate: d }),
