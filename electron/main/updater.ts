@@ -1,91 +1,99 @@
 /**
- * Auto-updater — wraps electron-updater with hourly polling and renderer
- * notification. When an update is downloaded the main window receives an
- * `updater:ready` push so the renderer can show a "Restart to update" banner.
+ * Desktop auto-updater wired for Electron Forge + GitHub releases via the
+ * official update.electronjs.org service. This intentionally avoids
+ * `electron-updater` and its builder-specific `app-update.yml` metadata.
  *
  * Flow:
- *   1. checkForUpdatesAndNotify() runs on startup + every hour
- *   2. On update-downloaded  → win.webContents.send('updater:ready', { version })
- *   3. Renderer shows banner → user clicks "Restart" → invoke('updater:install')
- *   4. installUpdate()       → autoUpdater.quitAndInstall()
+ *   1. updateElectronApp() configures the built-in Electron autoUpdater
+ *   2. Startup check runs immediately, then every hour
+ *   3. On update-downloaded → renderer receives `updater:ready`
+ *   4. Renderer/menu triggers installUpdate() → autoUpdater.quitAndInstall()
  */
 
-import { app } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { app, autoUpdater } from 'electron'
+import { updateElectronApp, UpdateSourceType } from 'update-electron-app'
 import { windowRegistry } from './windows/registry.js'
-
-const CHECK_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
+const DESKTOP_RELEASE_REPO = 'astro-anywhere/astro-desktop'
 
 let started = false
-let _autoUpdater: typeof autoUpdater | null = null
+let updaterConfigured = false
+let unavailableReason: string | null = null
+let downloadedVersion: string | null = null
+
+function resolveUpdaterAvailability(): string | null {
+  if (!app.isPackaged) {
+    return 'Not a packaged build'
+  }
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    return `Auto-update is only supported on macOS and Windows, not ${process.platform}`
+  }
+  return null
+}
+
+function notifyUpdateReady(version: string): void {
+  downloadedVersion = version
+  const win = windowRegistry.get('main')
+  win?.webContents.send('updater:ready', { version })
+}
 
 export function setupAutoUpdater(): void {
   if (started) return
   started = true
 
-  if (!app.isPackaged) {
-    console.log('[updater] skipping: not a packaged build')
+  unavailableReason = resolveUpdaterAvailability()
+  if (unavailableReason) {
+    console.log('[updater] skipping:', unavailableReason)
     return
   }
 
   try {
-    _autoUpdater = autoUpdater
+    updateElectronApp({
+      updateSource: {
+        type: UpdateSourceType.ElectronPublicUpdateService,
+        repo: DESKTOP_RELEASE_REPO,
+      },
+      updateInterval: '1 hour',
+      notifyUser: false,
+      logger: {
+        log: (...args: unknown[]) => console.log('[updater]', ...args),
+      },
+    })
+    updaterConfigured = true
 
-    autoUpdater.logger = {
-        info: (m: unknown) => console.log('[updater]', m),
-        warn: (m: unknown) => console.warn('[updater]', m),
-        error: (m: unknown) => console.error('[updater]', m),
-        debug: (m: unknown) => console.debug('[updater]', m),
-      }
+    autoUpdater.on('error', (err) => {
+      console.error('[updater] error:', err)
+    })
 
-      autoUpdater.autoDownload = true
-      autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.on('checking-for-update', () => {
+      console.log('[updater] checking for updates')
+    })
 
-      autoUpdater.on('error', (err: Error) => {
-        const msg = err?.message ?? String(err)
-        if (msg.includes('No published versions') || msg.includes('404')) {
-          console.warn('[updater] no releases found yet:', msg)
-          return
-        }
-        console.error('[updater] error:', err)
-      })
+    autoUpdater.on('update-available', (info) => {
+      console.log('[updater] update available:', info?.version)
+    })
 
-      autoUpdater.on('update-available', (info: { version?: string }) => {
-        console.log('[updater] update available:', info?.version)
-      })
+    autoUpdater.on('update-not-available', () => {
+      console.log('[updater] up to date')
+    })
 
-      autoUpdater.on('update-not-available', () => {
-        console.log('[updater] up to date')
-      })
-
-      autoUpdater.on('update-downloaded', (info: { version?: string }) => {
-        const version = info?.version ?? 'unknown'
-        console.log('[updater] update downloaded:', version)
-        const win = windowRegistry.get('main')
-        win?.webContents.send('updater:ready', { version })
-      })
-
-      const check = async () => {
-        try {
-          await autoUpdater.checkForUpdatesAndNotify()
-        } catch (err) {
-          console.warn('[updater] check failed:', err)
-        }
-      }
-
-    void check()
-    setInterval(check, CHECK_INTERVAL_MS)
+    autoUpdater.on('update-downloaded', (_event, _releaseNotes, releaseName) => {
+      const version = releaseName || downloadedVersion || 'unknown'
+      console.log('[updater] update downloaded:', version)
+      notifyUpdateReady(version)
+    })
   } catch (err) {
-    console.warn('[updater] electron-updater not available:', err)
+    unavailableReason = err instanceof Error ? err.message : String(err)
+    updaterConfigured = false
+    console.warn('[updater] failed to initialize:', err)
   }
 }
 
 export function installUpdate(): void {
-  if (!_autoUpdater) {
-    console.warn('[updater] installUpdate called before autoUpdater was ready')
+  if (!updaterConfigured) {
+    console.warn('[updater] installUpdate called before updater was ready')
     return
   }
-  _autoUpdater.quitAndInstall()
+  autoUpdater.quitAndInstall()
 }
 
 export type UpdateCheckResult =
@@ -95,9 +103,17 @@ export type UpdateCheckResult =
   | { status: 'unavailable'; reason: string }
 
 export async function checkForUpdatesManual(): Promise<UpdateCheckResult> {
-  if (!_autoUpdater) {
-    return { status: 'unavailable', reason: 'Not a packaged build' }
+  if (!updaterConfigured) {
+    return {
+      status: 'unavailable',
+      reason: unavailableReason ?? 'Auto-updater is not configured',
+    }
   }
+
+  if (downloadedVersion) {
+    return { status: 'downloaded', version: downloadedVersion }
+  }
+
   return new Promise((resolve) => {
     const onNotAvailable = () => {
       cleanup()
@@ -107,27 +123,35 @@ export async function checkForUpdatesManual(): Promise<UpdateCheckResult> {
       cleanup()
       resolve({ status: 'available', version: info?.version ?? 'unknown' })
     }
-    const onDownloaded = (info: { version?: string }) => {
+    const onDownloaded = (_event: unknown, _notes: unknown, releaseName?: string) => {
       cleanup()
-      resolve({ status: 'downloaded', version: info?.version ?? 'unknown' })
+      const version = releaseName || downloadedVersion || 'unknown'
+      resolve({ status: 'downloaded', version })
     }
     const onError = (err: Error) => {
       cleanup()
       resolve({ status: 'unavailable', reason: err?.message ?? String(err) })
     }
     const cleanup = () => {
-      _autoUpdater.removeListener('update-not-available', onNotAvailable)
-      _autoUpdater.removeListener('update-available', onAvailable)
-      _autoUpdater.removeListener('update-downloaded', onDownloaded)
-      _autoUpdater.removeListener('error', onError)
+      autoUpdater.removeListener('update-not-available', onNotAvailable)
+      autoUpdater.removeListener('update-available', onAvailable)
+      autoUpdater.removeListener('update-downloaded', onDownloaded)
+      autoUpdater.removeListener('error', onError)
     }
-    _autoUpdater.once('update-not-available', onNotAvailable)
-    _autoUpdater.once('update-available', onAvailable)
-    _autoUpdater.once('update-downloaded', onDownloaded)
-    _autoUpdater.once('error', onError)
-    void _autoUpdater.checkForUpdates().catch((err: unknown) => {
+
+    autoUpdater.once('update-not-available', onNotAvailable)
+    autoUpdater.once('update-available', onAvailable)
+    autoUpdater.once('update-downloaded', onDownloaded)
+    autoUpdater.once('error', onError)
+
+    try {
+      autoUpdater.checkForUpdates()
+    } catch (err) {
       cleanup()
-      resolve({ status: 'unavailable', reason: String(err) })
-    })
+      resolve({
+        status: 'unavailable',
+        reason: err instanceof Error ? err.message : String(err),
+      })
+    }
   })
 }

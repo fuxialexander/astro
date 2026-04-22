@@ -38,7 +38,7 @@ export function EventTooltip({ event, children }: EventTooltipProps) {
     <Popover>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        className="w-72 p-3 glass-panel text-sm"
+        className="calendar-event-popover w-72 p-3 text-sm"
         side="right"
         sideOffset={6}
         align="start"

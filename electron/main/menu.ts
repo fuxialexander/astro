@@ -1,9 +1,7 @@
 import { app, Menu, shell, dialog } from 'electron'
-import { checkForUpdatesManual } from './updater.js'
-import { windowRegistry } from './windows/registry.js'
+import { checkForUpdatesManual, installUpdate } from './updater.js'
 
 async function handleCheckForUpdate(): Promise<void> {
-  const win = windowRegistry.get('main')
   const version = app.getVersion()
 
   const result = await checkForUpdatesManual()
@@ -36,8 +34,8 @@ async function handleCheckForUpdate(): Promise<void> {
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
       })
-      if (response === 0 && win) {
-        win.webContents.send('updater:install')
+      if (response === 0) {
+        installUpdate()
       }
       break
     }

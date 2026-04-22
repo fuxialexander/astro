@@ -2,6 +2,10 @@
   "name": "astro",
   "private": true,
   "version": "0.0.15",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astro-anywhere/astro-desktop.git"
+  },
   "type": "module",
   "main": ".vite/build/index.js",
   "scripts": {
@@ -156,7 +160,7 @@
     "ws": "^8.19.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.5",
-    "electron-updater": "^6.8.3"
+    "update-electron-app": "^3.1.2"
   },
   "overrides": {
     "esbuild": ">=0.25.0"
