@@ -52,16 +52,17 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
     for (let d = 1; d <= daysInMonth; d++) {
       out.push({ dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, day: d, inMonth: true })
     }
-    const tail = (7 - (out.length % 7)) % 7
+    // Always pad to exactly 42 cells (6 rows × 7 cols) so every mini-month
+    // uses the same row height regardless of how many weeks the month spans.
     const nm = month === 11 ? 0 : month + 1
     const ny = month === 11 ? year + 1 : year
-    for (let d = 1; d <= tail; d++) {
-      out.push({ dateStr: `${ny}-${String(nm + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, day: d, inMonth: false })
+    let nextDay = 1
+    while (out.length < 42) {
+      out.push({ dateStr: `${ny}-${String(nm + 1).padStart(2, '0')}-${String(nextDay).padStart(2, '0')}`, day: nextDay, inMonth: false })
+      nextDay++
     }
     return out
   }, [year, month])
-
-  const weeks = Math.ceil(cells.length / 7)
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -82,10 +83,10 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
         ))}
       </div>
 
-      {/* Date grid — flex-1 so rows fill remaining height evenly */}
+      {/* Date grid — fixed 6 rows so all months have equal cell sizes */}
       <div
         className="grid grid-cols-7 flex-1 min-h-0"
-        style={{ gridTemplateRows: `repeat(${weeks}, 1fr)` }}
+        style={{ gridTemplateRows: 'repeat(6, 1fr)' }}
       >
         {cells.map(({ dateStr, day, inMonth }) => {
           const isToday   = dateStr === today

@@ -32,9 +32,10 @@ export async function createMainWindow(options: CreateMainWindowOptions): Promis
     show: false, // show after first paint to avoid white flash
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 14 },
-    vibrancy: 'under-window',
-    transparent: true,
-    backgroundColor: '#00000000',
+    // transparent: false (default) so Chromium has a real compositing surface
+    // behind fixed-position elements. With transparent:true, backdrop-filter
+    // blurs the desktop compositor instead of web content behind the element,
+    // making CSS glass effects appear without blur in Electron on macOS.
     webPreferences: {
       preload: path.join(options.preloadDir, 'main.js'),
       contextIsolation: true,
