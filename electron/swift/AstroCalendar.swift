@@ -150,6 +150,58 @@ case "delete-event":
         emit(["ok": false, "error": "event_not_found"])
     }
 
+// ── list-reminders ────────────────────────────────────────────────────────────
+case "list-reminders":
+    let fromDate = parseArg("--from").flatMap { iso.date(from: $0) } ?? Date().addingTimeInterval(-7 * 86400)
+    let toDate   = parseArg("--to").flatMap   { iso.date(from: $0) } ?? Date().addingTimeInterval(30 * 86400)
+
+    guard requestAccess(to: .reminder) else {
+        emit(["error": "permission_denied", "reminders": [] as [Any]])
+        exit(0)
+    }
+
+    let predicate = store.predicateForReminders(in: nil)
+    let sem2 = DispatchSemaphore(value: 0)
+    var result: [[String: Any]] = []
+    store.fetchReminders(matching: predicate) { fetched in
+        let all = fetched ?? []
+        result = all.compactMap { rem -> [String: Any]? in
+            // Build a Date from dueDateComponents if present; fall back to completionDate
+            var dueDate: Date? = nil
+            if let comps = rem.dueDateComponents {
+                dueDate = Calendar.current.date(from: comps)
+            }
+            // Only include reminders that have a due date falling in the range,
+            // or completed reminders whose completionDate is in range.
+            let dateToCheck = dueDate ?? rem.completionDate
+            guard let checkDate = dateToCheck else { return nil }
+            guard checkDate >= fromDate && checkDate <= toDate else { return nil }
+
+            let dueDateStr = dueDate.map { iso.string(from: $0) }
+            let completedDateStr = rem.completionDate.map { iso.string(from: $0) }
+            var d: [String: Any] = [
+                "id":            rem.calendarItemIdentifier,
+                "calendarId":    rem.calendar.calendarIdentifier,
+                "calendarName":  rem.calendar.title,
+                "title":         rem.title ?? "",
+                "isCompleted":   rem.isCompleted,
+                "priority":      rem.priority,
+            ]
+            if let hex = colorHex(rem.calendar.color) { d["calendarColor"] = hex }
+            if let s = dueDateStr      { d["dueDate"]       = s }
+            if let s = completedDateStr { d["completedDate"] = s }
+            if let notes = rem.notes, !notes.isEmpty { d["notes"] = notes }
+            return d
+        }.sorted { a, b in
+            let aStr = (a["dueDate"] as? String) ?? ""
+            let bStr = (b["dueDate"] as? String) ?? ""
+            return aStr < bStr
+        }
+        sem2.signal()
+    }
+    sem2.wait()
+    emit(["reminders": result])
+
 default:
     fputs("astro-calendar: unknown command '\(command)'\n", stderr)
     exit(1)

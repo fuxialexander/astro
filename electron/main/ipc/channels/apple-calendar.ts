@@ -296,6 +296,55 @@ export function registerAppleCalendarChannels(): void {
   )
 
   defineHandler(
+    'apple-calendar:list-reminders',
+    {
+      req: z.object({ from: z.string(), to: z.string() }),
+      res: z.object({
+        reminders: z.array(z.object({
+          id: z.string(),
+          calendarId: z.string(),
+          calendarName: z.string(),
+          calendarColor: z.string().nullable(),
+          title: z.string(),
+          isCompleted: z.boolean(),
+          priority: z.number(),
+          dueDate: z.string().nullable(),
+          completedDate: z.string().nullable(),
+          notes: z.string().nullable(),
+        })),
+        permissionDenied: z.boolean(),
+      }),
+    },
+    async ({ from, to }) => {
+      try {
+        const result = await runHelper(['list-reminders', '--from', from, '--to', to]) as Record<string, unknown>
+        if (result.error === 'permission_denied') {
+          return { reminders: [], permissionDenied: true }
+        }
+        const raw = (result.reminders ?? []) as Record<string, unknown>[]
+        return {
+          reminders: raw.map(r => ({
+            id:            String(r.id ?? ''),
+            calendarId:    String(r.calendarId ?? ''),
+            calendarName:  String(r.calendarName ?? ''),
+            calendarColor: (r.calendarColor as string | null) ?? null,
+            title:         String(r.title ?? ''),
+            isCompleted:   Boolean(r.isCompleted),
+            priority:      Number(r.priority ?? 0),
+            dueDate:       (r.dueDate as string | null) ?? null,
+            completedDate: (r.completedDate as string | null) ?? null,
+            notes:         (r.notes as string | null) ?? null,
+          })),
+          permissionDenied: false,
+        }
+      } catch (err) {
+        console.error('[apple-calendar] list-reminders error:', err)
+        return { reminders: [], permissionDenied: false }
+      }
+    },
+  )
+
+  defineHandler(
     'apple-calendar:delete-event',
     {
       req: z.object({ eventId: z.string(), calendarId: z.string() }),

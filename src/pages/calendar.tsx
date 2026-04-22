@@ -19,14 +19,17 @@ function getLoadRange(focusedDate: string): { from: string; to: string } {
 export function CalendarPage() {
   const focusedDate = useCalendarStore((s) => s.focusedDate)
   const loadExternalEvents = useCalendarStore((s) => s.loadExternalEvents)
+  const loadAvailableCalendars = useCalendarStore((s) => s.loadAvailableCalendars)
+  const disabledCalendarIds = useCalendarStore((s) => s.disabledCalendarIds)
   const externalPermissionDenied = useCalendarStore((s) => s.externalPermissionDenied)
   const loadAllSchedules = useScheduleStore((s) => s.loadAllSchedules)
   const allLoaded = useScheduleStore((s) => s.allLoaded)
 
-  // Initialize providers once
+  // Initialize providers and load available calendars once
   useEffect(() => {
     initCalendarProviders()
-  }, [])
+    void loadAvailableCalendars()
+  }, [loadAvailableCalendars])
 
   // Load all schedules (needed for schedule events)
   useEffect(() => {
@@ -35,11 +38,12 @@ export function CalendarPage() {
     }
   }, [allLoaded, loadAllSchedules])
 
-  // Load external events when focused date changes significantly
+  // Reload external events when focused date or disabled calendars change
   useEffect(() => {
     const { from, to } = getLoadRange(focusedDate)
     void loadExternalEvents(from, to)
-  }, [focusedDate, loadExternalEvents])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedDate, loadExternalEvents, disabledCalendarIds.join(',')])
 
   return (
     <div className="flex flex-col h-full">

@@ -261,13 +261,22 @@ export const desktopBridge = {
           title: string; startDate: string; endDate: string; allDay: boolean
           notes: string | null; location: string | null; url: string | null; isRecurring: boolean
         }>
-        source: 'applescript' | 'ics-fallback'
+        source: 'eventkit' | 'ics-fallback'
         permissionDenied: boolean
       }>('apple-calendar:list-events', { from, to }),
     listCalendars: () =>
       bridge().invoke<{
         calendars: Array<{ id: string; name: string; color: string | null; isSubscribed: boolean; isWritable: boolean }>
       }>('apple-calendar:list-calendars', {}),
+    listReminders: (from: string, to: string) =>
+      bridge().invoke<{
+        reminders: Array<{
+          id: string; calendarId: string; calendarName: string; calendarColor: string | null
+          title: string; isCompleted: boolean; priority: number
+          dueDate: string | null; completedDate: string | null; notes: string | null
+        }>
+        permissionDenied: boolean
+      }>('apple-calendar:list-reminders', { from, to }),
     createEvent: (req: { calendarName?: string; title: string; startDate: string; endDate: string; allDay?: boolean; notes?: string }) =>
       bridge().invoke<{ id: string; ok: boolean }>('apple-calendar:create-event', req),
     updateEvent: (req: { eventId: string; calendarId: string; title?: string; startDate?: string; endDate?: string; notes?: string }) =>

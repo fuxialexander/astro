@@ -20,6 +20,9 @@ export function CalendarFilterPopover() {
   const filter = useCalendarStore((s) => s.filter)
   const setFilter = useCalendarStore((s) => s.setFilter)
   const resetFilter = useCalendarStore((s) => s.resetFilter)
+  const availableCalendars = useCalendarStore((s) => s.availableCalendars)
+  const disabledCalendarIds = useCalendarStore((s) => s.disabledCalendarIds)
+  const toggleCalendar = useCalendarStore((s) => s.toggleCalendar)
   const projects = useProjectStore((s) => s.projects).filter((p) => p.status === 'active')
 
   const toggleProject = (id: string) => {
@@ -36,7 +39,13 @@ export function CalendarFilterPopover() {
     })
   }
 
-  const hasFilters = filter.projectIds.length > 0 || filter.sources.length < 5
+  const hasFilters = filter.projectIds.length > 0 || filter.sources.length < 5 || disabledCalendarIds.length > 0
+
+  const handleReset = () => {
+    resetFilter()
+    // Re-enable all calendars
+    for (const id of disabledCalendarIds) toggleCalendar(id)
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -61,7 +70,7 @@ export function CalendarFilterPopover() {
           {hasFilters && (
             <button
               type="button"
-              onClick={resetFilter}
+              onClick={handleReset}
               className="text-[10px] text-muted-foreground hover:text-foreground"
             >
               Reset
@@ -91,6 +100,37 @@ export function CalendarFilterPopover() {
             ))}
           </div>
         </div>
+
+        {/* Per-calendar toggles */}
+        {availableCalendars.length > 0 && (
+          <div className="mb-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Calendars</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {availableCalendars.map((cal) => {
+                const enabled = !disabledCalendarIds.includes(cal.id)
+                return (
+                  <button
+                    key={cal.id}
+                    type="button"
+                    onClick={() => toggleCalendar(cal.id)}
+                    className="flex items-center gap-2 w-full text-left text-xs text-foreground hover:text-primary py-0.5"
+                  >
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-border"
+                      style={{ background: cal.color ?? 'var(--primary)', opacity: enabled ? 1 : 0.3 }}
+                    />
+                    <span className={cn('truncate flex-1', !enabled && 'line-through text-muted-foreground')}>
+                      {cal.name}
+                    </span>
+                    {cal.isReminder && (
+                      <span className="text-[9px] text-muted-foreground shrink-0">reminder</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Projects */}
         {projects.length > 0 && (

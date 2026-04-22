@@ -11,13 +11,13 @@
  */
 
 import { app } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { windowRegistry } from './windows/registry.js'
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 let started = false
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _autoUpdater: any = null
+let _autoUpdater: typeof autoUpdater | null = null
 
 export function setupAutoUpdater(): void {
   if (started) return
@@ -28,16 +28,10 @@ export function setupAutoUpdater(): void {
     return
   }
 
-  void (async () => {
-    try {
-      const specifier = 'electron-updater'
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod: any = await import(/* @vite-ignore */ specifier)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const autoUpdater: any = mod.autoUpdater
-      _autoUpdater = autoUpdater
+  try {
+    _autoUpdater = autoUpdater
 
-      autoUpdater.logger = {
+    autoUpdater.logger = {
         info: (m: unknown) => console.log('[updater]', m),
         warn: (m: unknown) => console.warn('[updater]', m),
         error: (m: unknown) => console.error('[updater]', m),
@@ -79,12 +73,11 @@ export function setupAutoUpdater(): void {
         }
       }
 
-      void check()
-      setInterval(check, CHECK_INTERVAL_MS)
-    } catch (err) {
-      console.warn('[updater] electron-updater not available:', err)
-    }
-  })()
+    void check()
+    setInterval(check, CHECK_INTERVAL_MS)
+  } catch (err) {
+    console.warn('[updater] electron-updater not available:', err)
+  }
 }
 
 export function installUpdate(): void {
