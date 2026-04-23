@@ -38,6 +38,8 @@
     "astro-cli": "tsx packages/cli/src/index.ts",
     "astro-tui": "node --import tsx/esm packages/tui/src/index.tsx",
     "test": "vitest run",
+    "test:e2e:gcp:check": "tsx scripts/testing/gcp-remote-compute-e2e.ts check",
+    "test:e2e:gcp:prepare": "tsx scripts/testing/gcp-remote-compute-e2e.ts prepare",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "db:push": "bash scripts/db-push.sh",
@@ -74,6 +76,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.50",
     "@anthropic-ai/sdk": "^0.78.0",
+    "@aws-sdk/client-ec2": "^3.1036.0",
     "@dagrejs/dagre": "^2.0.4",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -157,10 +160,10 @@
     "resend": "^6.9.3",
     "tailwind-merge": "^3.3.0",
     "tippy.js": "^6.3.7",
+    "update-electron-app": "^3.1.2",
     "ws": "^8.19.0",
     "zod": "^4.3.6",
-    "zustand": "^5.0.5",
-    "update-electron-app": "^3.1.2"
+    "zustand": "^5.0.5"
   },
   "overrides": {
     "esbuild": ">=0.25.0"
