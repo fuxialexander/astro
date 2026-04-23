@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
 
-export type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw'
+export type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw' | 'aws' | 'gcp' | 'daytona' | 'runloop'
 
 export interface ConnectedAccount {
   id: string

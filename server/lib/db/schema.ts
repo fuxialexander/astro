@@ -31,6 +31,7 @@ export {
   auditLogs,
   activityEvents,
   connectedAccounts,
+  remoteComputePools,
   webauthnChallenges,
   deviceCodes,
   chatSessions,

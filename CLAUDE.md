@@ -16,6 +16,8 @@ The product vision is documented in `vision.md`. The UI design is in `UI.pen` (r
 
 **After fixing lint errors or making code changes, run `npm run lint` and fix all issues before committing. Never commit code with known lint errors.**
 
+**Workspace packages (`@astro/core`, `@astroanywhere/cli`) are linked via pnpm workspaces. If the backend throws `ERR_MODULE_NOT_FOUND: Cannot find package '@astro/core'` (or similar), run `pnpm install` to re-link the workspace symlinks. This is the fix every time — do not look elsewhere.**
+
 ## Build & Dev Commands
 
 ```bash

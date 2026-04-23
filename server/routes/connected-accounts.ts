@@ -31,9 +31,9 @@ function maskCredentials(creds: Record<string, unknown>): Record<string, unknown
   return masked
 }
 
-type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw'
+type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw' | 'aws' | 'gcp' | 'daytona' | 'runloop'
 
-const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear', 'openclaw']
+const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear', 'openclaw', 'aws', 'gcp', 'daytona', 'runloop']
 
 const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   slack: ['botToken', 'signingSecret'],
@@ -41,6 +41,10 @@ const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   github_webhook: ['authToken', 'webhookSecret'],
   linear: ['apiToken', 'webhookSecret'],
   openclaw: ['gatewayUrl'],
+  aws: ['accessKeyId', 'secretAccessKey'],
+  gcp: ['serviceAccountJson'],
+  daytona: ['apiKey'],
+  runloop: ['apiKey'],
 }
 
 // ── Routes ──────────────────────────────────────────────────────────

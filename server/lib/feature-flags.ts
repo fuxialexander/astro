@@ -34,6 +34,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'import-from-history': true,
   'calendar-view': true,
   'file-content-search': true,
+  'remote-compute-sandboxes': true,
 }
 
 /**

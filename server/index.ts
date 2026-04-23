@@ -31,6 +31,8 @@ import { schedulesRoute } from './routes/schedules.js'
 import { examplesRoute } from './routes/examples.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
+import { remoteComputeRoute } from './routes/remote-compute.js'
+import { storageMountsRoute } from './routes/storage-mounts.js'
 import { openClawChannel } from './lib/channel/adapters/openclaw-channel.js'
 import { telegramChannel } from './lib/channel/adapters/telegram-channel.js'
 import { telegramRoute } from './routes/telegram.js'
@@ -263,6 +265,8 @@ export function createApp() {
 
   // Connected accounts — needed in all modes for OpenClaw channel config
   app.route('/api/connected-accounts', connectedAccountsRoute)
+  app.route('/api/remote-compute', remoteComputeRoute)
+  app.route('/api/storage-mounts', storageMountsRoute)
 
   // Telegram channel (webhook + link/status/disconnect)
   app.route('/api/telegram', telegramRoute)
