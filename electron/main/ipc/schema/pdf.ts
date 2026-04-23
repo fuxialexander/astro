@@ -14,6 +14,8 @@ export const download = {
     filename: z.string().nullable().default(null),
     /** Subdirectory under the references root. */
     subdir: z.string().default('pdfs'),
+    /** Optional request headers for authenticated downloads. */
+    headers: z.record(z.string(), z.string()).default({}),
     /** Per-request timeout in ms. */
     timeoutMs: z.number().int().positive().default(60_000),
   }),

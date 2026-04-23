@@ -226,11 +226,11 @@ If you add a new column to `plan_nodes` or `task_executions` that could hold lar
 
 `packages/agent-runner/` is a **git submodule** pointing to `github.com/astro-anywhere/astro-agent`. It has its own repository, branches, and PRs. When making changes to agent-runner code:
 
-1. **Work in the standalone repo** — The local clone is at `/Users/zhuoran_cisco/Documents/agent_tools/astro-agent`. Do NOT edit files in `packages/agent-runner/` directly (they'll be overwritten on submodule update).
+1. **Work in the standalone repo** — Use your local clone of `github.com/astro-anywhere/astro-agent`. Do NOT edit files in `packages/agent-runner/` directly (they'll be overwritten on submodule update).
 
 2. **Branch from `dev`** — The development branch is `dev`, not `main`. Create a feature branch from it:
    ```bash
-   cd /Users/zhuoran_cisco/Documents/agent_tools/astro-agent
+   cd /path/to/astro-agent
    git checkout dev
    git checkout -b fix/my-feature
    ```
@@ -247,7 +247,7 @@ If you add a new column to `plan_nodes` or `task_executions` that could hold lar
 
 6. **Update submodule pointer** — After merging to `main` in the agent-runner repo, update the submodule pointer in the astro repo:
    ```bash
-   cd /Users/zhuoran_cisco/Documents/agent_tools/astro
+   cd /path/to/astro
    cd packages/agent-runner && git checkout main && git pull && cd ../..
    git add packages/agent-runner
    git commit -m "chore: update agent-runner submodule to latest main"

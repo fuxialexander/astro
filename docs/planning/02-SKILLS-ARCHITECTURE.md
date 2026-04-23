@@ -17,7 +17,7 @@
 - Injection: `server/lib/skill-injector.ts` builds XML prompt injection
 
 **3. skills-lib (Curated Collection)**
-- Location: `/Users/zhuoran_cisco/Documents/agent_tools/skills-lib`
+- Location: external `skills-lib` repository checkout
 - Format: SKILL.md with validation (format, security, syntax, links)
 - Current skills: 4 (skill-onboarder, dspy-react-agent-builder, dspy-signature-designer, dspy-rag-pipeline)
 - Categories: tools, prompts, daily, research

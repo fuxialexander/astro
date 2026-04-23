@@ -38,7 +38,10 @@ export function registerPdfChannels(): void {
     const timer = setTimeout(() => ctrl.abort(), req.timeoutMs)
     let bytes = 0
     try {
-      const res = await fetch(req.url, { signal: ctrl.signal })
+      const res = await fetch(req.url, {
+        headers: req.headers,
+        signal: ctrl.signal,
+      })
       if (!res.ok) {
         throw new Error(`pdf download failed: ${res.status} ${res.statusText}`)
       }

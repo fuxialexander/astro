@@ -31,6 +31,29 @@ interface DesktopPdfResult {
   size: number
 }
 
+function getDesktopDownloadHeaders(
+  pdfUrl: string,
+  zoteroConfig?: { libraryType: 'users' | 'groups'; libraryId: string; apiKey: string },
+): Record<string, string> | undefined {
+  if (!zoteroConfig) return undefined
+
+  try {
+    const url = new URL(pdfUrl)
+    const isZoteroFileApi =
+      url.hostname === 'api.zotero.org' &&
+      /^\/(?:users|groups)\/[^/]+\/items\/[^/]+\/file\/?$/.test(url.pathname)
+
+    if (!isZoteroFileApi) return undefined
+
+    return {
+      'Zotero-API-Key': zoteroConfig.apiKey,
+      'Accept': 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+    }
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Download a PDF for a reference.
  *
@@ -88,9 +111,10 @@ export async function downloadPdfForReference(
       .slice(0, 50)
       .replace(/_+$/, '')
     const filename = `${firstAuthor}${year}_${titleSlug}.pdf`
+    const headers = getDesktopDownloadHeaders(pdfUrl, zoteroConfig)
 
     const result: DesktopPdfResult = await desktopBridge.pdf
-      .download({ url: pdfUrl, filename, subdir: 'pdfs' })
+      .download({ url: pdfUrl, filename, subdir: 'pdfs', headers })
       .then((r) => ({ path: r.path, size: r.bytes }))
 
     progress('complete', { pdfUrl, pdfPath: result.path })
@@ -150,4 +174,8 @@ export async function listLocalPdfs(): Promise<DesktopPdfResult[]> {
  */
 export async function deleteLocalPdf(path: string): Promise<void> {
   throw new Error(`deleteLocalPdf is not implemented in the Electron shell yet (path=${path})`)
+}
+
+export const __testOnly = {
+  getDesktopDownloadHeaders,
 }

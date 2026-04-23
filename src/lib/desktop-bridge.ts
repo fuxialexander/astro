@@ -171,11 +171,18 @@ export const desktopBridge = {
   },
 
   pdf: {
-    download: (req: { url: string; filename?: string | null; subdir?: string; timeoutMs?: number }) =>
+    download: (req: {
+      url: string
+      filename?: string | null
+      subdir?: string
+      headers?: Record<string, string>
+      timeoutMs?: number
+    }) =>
       bridge().invoke<{ path: string; bytes: number }>('pdf:download', {
         url: req.url,
         filename: req.filename ?? null,
         subdir: req.subdir ?? 'pdfs',
+        headers: req.headers ?? {},
         timeoutMs: req.timeoutMs ?? 60_000,
       }),
   },

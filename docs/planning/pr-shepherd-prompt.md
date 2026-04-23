@@ -176,9 +176,9 @@ When the AI reviewer approves (verdict is "Approve" without "with changes"):
 - NEVER modify files inside `packages/agent-runner/` directly
 - NEVER `git add packages/agent-runner` unless you explicitly updated the submodule pointer
 - Lint errors in `packages/agent-runner/` are pre-existing — ignore them
-- If the PR involves agent-runner changes, those must be made in the standalone repo
-  (`/Users/zhuoran_cisco/Documents/agent_tools/astro-agent`), merged to dev→main, then
-  the submodule pointer updated
+- If the PR involves agent-runner changes, those must be made in the standalone
+  `astro-agent` repository checkout, merged to dev→main, then the submodule
+  pointer updated
 
 ### Test Strategy
 
