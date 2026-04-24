@@ -248,6 +248,19 @@ export function validateEnvironment(): void {
       console.log('[env] Local mode: Supabase config skipped');
     }
 
+    // Validate encryption key: required in server mode; optional (ephemeral
+    // fallback) in local mode. See server/lib/encryption.ts loadDek().
+    if (!isLocalMode() && !process.env.ASTRO_ENCRYPTION_KEY?.trim()) {
+      throw new Error(
+        'ASTRO_ENCRYPTION_KEY is required in server mode. Generate with ' +
+          '`node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"` ' +
+          'and set via `fly secrets set ASTRO_ENCRYPTION_KEY=...`.',
+      );
+    }
+    if (!isLocalMode()) {
+      console.log('[env] Encryption key configured');
+    }
+
     // Validate WebAuthn config
     const webauthn = getWebAuthnConfig();
     console.log(`[env] WebAuthn config validated (RP: ${webauthn.rpId})`);

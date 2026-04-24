@@ -16,9 +16,15 @@ const TEST_KEY = randomBytes(32).toString('base64')
 
 describe('encryption', () => {
   let savedKey: string | undefined
+  let savedLocalMode: string | undefined
+  let savedSupabaseUrl: string | undefined
+  let savedSupabaseKey: string | undefined
 
   beforeEach(() => {
     savedKey = process.env.ASTRO_ENCRYPTION_KEY
+    savedLocalMode = process.env.ASTRO_LOCAL_MODE
+    savedSupabaseUrl = process.env.SUPABASE_URL
+    savedSupabaseKey = process.env.SUPABASE_ANON_KEY
     process.env.ASTRO_ENCRYPTION_KEY = TEST_KEY
     __resetEncryptionForTests()
   })
@@ -28,6 +34,21 @@ describe('encryption', () => {
       delete process.env.ASTRO_ENCRYPTION_KEY
     } else {
       process.env.ASTRO_ENCRYPTION_KEY = savedKey
+    }
+    if (savedLocalMode === undefined) {
+      delete process.env.ASTRO_LOCAL_MODE
+    } else {
+      process.env.ASTRO_LOCAL_MODE = savedLocalMode
+    }
+    if (savedSupabaseUrl === undefined) {
+      delete process.env.SUPABASE_URL
+    } else {
+      process.env.SUPABASE_URL = savedSupabaseUrl
+    }
+    if (savedSupabaseKey === undefined) {
+      delete process.env.SUPABASE_ANON_KEY
+    } else {
+      process.env.SUPABASE_ANON_KEY = savedSupabaseKey
     }
     __resetEncryptionForTests()
   })
@@ -95,11 +116,26 @@ describe('encryption', () => {
     expect(() => decrypt('not an encrypted value')).toThrow()
   })
 
-  it('falls back to an ephemeral key when env var is missing', () => {
+  it('falls back to an ephemeral key when env var is missing (local mode only)', () => {
     delete process.env.ASTRO_ENCRYPTION_KEY
+    // Force local mode so the fallback path is exercised
+    process.env.ASTRO_LOCAL_MODE = 'true'
+    delete process.env.SUPABASE_URL
+    delete process.env.SUPABASE_ANON_KEY
     __resetEncryptionForTests()
     const blob = encrypt('ephemeral test')
     expect(decrypt(blob)).toBe('ephemeral test')
+  })
+
+  it('throws in server mode when ASTRO_ENCRYPTION_KEY is missing', () => {
+    delete process.env.ASTRO_ENCRYPTION_KEY
+    // Force server mode: explicitly disable local mode + provide Supabase env
+    process.env.ASTRO_LOCAL_MODE = 'false'
+    process.env.SUPABASE_URL = 'https://example.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'test-anon-key'
+    __resetEncryptionForTests()
+    expect(() => encrypt('server-mode test')).toThrow(/ASTRO_ENCRYPTION_KEY/)
+    expect(() => encrypt('server-mode test')).toThrow(/UNRECOVERABLE/)
   })
 
   it('rejects a key that is the wrong length', () => {

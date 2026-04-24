@@ -19,11 +19,15 @@
  * "envelope" in envelope encryption) — `getDek()` is the seam for that
  * change, and the on-disk format already carries a `kid` to support rotation.
  *
- * If `ASTRO_ENCRYPTION_KEY` is not set the helper falls back to an **ephemeral
- * in-memory key**, generated once at module load. This prevents a silent
- * refusal to encrypt (we never want plaintext writes to succeed on the
- * grounds that the key was missing) but is useless across restarts — a loud
- * warning is printed at startup so the misconfiguration is visible.
+ * In **local mode** (PGlite, no auth, single-user dev) the helper falls back
+ * to an **ephemeral in-memory key** generated once at module load — useless
+ * across restarts, but enough to exercise the encryption path end-to-end
+ * without forcing every contributor to generate and export a key.
+ *
+ * In **server mode** (Supabase / Fly.io / any shared environment) we refuse
+ * to start without `ASTRO_ENCRYPTION_KEY`: an ephemeral key there would
+ * silently make every encrypted row unrecoverable across the first rolling
+ * restart. `loadDek()` throws a loud, instructive error instead.
  */
 
 import {
@@ -31,6 +35,7 @@ import {
   createDecipheriv,
   randomBytes,
 } from 'node:crypto'
+import { isLocalMode } from './app-mode.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Key sourcing
@@ -72,16 +77,40 @@ function loadDek(): DekEntry {
     return cachedDek
   }
 
-  // Fallback: ephemeral key. We never silently refuse to encrypt — a loud
-  // warning at boot surfaces the misconfiguration, but writes still succeed
-  // (avoiding a situation where some rows land plaintext by accident).
+  // No key configured. In server mode this is a hard failure — an ephemeral
+  // key would silently make every encrypted row (credentials, provider
+  // configs, and future PHI columns) unrecoverable on the first rolling
+  // restart. Only local mode gets the ephemeral fallback, for dev UX.
+  if (!isLocalMode()) {
+    throw new Error(
+      '[encryption] ASTRO_ENCRYPTION_KEY is not set.\n' +
+        '\n' +
+        '  Why this matters: all encrypted data (connected-account credentials,\n' +
+        '  machine provider configs, and future PHI columns) is sealed with a\n' +
+        '  Data Encryption Key (DEK) derived from ASTRO_ENCRYPTION_KEY. Without\n' +
+        '  a stable key, every encrypted row becomes UNRECOVERABLE on the next\n' +
+        '  restart (Fly.io rolling deploys, crash recovery, scale-to-zero).\n' +
+        '\n' +
+        '  How to generate one (32 random bytes, base64-encoded):\n' +
+        '    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"\n' +
+        '\n' +
+        '  Where to put it:\n' +
+        '    Fly.io:    fly secrets set ASTRO_ENCRYPTION_KEY="<base64>" --app astro-backend-deploy\n' +
+        '    Local dev: add ASTRO_ENCRYPTION_KEY=<base64> to .env.local\n' +
+        '\n' +
+        '  This value must be backed up — losing it loses all encrypted data.',
+    )
+  }
+
+  // Local-mode fallback: ephemeral in-memory key. Logs a warning so devs
+  // know this path is in effect and not the production path.
   const ephemeral = randomBytes(32)
   console.warn(
     '\n' +
       '⚠️  [encryption] ASTRO_ENCRYPTION_KEY is not set — using an EPHEMERAL\n' +
-      '   in-memory key. Any data encrypted during this process lifetime will\n' +
-      '   be UNRECOVERABLE after restart. Set ASTRO_ENCRYPTION_KEY (base64,\n' +
-      '   32 bytes) before running in any shared or production environment.\n',
+      '   in-memory key. This is LOCAL-MODE ONLY: any data encrypted during\n' +
+      '   this process lifetime will be UNRECOVERABLE after restart. Server\n' +
+      '   mode refuses to start without ASTRO_ENCRYPTION_KEY.\n',
   )
   cachedDek = { kid: KID_EPHEMERAL, key: ephemeral, ephemeral: true }
   return cachedDek
