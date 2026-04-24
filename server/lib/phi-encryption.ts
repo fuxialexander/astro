@@ -192,3 +192,237 @@ export function maybeDecryptStreamingEventData(data: unknown): unknown {
 }
 
 export type { IndexField }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4b — generic helpers + per-table sanitizers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Alias for `maybeEncryptText` introduced in Phase 4b to match the rest of
+ * the PHI inventory naming. Identical behavior; some call sites prefer the
+ * `String` suffix because the underlying column is a `text` (not jsonb).
+ */
+export function maybeEncryptString(value: string | null | undefined): string | null | undefined {
+  return maybeEncryptText(value)
+}
+
+/**
+ * Alias for `maybeDecryptText`. See `maybeEncryptString`.
+ */
+export function maybeDecryptString(value: string | null | undefined): string | null | undefined {
+  return maybeDecryptText(value)
+}
+
+/**
+ * Apply a mapper to every property in `obj` and return a new object — used
+ * to build the per-table sanitizers below without mutating caller-owned
+ * values. `null`/`undefined` rows pass through untouched so callers can
+ * chain on optional results from `db.select(...).at(0)`.
+ */
+// Mappers are intentionally typed with broad input/output to accept both the
+// text variant (string | null | undefined) and the jsonb variant (unknown).
+// Casting to `unknown` here is safe because individual encrypt/decrypt helpers
+// validate their input shape internally.
+type PhiMapper = (v: unknown) => unknown
+function mapPhiFields<T extends Record<string, unknown>>(
+  row: T | null | undefined,
+  fields: readonly (keyof T)[],
+  mapper: PhiMapper | ((v: string | null | undefined) => string | null | undefined),
+): T | null | undefined {
+  if (row == null) return row
+  const out: Record<string, unknown> = { ...row }
+  const fn = mapper as PhiMapper
+  for (const f of fields) {
+    if (f in out) out[f as string] = fn(out[f as string])
+  }
+  return out as T
+}
+
+// ── projects ────────────────────────────────────────────────────────────────
+const PROJECT_TEXT_PHI = ['description', 'visionDoc'] as const
+
+export function encryptProjectWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, PROJECT_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptProjectRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, PROJECT_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptProjectRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptProjectRow(r) as T)
+}
+
+// ── planNodes ───────────────────────────────────────────────────────────────
+const PLAN_NODE_TEXT_PHI = ['description', 'content', 'executionOutput'] as const
+
+export function encryptPlanNodeWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, PLAN_NODE_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptPlanNodeRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, PLAN_NODE_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptPlanNodeRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptPlanNodeRow(r) as T)
+}
+
+// ── sessions ────────────────────────────────────────────────────────────────
+const SESSION_TEXT_PHI = ['streamText'] as const
+const SESSION_JSONB_PHI = ['messages', 'activityEvents', 'toolTraces', 'fileChanges'] as const
+
+export function encryptSessionWrite<T extends Record<string, unknown>>(row: T): T {
+  let out = mapPhiFields(row, SESSION_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+  out = mapPhiFields(out, SESSION_JSONB_PHI as readonly (keyof T)[], maybeEncryptJsonb) as T
+  return out
+}
+
+export function decryptSessionRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  let out = mapPhiFields(row, SESSION_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+  out = mapPhiFields(out, SESSION_JSONB_PHI as readonly (keyof T)[], (v) => maybeDecryptJsonb(v))
+  return out
+}
+
+export function decryptSessionRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptSessionRow(r) as T)
+}
+
+// ── taskExecutions ──────────────────────────────────────────────────────────
+const TASK_EXECUTION_TEXT_PHI = ['streamText'] as const
+
+export function encryptTaskExecutionWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, TASK_EXECUTION_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptTaskExecutionRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, TASK_EXECUTION_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptTaskExecutionRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptTaskExecutionRow(r) as T)
+}
+
+// ── taskChatMessages ────────────────────────────────────────────────────────
+const TASK_CHAT_TEXT_PHI = ['content'] as const
+
+export function encryptTaskChatMessageWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, TASK_CHAT_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptTaskChatMessageRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, TASK_CHAT_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptTaskChatMessageRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptTaskChatMessageRow(r) as T)
+}
+
+// ── observationEvents ───────────────────────────────────────────────────────
+const OBSERVATION_JSONB_PHI = ['input', 'output'] as const
+
+export function encryptObservationWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, OBSERVATION_JSONB_PHI as readonly (keyof T)[], maybeEncryptJsonb) as T
+}
+
+export function decryptObservationRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, OBSERVATION_JSONB_PHI as readonly (keyof T)[], (v) => maybeDecryptJsonb(v))
+}
+
+export function decryptObservationRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptObservationRow(r) as T)
+}
+
+// ── toolTraces (standalone table) ───────────────────────────────────────────
+const TOOL_TRACE_JSONB_PHI = ['toolInput', 'toolResult'] as const
+
+export function encryptToolTraceWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, TOOL_TRACE_JSONB_PHI as readonly (keyof T)[], maybeEncryptJsonb) as T
+}
+
+export function decryptToolTraceRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, TOOL_TRACE_JSONB_PHI as readonly (keyof T)[], (v) => maybeDecryptJsonb(v))
+}
+
+export function decryptToolTraceRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptToolTraceRow(r) as T)
+}
+
+// ── fileChanges (standalone table) ──────────────────────────────────────────
+const FILE_CHANGE_TEXT_PHI = ['path'] as const
+
+export function encryptFileChangeWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, FILE_CHANGE_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptFileChangeRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, FILE_CHANGE_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptFileChangeRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptFileChangeRow(r) as T)
+}
+
+// ── machineInstructions ─────────────────────────────────────────────────────
+const MACHINE_INSTRUCTION_TEXT_PHI = ['content'] as const
+
+export function encryptMachineInstructionWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, MACHINE_INSTRUCTION_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptMachineInstructionRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, MACHINE_INSTRUCTION_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+export function decryptMachineInstructionRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptMachineInstructionRow(r) as T)
+}
+
+// ── skills ──────────────────────────────────────────────────────────────────
+const SKILL_TEXT_PHI = ['instructions'] as const
+const SKILL_JSONB_PHI = ['config'] as const
+
+export function encryptSkillWrite<T extends Record<string, unknown>>(row: T): T {
+  let out = mapPhiFields(row, SKILL_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+  out = mapPhiFields(out, SKILL_JSONB_PHI as readonly (keyof T)[], maybeEncryptJsonb) as T
+  return out
+}
+
+export function decryptSkillRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  let out = mapPhiFields(row, SKILL_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+  out = mapPhiFields(out, SKILL_JSONB_PHI as readonly (keyof T)[], (v) => maybeDecryptJsonb(v))
+  return out
+}
+
+export function decryptSkillRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptSkillRow(r) as T)
+}
+
+// ── blobs ───────────────────────────────────────────────────────────────────
+const BLOB_TEXT_PHI = ['data'] as const
+
+export function encryptBlobWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, BLOB_TEXT_PHI as readonly (keyof T)[], maybeEncryptText) as T
+}
+
+export function decryptBlobRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, BLOB_TEXT_PHI as readonly (keyof T)[], maybeDecryptText)
+}
+
+// ── auditLogs ───────────────────────────────────────────────────────────────
+// Defensive encryption: details should never contain PHI by policy, but we
+// encrypt anyway when HIPAA mode is on so accidental leaks (e.g. a route
+// stuffing a request body into details) are still encrypted at rest.
+const AUDIT_LOG_JSONB_PHI = ['details'] as const
+
+export function encryptAuditLogWrite<T extends Record<string, unknown>>(row: T): T {
+  return mapPhiFields(row, AUDIT_LOG_JSONB_PHI as readonly (keyof T)[], maybeEncryptJsonb) as T
+}
+
+export function decryptAuditLogRow<T extends Record<string, unknown>>(row: T | null | undefined): T | null | undefined {
+  return mapPhiFields(row, AUDIT_LOG_JSONB_PHI as readonly (keyof T)[], (v) => maybeDecryptJsonb(v))
+}
+
+export function decryptAuditLogRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((r) => decryptAuditLogRow(r) as T)
+}
