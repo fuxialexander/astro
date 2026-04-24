@@ -37,6 +37,25 @@ import { slugify } from '@astro/core/dispatch'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
 import { resolveWritableTeamId } from '../lib/team-utils.js'
+import {
+  encryptProjectWrite,
+  decryptProjectRow,
+  decryptProjectRows,
+  encryptPlanNodeWrite,
+  decryptPlanNodeRow,
+  decryptPlanNodeRows,
+  encryptSessionWrite,
+  decryptSessionRow,
+  encryptTaskExecutionWrite,
+  decryptTaskExecutionRows,
+  encryptTaskChatMessageWrite,
+  decryptTaskChatMessageRows,
+  encryptBlobWrite,
+  decryptBlobRow,
+  decryptToolTraceRows,
+  decryptFileChangeRows,
+  maybeDecryptText,
+} from '../lib/phi-encryption.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
@@ -73,7 +92,7 @@ app.get('/projects', async (c) => {
   const rows = await db.select().from(projects).where(
     and(filter, ne(projects.status, 'deleted'))
   )
-  return c.json(rows)
+  return c.json(decryptProjectRows(rows))
 })
 
 app.post('/projects', async (c) => {
@@ -168,13 +187,15 @@ app.post('/projects', async (c) => {
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     }
-    await tx.insert(projects).values(row).onConflictDoUpdate({
+    const encryptedRow = encryptProjectWrite(row as Record<string, unknown>) as typeof row
+    await tx.insert(projects).values(encryptedRow).onConflictDoUpdate({
       target: projects.id,
-      set: { ...row, id: undefined } as typeof row,
+      set: { ...encryptedRow, id: undefined } as typeof encryptedRow,
     })
   })
 
-  const [created] = await db.select().from(projects).where(eq(projects.id, projectId))
+  const [createdRaw] = await db.select().from(projects).where(eq(projects.id, projectId))
+  const created = decryptProjectRow(createdRaw as Record<string, unknown>)
 
   // Audit log project creation (only on new projects, not updates)
   if (body.id === undefined || !body.createdAt) {
@@ -206,9 +227,10 @@ app.get('/projects/:id/notes', async (c) => {
   if (!project) return c.json({ error: 'Not found' }, 404)
 
   // Fetch all non-deleted nodes
-  const allNodes = await db.select().from(planNodes).where(
+  const allNodesRaw = await db.select().from(planNodes).where(
     and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
   )
+  const allNodes = decryptPlanNodeRows(allNodesRaw as Record<string, unknown>[]) as typeof allNodesRaw
 
   // Separate milestones and tasks-with-notes
   const milestones = allNodes.filter(n => n.type === 'milestone')
@@ -260,12 +282,13 @@ app.get('/projects/:id/notes', async (c) => {
     })
   }
 
+  const decryptedProject = decryptProjectRow(project as Record<string, unknown>) as typeof project
   return c.json({
     project: {
-      id: project.id,
-      name: project.name,
-      description: project.description || null,
-      visionDoc: project.visionDoc || null,
+      id: decryptedProject.id,
+      name: decryptedProject.name,
+      description: decryptedProject.description || null,
+      visionDoc: decryptedProject.visionDoc || null,
     },
     sections,
   })
@@ -278,7 +301,7 @@ app.get('/projects/:id', async (c) => {
     and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
-  return c.json(row)
+  return c.json(decryptProjectRow(row as Record<string, unknown>))
 })
 
 app.patch('/projects/:id', async (c) => {
@@ -404,10 +427,11 @@ app.patch('/projects/:id', async (c) => {
     }
     // Otherwise, preserve existing githubRepoId (e.g., when updating owner/repo without providing repoId)
   }
-  await db.update(projects).set(patch).where(
+  await db.update(projects).set(encryptProjectWrite(patch)).where(
     and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
   )
-  const [updated] = await db.select().from(projects).where(eq(projects.id, id))
+  const [updatedRaw] = await db.select().from(projects).where(eq(projects.id, id))
+  const updated = decryptProjectRow(updatedRaw as Record<string, unknown>)
   return c.json(updated)
 })
 
@@ -594,9 +618,15 @@ app.get('/plan', async (c) => {
 
   // Get nodes for user's projects (scoped query instead of full table scan)
   const ids = [...projectIds]
-  const rawNodes = ids.length > 0
+  const rawNodesEnc = ids.length > 0
     ? await db.select().from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
     : []
+  // Decrypt PHI fields. In slim mode, executionOutput/content are dropped before
+  // shipping to the client, so skip the decrypt cost for those by only decrypting
+  // `description` (which is needed in slim mode for list rendering).
+  const rawNodes = slim
+    ? rawNodesEnc.map(n => ({ ...n, description: maybeDecryptText(n.description) ?? '' }))
+    : decryptPlanNodeRows(rawNodesEnc as Record<string, unknown>[]) as typeof rawNodesEnc
   const nodes = rawNodes
     .map(n => ({
       id: n.clientId, // Use clientId as frontend ID
@@ -664,10 +694,11 @@ app.get('/plan/nodes/:nodeId', async (c) => {
   const user = c.get('user')! as AuthUser
   const nodeId = c.req.param('nodeId')
 
-  const [row] = await db.select().from(planNodes)
+  const [rowEnc] = await db.select().from(planNodes)
     .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt)))
     .limit(1)
-  if (!row) return c.json({ error: 'Not found' }, 404)
+  if (!rowEnc) return c.json({ error: 'Not found' }, 404)
+  const row = decryptPlanNodeRow(rowEnc as Record<string, unknown>) as typeof rowEnc
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
@@ -731,7 +762,8 @@ app.get('/plan/:projectId', async (c) => {
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
-  const rawNodes = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const rawNodesEnc = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const rawNodes = decryptPlanNodeRows(rawNodesEnc as Record<string, unknown>[]) as typeof rawNodesEnc
   const nodes = rawNodes.map(n => ({
     id: n.clientId, // Use clientId as frontend ID
     projectId: n.projectId,
@@ -880,42 +912,43 @@ app.put('/plan/:projectId', async (c) => {
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
-      await tx.insert(planNodes).values(row).onConflictDoUpdate({
+      const encryptedRow = encryptPlanNodeWrite(row as Record<string, unknown>) as typeof row
+      await tx.insert(planNodes).values(encryptedRow).onConflictDoUpdate({
         target: [planNodes.projectId, planNodes.clientId],
         set: {
-          number: row.number,
-          type: row.type,
-          title: row.title,
-          description: row.description,
-          status: row.status,
-          parentId: row.parentId,
-          verification: row.verification,
-          positionX: row.positionX,
-          positionY: row.positionY,
-          startDate: row.startDate,
-          endDate: row.endDate,
-          priority: row.priority,
-          labelIds: row.labelIds,
-          dueDate: row.dueDate,
-          estimate: row.estimate,
-          milestoneId: row.milestoneId,
-          executionId: row.executionId,
-          executionOutput: row.executionOutput,
-          executionError: row.executionError,
-          executionStartedAt: row.executionStartedAt,
-          executionCompletedAt: row.executionCompletedAt,
-          branchName: row.branchName,
-          prUrl: row.prUrl,
-          prNumber: row.prNumber,
-          mergeQueueStatus: row.mergeQueueStatus,
-          autoPr: row.autoPr,
-          content: row.content,
-          attachments: row.attachments,
-          links: row.links,
-          acceptanceCriteria: row.acceptanceCriteria,
-          loopConfig: row.loopConfig,
-          metadata: row.metadata,
-          updatedAt: row.updatedAt,
+          number: encryptedRow.number,
+          type: encryptedRow.type,
+          title: encryptedRow.title,
+          description: encryptedRow.description,
+          status: encryptedRow.status,
+          parentId: encryptedRow.parentId,
+          verification: encryptedRow.verification,
+          positionX: encryptedRow.positionX,
+          positionY: encryptedRow.positionY,
+          startDate: encryptedRow.startDate,
+          endDate: encryptedRow.endDate,
+          priority: encryptedRow.priority,
+          labelIds: encryptedRow.labelIds,
+          dueDate: encryptedRow.dueDate,
+          estimate: encryptedRow.estimate,
+          milestoneId: encryptedRow.milestoneId,
+          executionId: encryptedRow.executionId,
+          executionOutput: encryptedRow.executionOutput,
+          executionError: encryptedRow.executionError,
+          executionStartedAt: encryptedRow.executionStartedAt,
+          executionCompletedAt: encryptedRow.executionCompletedAt,
+          branchName: encryptedRow.branchName,
+          prUrl: encryptedRow.prUrl,
+          prNumber: encryptedRow.prNumber,
+          mergeQueueStatus: encryptedRow.mergeQueueStatus,
+          autoPr: encryptedRow.autoPr,
+          content: encryptedRow.content,
+          attachments: encryptedRow.attachments,
+          links: encryptedRow.links,
+          acceptanceCriteria: encryptedRow.acceptanceCriteria,
+          loopConfig: encryptedRow.loopConfig,
+          metadata: encryptedRow.metadata,
+          updatedAt: encryptedRow.updatedAt,
         },
       })
     }
@@ -1042,7 +1075,7 @@ app.post('/plan/nodes', async (c) => {
       .where(eq(planNodes.projectId, body.projectId))
     assignedNumber = (maxRow?.maxNum ?? 0) + 1
 
-    await tx.insert(planNodes).values({
+    await tx.insert(planNodes).values(encryptPlanNodeWrite({
       clientId: body.id,
       projectId: body.projectId,
       number: assignedNumber,
@@ -1080,7 +1113,7 @@ app.post('/plan/nodes', async (c) => {
       metadata: body.metadata ?? {},
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
-    })
+    }))
 
     // Discovery mode: generate outputDir for task nodes in discovery projects
     if (body.type === 'task' && project.discoveryMode && body.title) {
@@ -1166,7 +1199,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
 
-  await db.update(planNodes).set(patch).where(eq(planNodes.clientId, id))
+  await db.update(planNodes).set(encryptPlanNodeWrite(patch)).where(eq(planNodes.clientId, id))
 
   // If soft-deleting a node, also soft-delete connected edges
   if (body.deletedAt) {
@@ -1794,9 +1827,10 @@ app.get('/chat/:nodeId', async (c) => {
   )
   if (!session) return c.json(null)
 
-  const messages = await db.select().from(taskChatMessages).where(
+  const messagesEnc = await db.select().from(taskChatMessages).where(
     eq(taskChatMessages.sessionId, session.id)
   )
+  const messages = decryptTaskChatMessageRows(messagesEnc as Record<string, unknown>[]) as typeof messagesEnc
   return c.json({ session, messages })
 })
 
@@ -1842,16 +1876,17 @@ app.post('/chat/:nodeId/messages', async (c) => {
     return c.json({ error: 'Session not found. Create session first.' }, 404)
   }
 
+  const encryptedContent = encryptTaskChatMessageWrite({ content: body.content }).content
   await db.insert(taskChatMessages).values({
     id: body.id,
     sessionId: session.id,
     role: body.role,
-    content: body.content,
+    content: encryptedContent as string,
     createdAt: (typeof body.timestamp === 'string' || typeof body.timestamp === 'number') ? new Date(body.timestamp) : new Date(),
   }).onConflictDoUpdate({
     target: taskChatMessages.id,
     set: {
-      content: body.content,
+      content: encryptedContent as string,
       createdAt: (typeof body.timestamp === 'string' || typeof body.timestamp === 'number') ? new Date(body.timestamp) : new Date(),
     },
   })
@@ -1931,9 +1966,10 @@ app.get('/sessions', async (c) => {
 app.get('/sessions/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
   const userId = c.get('user')!.id
-  const [session] = await db.select().from(sessions).where(
+  const [sessionEnc] = await db.select().from(sessions).where(
     and(eq(sessions.id, sessionId), eq(sessions.userId, userId), isNull(sessions.deletedAt))
   )
+  const session = decryptSessionRow(sessionEnc as Record<string, unknown>) as typeof sessionEnc
   return c.json(session || null)
 })
 
@@ -1963,7 +1999,7 @@ app.post('/sessions', async (c) => {
     completedAt: body.completedAt ? new Date(body.completedAt) : null,
   }
 
-  await db.insert(sessions).values(values)
+  await db.insert(sessions).values(encryptSessionWrite(values as Record<string, unknown>) as typeof values)
 
   return c.json(body)
 })
@@ -1981,7 +2017,7 @@ app.patch('/sessions/:sessionId', async (c) => {
     patch.completedAt = body.completedAt ? new Date(body.completedAt) : null
   }
   await db.update(sessions)
-    .set(patch)
+    .set(encryptSessionWrite(patch))
     .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 
   return c.json({ ok: true })
@@ -2003,10 +2039,11 @@ app.post('/sessions/:sessionId/messages', async (c) => {
   const userId = c.get('user')!.id
   const message = await c.req.json()
 
-  // Get current session
-  const [session] = await db.select().from(sessions).where(
+  // Get current session — decrypt so we can append to the plaintext messages array.
+  const [sessionEnc] = await db.select().from(sessions).where(
     and(eq(sessions.id, sessionId), eq(sessions.userId, userId), isNull(sessions.deletedAt))
   )
+  const session = decryptSessionRow(sessionEnc as Record<string, unknown>) as typeof sessionEnc
 
   if (!session) {
     return c.json({ error: 'Session not found' }, 404)
@@ -2016,7 +2053,7 @@ app.post('/sessions/:sessionId/messages', async (c) => {
   const updatedMessages = [...(session.messages || []), message]
 
   await db.update(sessions)
-    .set({ messages: updatedMessages, updatedAt: new Date() })
+    .set(encryptSessionWrite({ messages: updatedMessages, updatedAt: new Date() }))
     .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 
   return c.json({ ok: true })
@@ -2077,13 +2114,16 @@ app.get('/executions', async (c) => {
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     if (result[exec.nodeClientId]) continue
+    const execStreamText = slim
+      ? ''
+      : (maybeDecryptText((exec as Record<string, unknown>).streamText as string | null | undefined) ?? '')
     result[exec.nodeClientId] = {
       executionId: exec.executionId,
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       userId: exec.userId,
       status: exec.status,
-      streamText: slim ? '' : (exec as Record<string, unknown>).streamText ?? '',
+      streamText: execStreamText,
       error: exec.error,
       toolTraces: [],
       fileChanges: [],
@@ -2115,13 +2155,14 @@ app.post('/executions', async (c) => {
   }
 
   // Upsert execution
+  const encStreamText = encryptTaskExecutionWrite({ streamText: body.streamText || '' }).streamText as string
   await db.insert(taskExecutions).values({
     executionId: body.executionId,
     nodeClientId: body.nodeId,
     projectId: body.projectId,
     userId: user.id,
     status: body.status || 'pending',
-    streamText: body.streamText || '',
+    streamText: encStreamText,
     error: body.error || null,
     startedAt: body.startedAt ? new Date(body.startedAt) : new Date(),
     completedAt: body.completedAt ? new Date(body.completedAt) : null,
@@ -2141,7 +2182,7 @@ app.post('/executions', async (c) => {
     target: taskExecutions.executionId,
     set: {
       status: body.status,
-      streamText: body.streamText || '',
+      streamText: encStreamText,
       error: body.error || null,
       completedAt: body.completedAt ? new Date(body.completedAt) : null,
       durationMs: body.metrics?.durationMs || null,
@@ -2288,10 +2329,10 @@ app.get('/tool-traces', async (c) => {
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
 
-  const rows = await db.select().from(toolTraces)
+  const rowsEnc = await db.select().from(toolTraces)
     .where(eq(toolTraces.executionId, executionId))
     .orderBy(toolTraces.timestamp)
-  return c.json(rows)
+  return c.json(decryptToolTraceRows(rowsEnc as Record<string, unknown>[]))
 })
 
 // ── File Changes ─────────────────────────────────────────────────────
@@ -2313,10 +2354,10 @@ app.get('/file-changes', async (c) => {
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
 
-  const rows = await db.select().from(fileChanges)
+  const rowsEnc = await db.select().from(fileChanges)
     .where(eq(fileChanges.executionId, executionId))
     .orderBy(fileChanges.timestamp)
-  return c.json(rows)
+  return c.json(decryptFileChangeRows(rowsEnc as Record<string, unknown>[]))
 })
 
 // ── Search ───────────────────────────────────────────────────────────
@@ -2381,7 +2422,18 @@ app.get('/search', async (c) => {
     ))
     .limit(20)
 
-  return c.json({ projects: projectResults, tasks: taskResults, executions: executionResults })
+  // Decrypt PHI fields before returning. Note: HIPAA mode disables ILIKE
+  // matches against the encrypted columns (the at-rest blob is not
+  // substring-searchable) — that is an accepted limitation.
+  const projectResultsDec = projectResults.map(p => ({
+    ...p,
+    description: maybeDecryptText(p.description) ?? p.description,
+  }))
+  const taskResultsDec = taskResults.map(t => ({
+    ...t,
+    description: maybeDecryptText(t.description) ?? t.description,
+  }))
+  return c.json({ projects: projectResultsDec, tasks: taskResultsDec, executions: executionResults })
 })
 
 // ── Data Export (GDPR compliance) ────────────────────────────────────
@@ -2407,9 +2459,11 @@ app.get('/export', async (c) => {
 
     if (projectIds.length > 0) {
       for (const projectId of projectIds) {
-        const projectNodes = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+        const projectNodesEnc = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+        const projectNodes = decryptPlanNodeRows(projectNodesEnc as Record<string, unknown>[]) as typeof projectNodesEnc
         const projectEdges = await db.select().from(planEdges).where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
-        const projectExecutions = await db.select().from(taskExecutions).where(and(eq(taskExecutions.projectId, projectId), isNull(taskExecutions.deletedAt)))
+        const projectExecutionsEnc = await db.select().from(taskExecutions).where(and(eq(taskExecutions.projectId, projectId), isNull(taskExecutions.deletedAt)))
+        const projectExecutions = decryptTaskExecutionRows(projectExecutionsEnc as Record<string, unknown>[]) as typeof projectExecutionsEnc
         nodes = [...nodes, ...projectNodes]
         edges = [...edges, ...projectEdges]
         executions = [...executions, ...projectExecutions]
@@ -2419,9 +2473,10 @@ app.get('/export', async (c) => {
     // Get chat messages for all sessions
     const chatMessages: Array<typeof taskChatMessages.$inferSelect> = []
     for (const session of chatSessions) {
-      const messages = await db.select().from(taskChatMessages).where(
+      const messagesEnc = await db.select().from(taskChatMessages).where(
         eq(taskChatMessages.sessionId, session.id)
       )
+      const messages = decryptTaskChatMessageRows(messagesEnc as Record<string, unknown>[]) as typeof messagesEnc
       chatMessages.push(...messages)
     }
 
@@ -2429,7 +2484,7 @@ app.get('/export', async (c) => {
       exportedAt: new Date().toISOString(),
       userId: user.id,
       profile,
-      projects: userProjects,
+      projects: decryptProjectRows(userProjects as Record<string, unknown>[]) as typeof userProjects,
       planNodes: nodes,
       planEdges: edges,
       executions,
@@ -2571,7 +2626,7 @@ app.post('/blobs', async (c) => {
     teamId = body.teamId
   }
 
-  const [row] = await db.insert(blobs).values({
+  const [row] = await db.insert(blobs).values(encryptBlobWrite({
     ownerId: user.id,
     teamId,
     mimeType: body.mimeType,
@@ -2580,7 +2635,7 @@ app.post('/blobs', async (c) => {
     filename: body.filename,
     nodeId: body.nodeId || null,
     projectId: body.projectId || null,
-  }).returning()
+  })).returning()
 
   return c.json({ id: row.id }, 201)
 })
@@ -2597,10 +2652,11 @@ app.get('/blobs/:id', async (c) => {
   if (!row) return c.json({ error: 'Blob not found' }, 404)
 
   // Decode base64 and serve as binary
-  const buffer = Buffer.from(row.data, 'base64')
+  const decryptedRow = decryptBlobRow(row)
+  const buffer = Buffer.from(decryptedRow.data, 'base64')
   return new Response(buffer, {
     headers: {
-      'Content-Type': row.mimeType,
+      'Content-Type': decryptedRow.mimeType,
       'Content-Length': String(buffer.length),
       'Cache-Control': 'private, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',

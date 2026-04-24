@@ -18,6 +18,7 @@ import { githubPrBus } from '../../lib/github-pr-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes, projects } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import { encryptPlanNodeWrite } from '../../lib/phi-encryption.js'
 import { executionEventBus } from '../../lib/execution-event-bus.js'
 import {
   isSyncEcho,
@@ -163,7 +164,7 @@ export async function handleIssueEvent(
           }
         }
 
-        await db.insert(planNodes).values({
+        await db.insert(planNodes).values(encryptPlanNodeWrite({
           projectId,
           clientId: `gh-issue-${issueNumber}`,
           type: 'task',
@@ -179,7 +180,7 @@ export async function handleIssueEvent(
           ...(priority ? { priority } : {}),
           ...(assigneeMetadata ? { metadata: assigneeMetadata } : {}),
           links: [{ id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }],
-        })
+        }))
         await logSyncOperation({
           projectId,
           nodeId: `gh-issue-${issueNumber}`,
@@ -303,14 +304,14 @@ export async function handleIssueEvent(
         .limit(1)
 
       if (editedNode) {
-        await db.update(planNodes).set({
+        await db.update(planNodes).set(encryptPlanNodeWrite({
           ...(titleEnabled ? { title: issueTitle } : {}),
           ...(descEnabled ? { description: issueBody } : {}),
           syncSource: 'github',
           githubSyncVersion: (editedNode.githubSyncVersion ?? 0) + 1,
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
-        }).where(eq(planNodes.id, editedNode.id))
+        })).where(eq(planNodes.id, editedNode.id))
         await logSyncOperation({
           projectId,
           nodeId: editedNode.id,
