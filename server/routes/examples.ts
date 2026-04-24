@@ -13,6 +13,7 @@ import { projects } from '../lib/db/schema.js'
 import { eq } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { requestRemoteRepoDetect } from './repo.js'
+import { encryptProjectWrite } from '../lib/phi-encryption.js'
 import {
   // Built-in templates
   BUILTIN_TEMPLATES,
@@ -601,7 +602,7 @@ examplesRoute.post('/:id/launch', async (c) => {
   }
 
   try {
-    await db.insert(projects).values(projectData)
+    await db.insert(projects).values(encryptProjectWrite(projectData))
   } catch (err) {
     console.error('[examples] Failed to create project:', err)
     return c.json({ error: 'Failed to create project' }, 500)

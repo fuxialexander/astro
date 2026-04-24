@@ -20,6 +20,7 @@ import { executionContextStore } from '../../execution-context-store.js'
 import { buildChatSystemPrompt, formatMachineInstruction } from '../../prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED, MACHINE_INSTRUCTION_PRESETS } from '../../machine-instruction-presets.js'
 import { db } from '../../db/index.js'
+import { decryptMachineInstructionRow } from '../../phi-encryption.js'
 import { connectedAccounts, projects, planNodes, planEdges, registeredMachines, machineInstructions, teamMembers } from '../../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import type {
@@ -279,7 +280,10 @@ async function buildTelegramSystemPrompt(
           .from(machineInstructions)
           .where(eq(machineInstructions.id, instrId))
           .limit(1)
-        if (instr?.content) resolved = formatMachineInstruction(instr.name, instr.content)
+        if (instr?.content) {
+          const decrypted = decryptMachineInstructionRow(instr)
+          resolved = formatMachineInstruction(decrypted.name, decrypted.content)
+        }
       }
 
       if (resolved) skills = resolved

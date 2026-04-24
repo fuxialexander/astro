@@ -15,6 +15,10 @@ import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { resolveWritableTeamId } from '../lib/team-utils.js'
+import {
+  encryptMachineInstructionWrite,
+  decryptMachineInstructionRow,
+} from '../lib/phi-encryption.js'
 
 const machineInstructionsRoute = new Hono()
 
@@ -46,7 +50,7 @@ machineInstructionsRoute.get('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
     const rows = await db.select().from(machineInstructions).where(scopeFilter(user)).orderBy(desc(machineInstructions.updatedAt))
-    return c.json({ instructions: rows })
+    return c.json({ instructions: rows.map(decryptMachineInstructionRow) })
   } catch (e) {
     console.error('[machine-instructions] GET / error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -65,7 +69,7 @@ machineInstructionsRoute.get('/:id', async (c) => {
       and(eq(machineInstructions.id, id), scopeFilter(user))
     )
     if (!row) return c.json({ error: 'Instruction not found' }, 404)
-    return c.json(row)
+    return c.json(decryptMachineInstructionRow(row))
   } catch (e) {
     console.error('[machine-instructions] GET /:id error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -103,7 +107,7 @@ machineInstructionsRoute.post('/', async (c) => {
     }
 
     const now = new Date()
-    const [row] = await db.insert(machineInstructions).values({
+    const [row] = await db.insert(machineInstructions).values(encryptMachineInstructionWrite({
       ownerId: user.id,
       teamId: teamTarget.teamId,
       name: body.name.trim(),
@@ -112,9 +116,9 @@ machineInstructionsRoute.post('/', async (c) => {
       source: body.source === 'auto' ? 'auto' : 'user',
       createdAt: now,
       updatedAt: now,
-    }).returning()
+    })).returning()
 
-    return c.json(row, 201)
+    return c.json(decryptMachineInstructionRow(row), 201)
   } catch (e) {
     console.error('[machine-instructions] POST / error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -217,9 +221,9 @@ machineInstructionsRoute.put('/:id', async (c) => {
       patch.teamId = teamTarget.teamId
     }
 
-    await db.update(machineInstructions).set(patch).where(eq(machineInstructions.id, id))
+    await db.update(machineInstructions).set(encryptMachineInstructionWrite(patch)).where(eq(machineInstructions.id, id))
     const [updated] = await db.select().from(machineInstructions).where(eq(machineInstructions.id, id))
-    return c.json(updated)
+    return c.json(decryptMachineInstructionRow(updated))
   } catch (e) {
     console.error('[machine-instructions] PUT /:id error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -297,7 +301,7 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
     }
 
     const now = new Date()
-    const [row] = await db.insert(machineInstructions).values({
+    const [row] = await db.insert(machineInstructions).values(encryptMachineInstructionWrite({
       ownerId: user.id,
       teamId: teamTarget.teamId,
       name: template.name,
@@ -306,9 +310,9 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
       source: 'auto',
       createdAt: now,
       updatedAt: now,
-    }).returning()
+    })).returning()
 
-    return c.json(row, 201)
+    return c.json(decryptMachineInstructionRow(row), 201)
   } catch (e) {
     console.error('[machine-instructions] POST /auto-generate error:', e)
     return c.json({ error: errorMessage(e) }, 500)

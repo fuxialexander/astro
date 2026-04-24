@@ -13,6 +13,7 @@ import {
 } from '../lib/db/schema.js'
 import { eq, and, desc, isNull, ilike, or, sql } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { encryptProjectWrite, encryptPlanNodeWrite } from '../lib/phi-encryption.js'
 
 const FORK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
 const FORK_ICONS = [
@@ -647,7 +648,7 @@ app.post('/plans/:id/fork', async (c) => {
     // Use transaction to ensure all-or-nothing fork operation
     await db.transaction(async (tx) => {
       // Insert project
-      await tx.insert(projects).values(projectData)
+      await tx.insert(projects).values(encryptProjectWrite(projectData))
 
       // Insert nodes with remapped IDs
       if (remappedNodes.length > 0) {
@@ -673,7 +674,7 @@ app.post('/plans/:id/fork', async (c) => {
           createdAt: now,
           updatedAt: now,
         }))
-        await tx.insert(planNodes).values(nodeInserts)
+        await tx.insert(planNodes).values(nodeInserts.map(encryptPlanNodeWrite))
       }
 
       // Insert edges with remapped IDs

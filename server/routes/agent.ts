@@ -17,6 +17,7 @@ import { db } from '../lib/db/index.js'
 import { projects, registeredMachines, machineInstructions, blobs, taskExecutions } from '../lib/db/schema.js'
 import { eq, and, inArray, isNull } from 'drizzle-orm'
 import { truncateMessagesForFallback } from '../lib/chat-context-truncation.js'
+import { decryptMachineInstructionRow } from '../lib/phi-encryption.js'
 
 const DEFAULT_INSTRUCTION_ID = 'builtin:default'
 
@@ -28,7 +29,9 @@ async function resolveMachineInstruction(instructionId: string): Promise<string 
   }
   const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
     .from(machineInstructions).where(eq(machineInstructions.id, instructionId)).limit(1)
-  return instruction?.content ? formatMachineInstruction(instruction.name, instruction.content) : null
+  if (!instruction?.content) return null
+  const decrypted = decryptMachineInstructionRow(instruction)
+  return decrypted.content ? formatMachineInstruction(decrypted.name, decrypted.content) : null
 }
 
 /** Verify the user has access to the given project (team-scoped). */

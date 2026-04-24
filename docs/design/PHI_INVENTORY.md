@@ -6,6 +6,11 @@ Source of truth for the schema: [packages/core/src/db/schema.ts](../../packages/
 
 Companion doc: [HIPAA_ARCHITECTURE.md](./HIPAA_ARCHITECTURE.md).
 
+## Status
+
+- **Phase 4 (shipped):** `streamingEvents.data` envelope-encrypted on hot write path.
+- **Phase 4b (shipped):** remaining PHI columns encrypted at rest via per-table sanitizers in [server/lib/phi-encryption.ts](../../server/lib/phi-encryption.ts). All writes route through `encryptXWrite()` and reads route through `decryptXRow[s]()`. Encryption is gated on `isHipaaMode()` — non-HIPAA deployments are byte-identical to pre-4b. See Section 5 for the helper catalog.
+
 ## Legend
 
 - **Risk** — `H` (free-form text that directly carries PHI), `M` (structured field that commonly contains PHI fragments), `L` (metadata that may incidentally reveal PHI via identifiers/paths).
@@ -16,36 +21,36 @@ Companion doc: [HIPAA_ARCHITECTURE.md](./HIPAA_ARCHITECTURE.md).
 
 | Table | Column | Type | Holds | Risk | Encryption | Audit |
 |---|---|---|---|---|---|---|
-| `projects` | `description` | text | User-authored project description; may reference patient scenarios | H | plaintext → planned | no |
-| `projects` | `visionDoc` | text | Long-form vision document injected into every agent session | H | plaintext → planned | no |
-| `planNodes` | `description` | text | Task description (plain text) | H | plaintext → planned | no |
-| `planNodes` | `content` | text | Rich-text (TipTap HTML) node body | H | plaintext → planned | no |
-| `planNodes` | `executionOutput` | text | Text output from the agent's execution of this node | H | plaintext → planned | no |
-| `sessions` | `streamText` | text | Accumulated assistant text for the session | H | plaintext → planned | no |
-| `sessions` | `messages` | jsonb | Full chat transcript (`{role, content, …}[]`) | H | plaintext → planned | no |
-| `sessions` | `activityEvents` | jsonb | Stream of activity events seen by the session | H | plaintext → planned | no |
-| `sessions` | `toolTraces` | jsonb | Per-session tool invocations with inputs/outputs | H | plaintext → planned | no |
-| `sessions` | `fileChanges` | jsonb | Per-session file-change descriptors (incl. paths/diffs) | H | plaintext → planned | no |
-| `taskExecutions` | `streamText` | text | Accumulated execution transcript | H | plaintext → planned | no |
-| `taskChatMessages` | `content` | text | Per-message body (legacy chat path) | H | plaintext → planned | no |
-| `observationEvents` | `input` | jsonb | Full input payload to an LLM/tool observation | H | plaintext → planned | no |
-| `observationEvents` | `output` | jsonb | Full output payload from an LLM/tool observation | H | plaintext → planned | no |
-| `streamingEvents` | `data` | jsonb | Every `text` / `tool_use` / `tool_result` / `file_change` / `progress` / `result` event payload. **Highest volume PHI store.** | H | plaintext → planned (envelope, hot path) | no |
-| `toolTraces` | `toolInput` | jsonb | Raw arguments passed into a tool call | H | plaintext → planned | no |
-| `toolTraces` | `toolResult` | jsonb | Raw result returned by a tool call | H | plaintext → planned | no |
-| `fileChanges` | `path` | text | Absolute-or-relative file path touched by an execution | M | plaintext → planned | no |
-| `machineInstructions` | `content` | text | Markdown instructions injected into agent context | M | plaintext → planned | no |
-| `skills` | `instructions` | text | Skill definition body injected into agent context | M | plaintext → planned | no |
-| `skills` | `config` | jsonb | Skill config (may contain endpoints, prompts referring to PHI) | M | plaintext → planned | no |
-| `blobs` | `data` | text | Base64-encoded file/image attachment payload | H | plaintext → planned | no |
-| `auditLogs` | `details` | jsonb | Audit context — **must never contain PHI by policy**; still listed so we treat it carefully | L | plaintext → planned (with scrub rule) | n/a (is the audit log) |
+| `projects` | `description` | text | User-authored project description; may reference patient scenarios | H | encrypted (Phase 4b) | no |
+| `projects` | `visionDoc` | text | Long-form vision document injected into every agent session | H | encrypted (Phase 4b) | no |
+| `planNodes` | `description` | text | Task description (plain text) | H | encrypted (Phase 4b) | no |
+| `planNodes` | `content` | text | Rich-text (TipTap HTML) node body | H | encrypted (Phase 4b) | no |
+| `planNodes` | `executionOutput` | text | Text output from the agent's execution of this node | H | encrypted (Phase 4b) | no |
+| `sessions` | `streamText` | text | Accumulated assistant text for the session | H | encrypted (Phase 4b) | no |
+| `sessions` | `messages` | jsonb | Full chat transcript (`{role, content, …}[]`) | H | encrypted (Phase 4b) | no |
+| `sessions` | `activityEvents` | jsonb | Stream of activity events seen by the session | H | encrypted (Phase 4b) | no |
+| `sessions` | `toolTraces` | jsonb | Per-session tool invocations with inputs/outputs | H | encrypted (Phase 4b) | no |
+| `sessions` | `fileChanges` | jsonb | Per-session file-change descriptors (incl. paths/diffs) | H | encrypted (Phase 4b) | no |
+| `taskExecutions` | `streamText` | text | Accumulated execution transcript | H | encrypted (Phase 4b) | no |
+| `taskChatMessages` | `content` | text | Per-message body (legacy chat path) | H | encrypted (Phase 4b) | no |
+| `observationEvents` | `input` | jsonb | Full input payload to an LLM/tool observation | H | encrypted (Phase 4b) | no |
+| `observationEvents` | `output` | jsonb | Full output payload from an LLM/tool observation | H | encrypted (Phase 4b) | no |
+| `streamingEvents` | `data` | jsonb | Every `text` / `tool_use` / `tool_result` / `file_change` / `progress` / `result` event payload. **Highest volume PHI store.** | H | encrypted (Phase 4, envelope, hot path) | no |
+| `toolTraces` | `toolInput` | jsonb | Raw arguments passed into a tool call | H | encrypted (Phase 4b) | no |
+| `toolTraces` | `toolResult` | jsonb | Raw result returned by a tool call | H | encrypted (Phase 4b) | no |
+| `fileChanges` | `path` | text | Absolute-or-relative file path touched by an execution | M | encrypted (Phase 4b) | no |
+| `machineInstructions` | `content` | text | Markdown instructions injected into agent context | M | encrypted (Phase 4b) | no |
+| `skills` | `instructions` | text | Skill definition body injected into agent context | M | encrypted (Phase 4b) | no |
+| `skills` | `config` | jsonb | Skill config (may contain endpoints, prompts referring to PHI) | M | encrypted (Phase 4b) | no |
+| `blobs` | `data` | text | Base64-encoded file/image attachment payload | H | encrypted (Phase 4b) | no |
+| `auditLogs` | `details` | jsonb | Audit context — **must never contain PHI by policy**; still listed so we treat it carefully | L | encrypted (Phase 4b, defensive) | n/a (is the audit log) |
 
 ### Related columns flagged by Phase 0 (not PHI but credential-grade)
 
 | Table | Column | Reason | Encryption |
 |---|---|---|---|
-| `connectedAccounts` | `credentials` | API tokens / OAuth secrets | plaintext → planned (Phase 0, shared mechanism) |
-| `registeredMachines` | `providerConfigs` | Plaintext `apiKey` in jsonb | plaintext → planned (Phase 0, shared mechanism) |
+| `connectedAccounts` | `credentials` | API tokens / OAuth secrets | encrypted (Phase 0) |
+| `registeredMachines` | `providerConfigs` | Plaintext `apiKey` in jsonb | encrypted (Phase 0) |
 
 ## 2. Schema Discrepancies (flag-only, do not silently fix)
 
@@ -146,3 +151,29 @@ Per column, the work is:
 3. Add a round-trip test that inserts a row, then reads the raw PGlite file and asserts the column is ciphertext (see Verification in the plan).
 4. For `streamingEvents.data`, benchmark write throughput before/after; document the headroom.
 5. Add `PHI_ACCESS` audit events on read paths that return decrypted PHI to a user.
+
+## 5. Phase 4b Helper Catalog
+
+Per-table sanitizers exported from [server/lib/phi-encryption.ts](../../server/lib/phi-encryption.ts):
+
+| Table | Write helper | Read helper(s) |
+|---|---|---|
+| `projects` | `encryptProjectWrite` | `decryptProjectRow`, `decryptProjectRows` |
+| `planNodes` | `encryptPlanNodeWrite` | `decryptPlanNodeRow`, `decryptPlanNodeRows` |
+| `sessions` | `encryptSessionWrite` | `decryptSessionRow`, `decryptSessionRows` |
+| `taskExecutions` | `encryptTaskExecutionWrite` | `decryptTaskExecutionRow`, `decryptTaskExecutionRows` |
+| `taskChatMessages` | `encryptTaskChatMessageWrite` | `decryptTaskChatMessageRow`, `decryptTaskChatMessageRows` |
+| `observationEvents` | `encryptObservationWrite` | `decryptObservationRow`, `decryptObservationRows` |
+| `toolTraces` | `encryptToolTraceWrite` | `decryptToolTraceRow`, `decryptToolTraceRows` |
+| `fileChanges` | `encryptFileChangeWrite` | `decryptFileChangeRow`, `decryptFileChangeRows` |
+| `machineInstructions` | `encryptMachineInstructionWrite` | `decryptMachineInstructionRow`, `decryptMachineInstructionRows` |
+| `skills` | `encryptSkillWrite` | `decryptSkillRow`, `decryptSkillRows` |
+| `blobs` | `encryptBlobWrite` | `decryptBlobRow` |
+| `auditLogs` | `encryptAuditLogWrite` | `decryptAuditLogRow` |
+
+Rules:
+
+- All helpers are no-ops when `isHipaaMode()` is false — the row passes through unchanged.
+- Text columns use `enc:v1:…` ciphertext strings; jsonb columns use `{ encrypted: "enc:v1:…" }` wrappers so the column type stays valid.
+- Helpers are idempotent on read (already-decrypted rows pass through).
+- Unit tests: [server/lib/__tests__/phi-encryption.test.ts](../../server/lib/__tests__/phi-encryption.test.ts).

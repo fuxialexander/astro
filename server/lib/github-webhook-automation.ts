@@ -14,6 +14,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from './db/index.js'
 import { projects, planNodes } from './db/schema.js'
 import { serverSideDispatch } from './server-side-dispatch.js'
+import { encryptPlanNodeWrite } from './phi-encryption.js'
 import type { GitHubSyncSettings } from '../../packages/core/src/types.js'
 
 interface WebhookContext {
@@ -117,7 +118,7 @@ export async function handleCheckRunAutomation(ctx: WebhookContext, payload: Rec
       truncate((checkRun.output as Record<string, unknown>)?.summary as string | null),
     ].join('\n').trim()
 
-    await db.insert(planNodes).values({
+    await db.insert(planNodes).values(encryptPlanNodeWrite({
       projectId: ctx.projectId,
       clientId,
       type: 'task',
@@ -136,7 +137,7 @@ export async function handleCheckRunAutomation(ctx: WebhookContext, payload: Rec
         state: 'open',
         number: prNumber,
       }],
-    })
+    }))
 
     console.log(`[webhook-automation] Created Fix CI task ${clientId} for ${ctx.repoFullName}#${prNumber}`)
 
@@ -196,7 +197,7 @@ export async function handleReviewAutomation(ctx: WebhookContext, payload: Recor
     truncate(reviewBody),
   ].join('\n').trim()
 
-  await db.insert(planNodes).values({
+  await db.insert(planNodes).values(encryptPlanNodeWrite({
     projectId: ctx.projectId,
     clientId,
     type: 'task',
@@ -215,7 +216,7 @@ export async function handleReviewAutomation(ctx: WebhookContext, payload: Recor
       state: 'open',
       number: prNumber,
     }],
-  })
+  }))
 
   console.log(`[webhook-automation] Created Address Review task ${clientId} for ${ctx.repoFullName}#${prNumber} (awaiting manual dispatch)`)
 }

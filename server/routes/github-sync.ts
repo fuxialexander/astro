@@ -11,6 +11,7 @@ import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges, githubSyncLog, githubPrCache } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, isNull, inArray, notInArray, gte, desc, count } from 'drizzle-orm';
+import { encryptProjectWrite, encryptPlanNodeWrite } from '../lib/phi-encryption.js';
 import { marked } from 'marked';
 import {
   getLinkedNodeIdsForProject,
@@ -300,7 +301,7 @@ async function syncIssuesForProject(
         linkEntry,
       ];
 
-      await db.update(planNodes).set({
+      await db.update(planNodes).set(encryptPlanNodeWrite({
         title: prefixedTitle,
         description: issue.body || '',
         content: githubMarkdownToHtml(issue.body),
@@ -310,10 +311,10 @@ async function syncIssuesForProject(
         updatedAt: new Date(),
         deletedAt: null,
         deletionActionId: null,
-      }).where(eq(planNodes.id, existing.id));
+      })).where(eq(planNodes.id, existing.id));
       updated++;
     } else {
-      await db.insert(planNodes).values({
+      await db.insert(planNodes).values(encryptPlanNodeWrite({
         projectId,
         clientId: `gh-issue-${issue.number}`,
         type: 'task',
@@ -325,7 +326,7 @@ async function syncIssuesForProject(
         githubIssueNumber: issue.number,
         githubIssueUrl: issue.html_url,
         links: [linkEntry],
-      });
+      }));
       created++;
     }
   }
@@ -478,7 +479,7 @@ app.post('/projects', async (c) => {
 
   // Create project
   const projectId = randomUUID();
-  const [project] = await db.insert(projects).values({
+  const [project] = await db.insert(projects).values(encryptProjectWrite({
     id: projectId,
     ownerId: user.id,
     name: `${owner}/${repo} [GitHub Repo]`,
@@ -490,7 +491,7 @@ app.post('/projects', async (c) => {
     workingDirectory: workingDirectory || undefined,
     description: `GitHub-linked project for ${owner}/${repo}`,
     teamId: user.teamId,
-  }).returning();
+  })).returning();
 
   // Trigger initial issue sync — prefer installation token over user OAuth
   let syncStats = { created: 0, updated: 0, total: 0 };

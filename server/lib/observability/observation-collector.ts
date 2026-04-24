@@ -36,6 +36,7 @@ import type { AstroEvent } from '../events/types.js'
 import type { EventHook } from '../events/types.js'
 import type { ObservationEvent } from './types.js'
 import { safetyRails } from './safety-rails.js'
+import { encryptObservationWrite } from '../phi-encryption.js'
 
 /** Generate a time-prefixed UUID for chronological ordering */
 function timePrefixedId(): string {
@@ -746,7 +747,7 @@ export class ObservationCollector {
           projectId: obs.projectId,
           nodeId: obs.nodeId ?? null,
           statusMessage: obs.statusMessage ?? null,
-        }))
+        })).map(encryptObservationWrite)
 
         try {
           await db.insert(observationEvents).values(rows)

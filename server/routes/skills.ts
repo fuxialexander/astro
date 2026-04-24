@@ -17,6 +17,7 @@ import { skills } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { resolveWritableTeamId } from '../lib/team-utils.js'
+import { encryptSkillWrite, decryptSkillRow } from '../lib/phi-encryption.js'
 
 const skillsRoute = new Hono()
 
@@ -169,7 +170,8 @@ skillsRoute.get('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
 
-    const rows = await db.select().from(skills).where(and(skillTeamScopeFilter(user), isNull(skills.deletedAt)))
+    const rawRows = await db.select().from(skills).where(and(skillTeamScopeFilter(user), isNull(skills.deletedAt)))
+    const rows = rawRows.map(decryptSkillRow)
 
     const result = rows.map((s) => ({
       id: s.id,
@@ -215,7 +217,7 @@ skillsRoute.get('/:id', async (c) => {
       return c.json({ error: 'Skill not found' }, 404)
     }
 
-    return c.json(row)
+    return c.json(decryptSkillRow(row))
   } catch (e) {
     console.error('[skills] GET /:id error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -262,14 +264,14 @@ skillsRoute.post('/register', async (c) => {
           if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
           const configErr = validateConfig(config)
           if (configErr) { skipped++; continue }
-          await db.update(skills).set({
+          await db.update(skills).set(encryptSkillWrite({
             description: (skill.description as string) ?? '',
             instructions: (skill.instructions as string) ?? '',
             enabled: (skill.enabled as boolean) ?? true,
             config,
             updatedAt: new Date(),
-          }).where(eq(skills.id, existing.id))
-          try { await syncSkillById(skillManager, existing.id) } catch { /* best-effort */ }
+          })).where(eq(skills.id, existing.id))
+          try { await syncSkillById(skillManager, existing.id, decryptSkillRow) } catch { /* best-effort */ }
           updated++
         } else {
           skipped++
@@ -282,7 +284,7 @@ skillsRoute.post('/register', async (c) => {
         const configErr = validateConfig(config)
         if (configErr) { skipped++; continue }
         try {
-          await db.insert(skills).values({
+          await db.insert(skills).values(encryptSkillWrite({
             id: skillId,
             name: skill.name,
             version: (skill.version as string) ?? '1.0.0',
@@ -299,8 +301,8 @@ skillsRoute.post('/register', async (c) => {
             teamId: teamTarget.teamId,
             createdAt: new Date(),
             updatedAt: new Date(),
-          })
-          try { await syncSkillById(skillManager, skillId) } catch { /* best-effort */ }
+          }))
+          try { await syncSkillById(skillManager, skillId, decryptSkillRow) } catch { /* best-effort */ }
           registered++
         } catch (insertErr) {
           // Handle race condition: concurrent register calls may both try to insert
@@ -409,15 +411,16 @@ skillsRoute.post('/', async (c) => {
       updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
     }
 
-    await db.insert(skills).values(row)
+    await db.insert(skills).values(encryptSkillWrite(row))
 
-    const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
+    const [createdRaw] = await db.select().from(skills).where(eq(skills.id, skillId))
+    const created = decryptSkillRow(createdRaw)
 
     // Incrementally sync this skill into the in-memory cache (O(1) instead of O(N)).
     // If sync fails, the DB write (source of truth) already succeeded — prompt
     // injection will catch up on the next successful sync or server restart.
     let syncWarning: string | null = null
-    try { await syncSkillById(skillManager, skillId) } catch (syncErr) {
+    try { await syncSkillById(skillManager, skillId, decryptSkillRow) } catch (syncErr) {
       syncWarning = 'Skill saved but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] POST / sync warning:', syncErr)
     }
@@ -537,13 +540,14 @@ skillsRoute.put('/:id', async (c) => {
       }
     }
 
-    await db.update(skills).set(patch).where(eq(skills.id, id))
+    await db.update(skills).set(encryptSkillWrite(patch)).where(eq(skills.id, id))
 
-    const [updated] = await db.select().from(skills).where(eq(skills.id, id))
+    const [updatedRaw] = await db.select().from(skills).where(eq(skills.id, id))
+    const updated = decryptSkillRow(updatedRaw)
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillById(skillManager, id) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id, decryptSkillRow) } catch (syncErr) {
       syncWarning = 'Skill updated but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] PUT /:id sync warning:', syncErr)
     }
@@ -591,7 +595,7 @@ skillsRoute.delete('/:id', async (c) => {
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillById(skillManager, id) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id, decryptSkillRow) } catch (syncErr) {
       syncWarning = 'Skill deleted but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] DELETE /:id sync warning:', syncErr)
     }
@@ -633,11 +637,12 @@ skillsRoute.put('/:id/toggle', async (c) => {
       updatedAt: new Date(),
     }).where(eq(skills.id, id))
 
-    const [updated] = await db.select().from(skills).where(eq(skills.id, id))
+    const [updatedRaw] = await db.select().from(skills).where(eq(skills.id, id))
+    const updated = decryptSkillRow(updatedRaw)
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillById(skillManager, id) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id, decryptSkillRow) } catch (syncErr) {
       syncWarning = 'Skill toggled but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] PUT /:id/toggle sync warning:', syncErr)
     }

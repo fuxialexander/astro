@@ -9,6 +9,7 @@ import type { Context, Next } from 'hono';
 import { db } from '../lib/db/index.js';
 import { auditLogs } from '../lib/db/schema.js';
 import { isLocalMode, isHipaaMode } from '../lib/app-mode.js';
+import { encryptAuditLogWrite } from '../lib/phi-encryption.js';
 
 interface AuditLogEntry {
   userId: string;
@@ -18,6 +19,73 @@ interface AuditLogEntry {
   details?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
+}
+
+/**
+ * Keys whose values must never land in the `audit_logs.details` column.
+ * Matched case-insensitively against each object key at every depth.
+ * Per `docs/design/PHI_INVENTORY.md` — details is not classified as PHI, but
+ * callers occasionally pass through request bodies that contain secrets; drop
+ * them defensively so a misbehaving route cannot leak them.
+ */
+const SENSITIVE_DETAIL_KEYS = new Set<string>([
+  'password',
+  'token',
+  'secret',
+  'apikey',
+  'accesstoken',
+  'refreshtoken',
+  'clientsecret',
+  'privatekey',
+  'credential',
+  'cookie',
+  'authorization',
+]);
+
+const MAX_STRING_LEN = 1024;
+// Max recursion depth. 4 levels past the top is enough for realistic request
+// bodies (e.g. nested webhook payloads) while still capping pathological input.
+const MAX_DEPTH = 8;
+
+/**
+ * Scrub an `audit_logs.details` payload before write: drop sensitive keys,
+ * truncate long strings, recurse into nested objects/arrays. Returns a new
+ * object — input is not mutated.
+ *
+ * Scrub runs BEFORE any encryption wrapper so the ciphertext at rest is built
+ * from already-redacted plaintext (defense-in-depth: if the HIPAA key ever
+ * leaks, the decrypted blob still has no secrets).
+ */
+export function scrubAuditDetails(
+  details: Record<string, unknown>,
+): Record<string, unknown> {
+  return scrubValue(details, 0) as Record<string, unknown>;
+}
+
+function scrubValue(value: unknown, depth: number): unknown {
+  if (depth >= MAX_DEPTH) {
+    // Past the depth cap, drop nested structure entirely to avoid unbounded
+    // recursion on pathological input.
+    if (value && typeof value === 'object') return '[depth-limit]';
+  }
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    return value.length > MAX_STRING_LEN
+      ? value.slice(0, MAX_STRING_LEN) + '...[truncated]'
+      : value;
+  }
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map((v) => scrubValue(v, depth + 1));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    // Normalize separators so `api_key`, `API-KEY`, and `apiKey` all match.
+    const norm = k.toLowerCase().replace(/[_-]/g, '');
+    if (SENSITIVE_DETAIL_KEYS.has(norm)) continue;
+    out[k] = scrubValue(v, depth + 1);
+  }
+  return out;
 }
 
 /**
@@ -32,15 +100,15 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
   }
 
   try {
-    await db.insert(auditLogs).values({
+    await db.insert(auditLogs).values(encryptAuditLogWrite({
       userId: entry.userId,
       action: entry.action,
       resourceType: entry.resourceType,
       resourceId: entry.resourceId ?? null,
-      details: entry.details ?? {},
+      details: scrubAuditDetails(entry.details ?? {}),
       ipAddress: entry.ipAddress ?? null,
       userAgent: entry.userAgent ?? null,
-    });
+    }));
   } catch (error: unknown) {
     // Surface every audit failure at error level with a full stack. HIPAA
     // mode (Phase 5) will escalate this to a hard failure so a broken audit

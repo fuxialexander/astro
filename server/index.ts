@@ -379,8 +379,9 @@ async function start() {
   try {
     const { loadBuiltinSkillsFromDisk } = await import('./lib/load-builtin-skills.js')
     const { bootstrapBuiltinSkills } = await import('./lib/db/bootstrap-skills.js')
+    const { decryptSkillRow } = await import('./lib/phi-encryption.js')
     const builtinSkills = loadBuiltinSkillsFromDisk()
-    await bootstrapBuiltinSkills(builtinSkills)
+    await bootstrapBuiltinSkills(builtinSkills, decryptSkillRow as (r: unknown) => unknown)
     skillsBootstrapOk = true
   } catch (err) {
     console.error('[bootstrap] ⚠️  Built-in skills bootstrap FAILED — skills may be missing or outdated:', err)
@@ -391,7 +392,8 @@ async function start() {
   try {
     const { syncSkillsFromDb } = await import('./lib/db/bootstrap-skills.js')
     const { skillManager } = await import('./lib/skill-manager.js')
-    await syncSkillsFromDb(skillManager)
+    const { decryptSkillRow } = await import('./lib/phi-encryption.js')
+    await syncSkillsFromDb(skillManager, decryptSkillRow as (r: unknown) => unknown)
     if (!skillsBootstrapOk) {
       console.warn('[bootstrap] ⚠️  Skills loaded from DB but bootstrap failed — some builtins may be stale')
     }
