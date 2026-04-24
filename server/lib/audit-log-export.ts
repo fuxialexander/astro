@@ -26,6 +26,7 @@ import { and, gte, lt, asc } from 'drizzle-orm'
 import { db } from './db/index.js'
 import { auditLogs } from './db/schema.js'
 import { isHipaaMode } from './app-mode.js'
+import { decryptAuditLogRow } from './phi-encryption.js'
 
 export interface ExportResult {
   /** Full s3:// URI of the written object. */
@@ -70,7 +71,7 @@ export async function exportAuditLogsToS3(since: Date, until: Date): Promise<Exp
     .where(and(gte(auditLogs.createdAt, since), lt(auditLogs.createdAt, until)))
     .orderBy(asc(auditLogs.createdAt))
 
-  const ndjson = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length > 0 ? '\n' : '')
+  const ndjson = rows.map((r) => JSON.stringify(decryptAuditLogRow(r as Record<string, unknown>))).join('\n') + (rows.length > 0 ? '\n' : '')
   const body = gzipSync(Buffer.from(ndjson, 'utf8'))
 
   // Key: audit/YYYY/MM/DD.jsonl.gz (UTC). One object per day is the unit of

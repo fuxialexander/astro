@@ -9,6 +9,7 @@ import type { Context, Next } from 'hono';
 import { db } from '../lib/db/index.js';
 import { auditLogs } from '../lib/db/schema.js';
 import { isLocalMode, isHipaaMode } from '../lib/app-mode.js';
+import { encryptAuditLogWrite } from '../lib/phi-encryption.js';
 
 interface AuditLogEntry {
   userId: string;
@@ -32,7 +33,7 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
   }
 
   try {
-    await db.insert(auditLogs).values({
+    await db.insert(auditLogs).values(encryptAuditLogWrite({
       userId: entry.userId,
       action: entry.action,
       resourceType: entry.resourceType,
@@ -40,7 +41,7 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       details: entry.details ?? {},
       ipAddress: entry.ipAddress ?? null,
       userAgent: entry.userAgent ?? null,
-    });
+    }));
   } catch (error: unknown) {
     // Surface every audit failure at error level with a full stack. HIPAA
     // mode (Phase 5) will escalate this to a hard failure so a broken audit
