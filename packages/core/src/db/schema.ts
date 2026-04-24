@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, bigint, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
 import { sql, isNull } from 'drizzle-orm'
 import type { GitHubSyncSettings } from '../types.js'
 
@@ -585,14 +585,25 @@ export const refreshTokens = pgTable('refresh_tokens', {
 }))
 
 // ── Passkey Credentials ──────────────────────────────────────────────
+// Used in two modes:
+//   - SaaS (Supabase): user_id references auth.users(id); rows mirror Supabase auth.
+//   - HIPAA / local (PGlite): user_id references user_profiles(id); inserted by
+//     the PGlitePasskeyStore in server/lib/passkey-store.ts.
+// Phase 2 (HIPAA) added: deviceType, backedUp, name, updatedAt — additive,
+// nullable / defaulted so existing SaaS rows keep working unchanged.
 export const passkeyCredentials = pgTable('passkey_credentials', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
   publicKey: text('public_key').notNull(), // Changed from bytea to text (base64)
-  counter: integer('counter').notNull().default(0),
+  counter: bigint('counter', { mode: 'number' }).notNull().default(0),
   transports: text('transports').array(),
   deviceName: text('device_name'),
+  // HIPAA Phase 2 extensions:
+  deviceType: text('device_type'), // 'singleDevice' | 'multiDevice'
+  backedUp: boolean('backed_up').notNull().default(false),
+  name: text('name'), // user-visible label
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
   lastUsedAt: timestamp('last_used_at'),
 }, (table) => ({
   userIdIdx: index('idx_passkey_credentials_user_id').on(table.userId),
@@ -722,7 +733,7 @@ export const remoteComputePools = pgTable('remote_compute_pools', {
 export const webauthnChallenges = pgTable('webauthn_challenges', {
   key: text('key').primaryKey(),
   challenge: text('challenge').notNull(),
-  expiresAt: timestamp('expires_at').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

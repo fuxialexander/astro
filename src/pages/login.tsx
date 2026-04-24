@@ -5,7 +5,8 @@ import { useNavigate, useLocation, useSearchParams } from "react-router"
 import { startRegistration, startAuthentication, browserSupportsWebAuthn, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser"
 import { apiUrl } from "@/lib/api-url"
 import { getSupabase } from "@/lib/supabase-client"
-import { isLocalMode } from "@/lib/app-mode"
+import { isLocalMode, isHipaaMode } from "@/lib/app-mode"
+import { dispatchHipaaSignIn } from "@/lib/hipaa-auth-bus"
 import { isDesktop } from "@/lib/desktop-detect"
 import { desktopBridge } from "@/lib/desktop-bridge"
 import { useAuthStore } from "@/stores/auth-store"
@@ -101,7 +102,15 @@ export function Login() {
 
     const result = await verifyRes.json()
 
-    if (result.session?.properties?.hashed_token) {
+    // HIPAA mode: result.session is { token, expiresAt } from our self-signed
+    // JWT mint. Persist + emit on the local bus so the auth-store hydrates.
+    if (isHipaaMode() && result.session?.token && result.user) {
+      dispatchHipaaSignIn({
+        token: result.session.token,
+        expiresAt: result.session.expiresAt,
+        user: { id: result.user.id, email: result.user.email, name: result.user.name },
+      })
+    } else if (result.session?.properties?.hashed_token) {
       const supabase = getSupabase()
       if (supabase) {
         const { error } = await supabase.auth.verifyOtp({
@@ -267,7 +276,14 @@ export function Login() {
 
       const result = await verifyRes.json()
 
-      if (result.session?.properties?.hashed_token) {
+      // HIPAA mode: dispatch on the local bus instead of swapping a magic link.
+      if (isHipaaMode() && result.session?.token && result.user) {
+        dispatchHipaaSignIn({
+          token: result.session.token,
+          expiresAt: result.session.expiresAt,
+          user: { id: result.user.id, email: result.user.email, name: result.user.name },
+        })
+      } else if (result.session?.properties?.hashed_token) {
         if (supabase) {
           const { error } = await supabase.auth.verifyOtp({
             token_hash: result.session.properties.hashed_token,

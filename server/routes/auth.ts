@@ -22,11 +22,22 @@ import type {
   AuthenticationResponseJSON,
 } from '@simplewebauthn/server'
 import { getServiceClient } from '../lib/supabase.js'
-import { isLocalMode } from '../lib/app-mode.js'
+import { isLocalMode, isHipaaMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { ensureUserProfile } from '../lib/ensure-user-profile.js'
 import { storeChallenge, getAndDeleteChallenge } from '../lib/challenge-store.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { getPasskeyStore } from '../lib/passkey-store.js'
+import {
+  mintHipaaSessionToken,
+  verifyHipaaSessionToken,
+  createHipaaUser,
+  findHipaaUserByEmail,
+} from '../lib/hipaa-auth.js'
+import { db } from '../lib/db/index.js'
+import { userProfiles } from '../lib/db/schema.js'
+import { eq } from 'drizzle-orm'
+import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 
 const authRoute = new Hono()
 
@@ -63,6 +74,22 @@ function resolveWebAuthnConfig() {
 const { rpId: RP_ID, origin: ORIGIN } = resolveWebAuthnConfig()
 console.log('[auth] WebAuthn config — RP_ID:', RP_ID, 'ORIGIN:', ORIGIN)
 
+/**
+ * Extract client IP + user-agent for audit entries. Mirrors the helper in
+ * server/middleware/audit.ts — inlined here to keep the auth route free of
+ * middleware coupling while still producing consistent audit records.
+ */
+function auditRequestContext(c: { req: { header: (n: string) => string | undefined } }): { ipAddress?: string; userAgent?: string } {
+  const ipAddress =
+    c.req.header('fly-client-ip') ||
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    undefined
+  const userAgent = c.req.header('user-agent') || undefined
+  return { ipAddress, userAgent }
+}
+
 // Rate limiting: Prevent enumeration and DoS attacks
 // A full login flow uses 2 rate-limited endpoints (check-user + login-options),
 // registration uses 2 (check-user + register-options). With 30/15min limit,
@@ -85,6 +112,16 @@ const authLimiter = rateLimiter({
  * Rate limited to prevent user enumeration attacks.
  */
 authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
+  // HIPAA mode: PGlite-native lookup, no Supabase.
+  if (isHipaaMode()) {
+    const { email } = await c.req.json<{ email: string }>()
+    if (!email) return c.json({ error: 'Email is required' }, 400)
+    const user = await findHipaaUserByEmail(email)
+    if (!user) return c.json({ exists: false, hasCredentials: false })
+    const creds = await getPasskeyStore().listForUser(user.id)
+    return c.json({ exists: true, hasCredentials: creds.length > 0, name: user.name })
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -145,6 +182,36 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
  * Rate limited to prevent DoS attacks.
  */
 authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
+  // HIPAA mode: PGlite-native — no Supabase admin lookups.
+  if (isHipaaMode()) {
+    const { email, name } = await c.req.json<{ email: string; name?: string }>()
+    if (!email) return c.json({ error: 'Email is required' }, 400)
+    const existingUser = await findHipaaUserByEmail(email)
+    const existingCreds = existingUser
+      ? await getPasskeyStore().listForUser(existingUser.id)
+      : []
+    const userId = existingUser?.id || `pending-${Date.now()}`
+    const options = await generateRegistrationOptions({
+      rpName: RP_NAME,
+      rpID: RP_ID,
+      userName: email,
+      userDisplayName: name || email,
+      userID: new TextEncoder().encode(userId),
+      attestationType: 'none',
+      excludeCredentials: existingCreds.map((c) => ({
+        id: c.id,
+        transports: (c.transports as AuthenticatorTransport[] | undefined),
+      })),
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        residentKey: 'preferred',
+        userVerification: 'required',
+      },
+    })
+    await storeChallenge(`reg:${email}`, options.challenge)
+    return c.json({ options, email, existingUser: !!existingUser })
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -228,7 +295,86 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
  *
  * Verify registration attestation and create/update user.
  */
-authRoute.post('/webauthn/register-verify', async (c) => {
+authRoute.post('/webauthn/register-verify', authLimiter, async (c) => {
+  // HIPAA mode: PGlite-native registration — verify, create user, store passkey, mint JWT.
+  if (isHipaaMode()) {
+    const { email, name, credential } = await c.req.json<{
+      email: string
+      name?: string
+      credential: RegistrationResponseJSON
+    }>()
+    const expectedChallenge = await getAndDeleteChallenge(`reg:${email}`)
+    if (!expectedChallenge) {
+      return c.json({ error: 'Challenge expired or not found' }, 400)
+    }
+    try {
+      const verification = await verifyRegistrationResponse({
+        response: credential,
+        expectedChallenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+      })
+      if (!verification.verified || !verification.registrationInfo) {
+        return c.json({ error: 'Verification failed' }, 400)
+      }
+      const { credential: regCredential, credentialDeviceType, credentialBackedUp } =
+        verification.registrationInfo
+
+      // Refuse to register a passkey on top of an existing account that
+      // already has one — they should log in instead.
+      const existingUser = await findHipaaUserByEmail(email)
+      if (existingUser) {
+        const existingCreds = await getPasskeyStore().listForUser(existingUser.id)
+        if (existingCreds.length > 0) {
+          return c.json({
+            error: 'An account with this email already exists. Please log in instead.',
+            existingUser: true,
+          }, 409)
+        }
+      }
+
+      const user = existingUser ?? await createHipaaUser({ email, name })
+
+      await getPasskeyStore().insert({
+        id: regCredential.id,
+        userId: user.id,
+        publicKey: Buffer.from(regCredential.publicKey).toString('base64'),
+        counter: regCredential.counter,
+        transports: credential.response.transports?.filter((t: string) => t !== 'hybrid') ?? null,
+        deviceName: credentialDeviceType || 'passkey',
+        deviceType: credentialDeviceType ?? null,
+        backedUp: !!credentialBackedUp,
+        name: name ?? null,
+      })
+
+      const { token, expiresAt } = mintHipaaSessionToken({ id: user.id, email: user.email })
+      console.log('[auth][hipaa] Registration successful, user:', user.id)
+      await logAuditEvent({
+        userId: user.id,
+        action: AuditActions.WEBAUTHN_REGISTER,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: user.id,
+        details: {
+          email: user.email,
+          credentialId: regCredential.id,
+          deviceType: credentialDeviceType ?? null,
+          backedUp: !!credentialBackedUp,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
+      return c.json({
+        verified: true,
+        userId: user.id,
+        user: { id: user.id, email: user.email, name: user.name },
+        session: { token, expiresAt },
+      })
+    } catch (err) {
+      console.error('[auth][hipaa] register-verify failed:', err)
+      return c.json({ error: errorMessage(err) }, 500)
+    }
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -405,6 +551,31 @@ authRoute.post('/webauthn/register-verify', async (c) => {
  * Rate limited to prevent DoS attacks.
  */
 authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
+  // HIPAA mode: PGlite-native — list creds via passkey store.
+  if (isHipaaMode()) {
+    const { email } = await c.req.json<{ email?: string }>()
+    let allowCreds: Array<{ id: string; transports?: string[] | null }> = []
+    if (email) {
+      const user = await findHipaaUserByEmail(email)
+      if (user) {
+        const creds = await getPasskeyStore().listForUser(user.id)
+        allowCreds = creds.map((c) => ({ id: c.id, transports: c.transports }))
+      }
+    }
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      allowCredentials: allowCreds.map((c) => ({
+        id: c.id,
+        transports: (c.transports as AuthenticatorTransport[] | undefined)
+          ?.filter((t) => t !== 'hybrid'),
+      })),
+      userVerification: 'required',
+    })
+    const challengeKey = email ? `auth:${email}` : `auth:${options.challenge}`
+    await storeChallenge(challengeKey, options.challenge)
+    return c.json({ options, challengeKey })
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -474,7 +645,116 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
  *
  * Verify authentication assertion and return session tokens.
  */
-authRoute.post('/webauthn/login-verify', async (c) => {
+authRoute.post('/webauthn/login-verify', authLimiter, async (c) => {
+  // HIPAA mode: PGlite-native — verify, mint JWT.
+  if (isHipaaMode()) {
+    const { credential, challengeKey } = await c.req.json<{
+      credential: AuthenticationResponseJSON
+      challengeKey: string
+    }>()
+    const expectedChallenge = await getAndDeleteChallenge(challengeKey)
+    if (!expectedChallenge) {
+      return c.json({ error: 'Challenge expired or not found' }, 400)
+    }
+    const store = getPasskeyStore()
+    const stored = await store.findByCredentialId(credential.id)
+    if (!stored) {
+      await logAuditEvent({
+        // No user known — log against the zero-UUID so the row is still
+        // queryable by action. HIPAA requires the attempt be auditable.
+        userId: '00000000-0000-0000-0000-000000000000',
+        action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+        resourceType: ResourceTypes.ACCOUNT,
+        details: {
+          reason: 'credential_not_found',
+          credentialId: credential.id,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
+      return c.json({ error: 'Credential not found' }, 400)
+    }
+    try {
+      const publicKeyBuffer = Buffer.from(stored.publicKey, 'base64')
+      const verification = await verifyAuthenticationResponse({
+        response: credential,
+        expectedChallenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+        credential: {
+          id: stored.id,
+          publicKey: new Uint8Array(publicKeyBuffer),
+          counter: stored.counter,
+          transports: stored.transports as AuthenticatorTransport[] | undefined,
+        },
+      })
+      if (!verification.verified) {
+        await logAuditEvent({
+          userId: stored.userId,
+          action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+          resourceType: ResourceTypes.ACCOUNT,
+          resourceId: stored.userId,
+          details: {
+            reason: 'verification_failed',
+            credentialId: credential.id,
+            mode: 'hipaa',
+          },
+          ...auditRequestContext(c),
+        })
+        return c.json({ error: 'Verification failed' }, 400)
+      }
+      await store.updateCounter(credential.id, verification.authenticationInfo.newCounter)
+      const userRows = await db
+        .select({ id: userProfiles.id, email: userProfiles.email, name: userProfiles.name })
+        .from(userProfiles)
+        .where(eq(userProfiles.id, stored.userId))
+        .limit(1)
+      const userRow = userRows[0]
+      if (!userRow) {
+        return c.json({ error: 'User not found' }, 500)
+      }
+      const { token, expiresAt } = mintHipaaSessionToken({
+        id: userRow.id,
+        email: userRow.email,
+      })
+      console.log('[auth][hipaa] Login successful for user:', userRow.id)
+      await logAuditEvent({
+        userId: userRow.id,
+        action: AuditActions.WEBAUTHN_LOGIN_SUCCESS,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: userRow.id,
+        details: {
+          email: userRow.email,
+          credentialId: credential.id,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
+      return c.json({
+        verified: true,
+        userId: userRow.id,
+        user: userRow,
+        session: { token, expiresAt },
+      })
+    } catch (err) {
+      console.error('[auth][hipaa] Login verification failed:', err)
+      await logAuditEvent({
+        userId: stored.userId,
+        action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: stored.userId,
+        details: {
+          reason: 'exception',
+          credentialId: credential.id,
+          error: errorMessage(err),
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
+      return c.json({ error: errorMessage(err) }, 500)
+    }
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -603,6 +883,24 @@ authRoute.post('/webauthn/login-verify', async (c) => {
  * Check current session status.
  */
 authRoute.get('/session', async (c) => {
+  // HIPAA mode: verify our self-signed JWT, return the user row.
+  if (isHipaaMode()) {
+    const authHeader = c.req.header('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return c.json({ authenticated: false }, 401)
+    }
+    const token = authHeader.slice(7)
+    const payload = verifyHipaaSessionToken(token)
+    if (!payload) return c.json({ authenticated: false }, 401)
+    const rows = await db
+      .select({ id: userProfiles.id, email: userProfiles.email, name: userProfiles.name })
+      .from(userProfiles)
+      .where(eq(userProfiles.id, payload.sub))
+      .limit(1)
+    if (rows.length === 0) return c.json({ authenticated: false }, 401)
+    return c.json({ authenticated: true, user: rows[0], mode: 'hipaa' })
+  }
+
   if (isLocalMode()) {
     return c.json({
       authenticated: true,
@@ -832,6 +1130,73 @@ authRoute.post('/ensure-profile', requireAuth, async (c) => {
  * Requires an authenticated session (any method).
  */
 authRoute.post('/webauthn/add-passkey', requireAuth, async (c) => {
+  // HIPAA mode: PGlite-native add-passkey ceremony.
+  if (isHipaaMode()) {
+    try {
+      const user = c.get('user') as AuthUser
+      const { action, credential } = await c.req.json<{
+        action: 'options' | 'verify'
+        credential?: RegistrationResponseJSON
+      }>()
+      const store = getPasskeyStore()
+      if (action === 'options') {
+        const existing = await store.listForUser(user.id)
+        const profile = (await db.select({ name: userProfiles.name, email: userProfiles.email })
+          .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1))[0]
+        const options = await generateRegistrationOptions({
+          rpName: RP_NAME,
+          rpID: RP_ID,
+          userName: profile?.email || user.email || '',
+          userDisplayName: profile?.name || user.email || '',
+          userID: new TextEncoder().encode(user.id),
+          attestationType: 'none',
+          excludeCredentials: existing.map((c) => ({
+            id: c.id,
+            transports: c.transports as AuthenticatorTransport[] | undefined,
+          })),
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            residentKey: 'preferred',
+            userVerification: 'required',
+          },
+        })
+        await storeChallenge(`add-passkey:${user.id}`, options.challenge)
+        return c.json({ options })
+      }
+      if (action === 'verify') {
+        if (!credential) return c.json({ error: 'Credential is required for verify action' }, 400)
+        const expectedChallenge = await getAndDeleteChallenge(`add-passkey:${user.id}`)
+        if (!expectedChallenge) return c.json({ error: 'Challenge expired or not found' }, 400)
+        const verification = await verifyRegistrationResponse({
+          response: credential,
+          expectedChallenge,
+          expectedOrigin: ORIGIN,
+          expectedRPID: RP_ID,
+        })
+        if (!verification.verified || !verification.registrationInfo) {
+          return c.json({ error: 'Verification failed' }, 400)
+        }
+        const { credential: regCredential, credentialDeviceType, credentialBackedUp } =
+          verification.registrationInfo
+        await store.insert({
+          id: regCredential.id,
+          userId: user.id,
+          publicKey: Buffer.from(regCredential.publicKey).toString('base64'),
+          counter: regCredential.counter,
+          transports: credential.response.transports?.filter((t: string) => t !== 'hybrid') ?? null,
+          deviceName: credentialDeviceType || 'passkey',
+          deviceType: credentialDeviceType ?? null,
+          backedUp: !!credentialBackedUp,
+        })
+        return c.json({ verified: true })
+      }
+      return c.json({ error: 'Invalid action. Must be "options" or "verify".' }, 400)
+    } catch (err) {
+      console.error('[auth][hipaa] add-passkey error:', err)
+      return c.json({ error: errorMessage(err) }, 500)
+    }
+  }
+
   if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }

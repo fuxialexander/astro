@@ -81,8 +81,15 @@ export function isSupabaseConfigured(): boolean {
  * Get the current access token for Hono API calls.
  * Uses the in-memory cache when the token is still valid (>60 s remaining).
  * Falls back to supabase.auth.getSession() if the cache is stale or empty.
+ *
+ * HIPAA mode: returns the self-signed JWT from localStorage (managed by
+ * src/lib/hipaa-auth-bus.ts). Supabase is never reachable in HIPAA mode.
  */
 export async function getAccessToken(): Promise<string | null> {
+  if (import.meta.env.VITE_ASTRO_HIPAA_MODE === 'true') {
+    if (typeof window === 'undefined') return null
+    return window.localStorage.getItem('astro.hipaa.jwt')
+  }
   // Fast path: return cached token if it has >60 seconds remaining
   const nowSec = Math.floor(Date.now() / 1000)
   if (_cachedToken && _cachedExpiresAt > nowSec + 60) {

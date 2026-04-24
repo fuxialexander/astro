@@ -1,0 +1,2 @@
+ALTER TABLE "passkey_credentials" ALTER COLUMN "counter" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "webauthn_challenges" ALTER COLUMN "expires_at" SET DATA TYPE timestamp with time zone;

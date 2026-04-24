@@ -11,12 +11,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock isLocalMode
+// Mock isLocalMode + isHipaaMode
 let mockIsLocal = true
+let mockIsHipaa = false
 
 vi.mock('../server/lib/app-mode.js', () => ({
   isLocalMode: () => mockIsLocal,
-  isHipaaMode: () => false,
+  isHipaaMode: () => mockIsHipaa,
 }))
 
 vi.mock('../server/lib/db/bootstrap-local.js', () => ({
@@ -85,6 +86,7 @@ function createMockContext(headers: Record<string, string> = {}) {
 describe('auth middleware — local mode', () => {
   beforeEach(() => {
     mockIsLocal = true
+    mockIsHipaa = false
     vi.clearAllMocks()
   })
 
@@ -138,6 +140,7 @@ describe('auth middleware — server mode', () => {
   beforeEach(() => {
     vi.resetModules()
     mockIsLocal = false
+    mockIsHipaa = false
     vi.clearAllMocks()
   })
 
@@ -230,6 +233,7 @@ describe('auth middleware — server mode (corner cases)', () => {
   beforeEach(() => {
     vi.resetModules()
     mockIsLocal = false
+    mockIsHipaa = false
     vi.clearAllMocks()
   })
 
@@ -343,6 +347,7 @@ describe('auth middleware — server mode (corner cases)', () => {
 describe('auth middleware — local mode (query token fallback)', () => {
   beforeEach(() => {
     mockIsLocal = false
+    mockIsHipaa = false
     vi.clearAllMocks()
   })
 
@@ -379,11 +384,75 @@ describe('auth middleware — local mode (query token fallback)', () => {
   })
 })
 
+describe('auth middleware — HIPAA mode', () => {
+  beforeEach(async () => {
+    vi.resetModules()
+    mockIsLocal = false
+    mockIsHipaa = true
+    process.env.RELAY_JWT_SECRET = 'test-hipaa-secret-for-middleware'
+    vi.clearAllMocks()
+  })
+
+  it('requireAuth verifies HIPAA HS256 JWTs and resolves teams', async () => {
+    const jwt = (await import('jsonwebtoken')).default
+    const token = jwt.sign(
+      { sub: 'hipaa-user-1', email: 'h@example.com' },
+      process.env.RELAY_JWT_SECRET!,
+      { algorithm: 'HS256', expiresIn: '24h' },
+    )
+    mockTeamMemberships.mockResolvedValue([{ teamId: 'hipaa-team' }])
+
+    const { requireAuth } = await import('../server/middleware/auth.js')
+    const c = createMockContext({ Authorization: `Bearer ${token}` })
+    let nextCalled = false
+    await requireAuth(c as never, async () => { nextCalled = true })
+
+    expect(nextCalled).toBe(true)
+    const user = c._vars.user as { id: string; email: string; teamId: string }
+    expect(user.id).toBe('hipaa-user-1')
+    expect(user.email).toBe('h@example.com')
+    expect(user.teamId).toBe('hipaa-team')
+  })
+
+  it('requireAuth rejects HIPAA JWT signed with the wrong secret', async () => {
+    const jwt = (await import('jsonwebtoken')).default
+    const token = jwt.sign(
+      { sub: 'attacker', email: 'a@example.com' },
+      'wrong-secret',
+      { algorithm: 'HS256', expiresIn: '24h' },
+    )
+
+    const { requireAuth } = await import('../server/middleware/auth.js')
+    const c = createMockContext({ Authorization: `Bearer ${token}` })
+
+    const result = await requireAuth(c as never, async () => {})
+    expect(result).toBeDefined()
+    expect((result as { status: number }).status).toBe(401)
+  })
+
+  it('requireAuth in HIPAA mode never calls Supabase', async () => {
+    const jwt = (await import('jsonwebtoken')).default
+    const token = jwt.sign(
+      { sub: 'hipaa-user-2', email: 'h2@example.com' },
+      process.env.RELAY_JWT_SECRET!,
+      { algorithm: 'HS256', expiresIn: '24h' },
+    )
+    mockTeamMemberships.mockResolvedValue([{ teamId: 'hipaa-team-2' }])
+
+    const { requireAuth } = await import('../server/middleware/auth.js')
+    const c = createMockContext({ Authorization: `Bearer ${token}` })
+    await requireAuth(c as never, async () => {})
+
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+})
+
 describe('AuthUser interface', () => {
   it('has teamId and teamIds fields', async () => {
     const { requireAuth } = await import('../server/middleware/auth.js')
     const c = createMockContext()
     mockIsLocal = true
+    mockIsHipaa = false
 
     await requireAuth(c as never, async () => {})
 
