@@ -316,6 +316,13 @@
       "when": 1777008763364,
       "tag": "0044_long_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1777052035269,
+      "tag": "0045_aromatic_tyrannus",
+      "breakpoints": true
     }
   ]
 }
