@@ -193,6 +193,20 @@ Key invariants:
 | `X-Internal-Dispatch` | Trusted with JWT | Always audit-logged; refuses empty `RELAY_JWT_SECRET` |
 | Frontend route wrapper | `FeatureFlagRoute` | Dedicated `HipaaRoute` wrapper |
 
+### 6.1 HIPAA Auth Implementation (Phase 2)
+
+The HIPAA auth path is implemented as parallel branches that short-circuit Supabase entirely when `ASTRO_HIPAA_MODE=true`:
+
+- **Schema** — `passkey_credentials` table (Drizzle, PGlite-native) extended with `device_type`, `backed_up`, `name`, `updated_at`. Source of truth: `packages/core/src/db/schema.ts`. Supabase migration: `supabase/migrations/20260424000000_passkey_credentials_phase2.sql`.
+- **Passkey storage adapter** — `server/lib/passkey-store.ts` exposes a `PasskeyStore` interface with two implementations: `PGlitePasskeyStore` (HIPAA + local mode) and `SupabasePasskeyStore` (SaaS). `getPasskeyStore()` selects on `isHipaaMode() || isLocalMode()`.
+- **Session minting** — `server/lib/hipaa-auth.ts` mints HS256 JWTs (24h, signed with `RELAY_JWT_SECRET`) carrying `sub` (user id) + `email`. `verifyHipaaSessionToken()` returns the payload or `null`. `createHipaaUser()` provisions the row in `user_profiles` and a personal team on first sign-up.
+- **WebAuthn routes** — `server/routes/auth.ts` has early `if (isHipaaMode())` branches in every `/webauthn/*` and `/session` handler. SaaS code paths remain intact below each branch.
+- **Middleware** — `server/middleware/auth.ts` checks `verifyHipaaSessionToken` first in HIPAA mode, then falls back to device-auth tokens. Supabase JWKS / API is never reached.
+- **Frontend bus** — `src/lib/hipaa-auth-bus.ts` replaces `supabase.auth.onAuthStateChange`. Token persists to `localStorage` under `astro.hipaa.jwt`; user profile under `astro.hipaa.user`. `subscribeHipaaAuth()` is an `EventTarget`-style local bus.
+- **Auth-store adapter** — `src/stores/auth-store.ts` wraps the HIPAA session in a `Session`-shaped object so the ~39 frontend consumers of `useAuthStore.session` need no changes. `getAccessToken()` returns the localStorage token directly when `VITE_ASTRO_HIPAA_MODE === 'true'`.
+
+Tests: `tests/hipaa-auth.test.ts` (mint/verify round trip, wrong secret, expired, malformed, missing secret) and the HIPAA describe block in `tests/auth-middleware.test.ts` (HS256 validation in middleware, no Supabase calls).
+
 ## 6a. Vendor Boundary Extensions (Phase 7)
 
 Phase 7 implements the provisioner-level and client-level enforcement of the vendor boundary described above.
