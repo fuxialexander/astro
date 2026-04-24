@@ -44,6 +44,7 @@ import { isYoloMode } from '../lib/yolo-mode.js'
 import { readCredentials } from '../lib/encryption.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { storageMountSchema, validateStorageMount } from '../lib/storage-mounts.js'
+import { isHipaaMode, maybeDecryptStreamingEventData } from '../lib/phi-encryption.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -3765,6 +3766,11 @@ async function tryRecoverApproval(
 
     // 2. Find the matching relay approval_request for this execution
     //    (streamingEventLog uses underscore notation with requestId + machineId)
+    //    In HIPAA mode, requestId/machineId are kept as top-level index fields
+    //    alongside the encrypted blob, but route the row through
+    //    `maybeDecryptStreamingEventData` for safety so the cast sees a fully
+    //    decoded plaintext object even if encryption ever changes which fields
+    //    stay top-level.
     const relayRows = await db.select({ data: streamingEvents.data })
       .from(streamingEvents)
       .where(
@@ -3780,25 +3786,50 @@ async function tryRecoverApproval(
       return { status: 'unrecoverable' }
     }
 
-    const relayData = relayRows[0].data as { requestId?: string; machineId?: string }
+    const relayData = maybeDecryptStreamingEventData(relayRows[0].data) as {
+      requestId?: string
+      machineId?: string
+    }
     if (!relayData.requestId || !relayData.machineId) {
       return { status: 'unrecoverable' }
     }
 
     // 3. Check if this relay approval was already responded to (idempotency via DB)
-    //    Uses underscore notation (approval_response) with requestId — matches streamingEventLog
-    const responseRows = await db.select({ seq: streamingEvents.seq })
-      .from(streamingEvents)
-      .where(
-        and(
-          eq(streamingEvents.executionId, executionId),
-          eq(streamingEvents.eventType, 'approval_response'),
-          sql`${streamingEvents.data}->>'requestId' = ${relayData.requestId}`,
+    //    Uses underscore notation (approval_response) with requestId — matches streamingEventLog.
+    //
+    //    In HIPAA mode the JSONB `->> 'requestId'` filter still works (requestId
+    //    is an index field kept at the top level), but we defend in depth by
+    //    fetching candidate rows and filtering after decryption — so this code
+    //    path stays correct even if the index-field allowlist is ever narrowed.
+    let alreadyResponded = false
+    if (isHipaaMode()) {
+      const candidates = await db.select({ data: streamingEvents.data })
+        .from(streamingEvents)
+        .where(
+          and(
+            eq(streamingEvents.executionId, executionId),
+            eq(streamingEvents.eventType, 'approval_response'),
+          )
         )
-      )
-      .limit(1)
+      alreadyResponded = candidates.some((row) => {
+        const decoded = maybeDecryptStreamingEventData(row.data) as { requestId?: string } | null
+        return decoded?.requestId === relayData.requestId
+      })
+    } else {
+      const responseRows = await db.select({ seq: streamingEvents.seq })
+        .from(streamingEvents)
+        .where(
+          and(
+            eq(streamingEvents.executionId, executionId),
+            eq(streamingEvents.eventType, 'approval_response'),
+            sql`${streamingEvents.data}->>'requestId' = ${relayData.requestId}`,
+          )
+        )
+        .limit(1)
+      alreadyResponded = responseRows.length > 0
+    }
 
-    if (responseRows.length > 0) {
+    if (alreadyResponded) {
       return { status: 'already_responded' }
     }
 
