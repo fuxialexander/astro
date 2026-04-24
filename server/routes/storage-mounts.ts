@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
 import { connectedAccounts } from '../lib/db/schema.js'
 import { storageMountSchema, validateStorageMount } from '../lib/storage-mounts.js'
+import { readCredentials } from '../lib/encryption.js'
 
 export const storageMountsRoute = new Hono()
 
@@ -40,7 +41,7 @@ storageMountsRoute.post('/test', async (c) => {
     if (!account) {
       return c.json({ success: false, error: `No enabled ${expectedChannel} account found for this mount` }, 404)
     }
-    const creds = account.credentials as Record<string, unknown>
+    const creds = readCredentials(account.credentials)
     if (expectedChannel === 'aws' && (!creds.accessKeyId || !creds.secretAccessKey)) {
       return c.json({ success: false, error: 'AWS account is missing accessKeyId or secretAccessKey' }, 400)
     }

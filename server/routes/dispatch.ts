@@ -41,6 +41,7 @@ import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
+import { readCredentials } from '../lib/encryption.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { storageMountSchema, validateStorageMount } from '../lib/storage-mounts.js'
 
@@ -2038,7 +2039,7 @@ ${verificationSection}${executiveSummarySection}`)
         if (!account) {
           return c.json({ success: false, error: `Storage mount account not found or disabled: ${mount.accountId}` }, 400)
         }
-        credentials = account.credentials as Record<string, string>
+        credentials = readCredentials<Record<string, string>>(account.credentials)
       }
       resolvedStorageMounts.push({ ...mount, credentials })
     }
