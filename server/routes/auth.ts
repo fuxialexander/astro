@@ -37,6 +37,7 @@ import {
 import { db } from '../lib/db/index.js'
 import { userProfiles } from '../lib/db/schema.js'
 import { eq } from 'drizzle-orm'
+import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 
 const authRoute = new Hono()
 
@@ -72,6 +73,22 @@ function resolveWebAuthnConfig() {
 
 const { rpId: RP_ID, origin: ORIGIN } = resolveWebAuthnConfig()
 console.log('[auth] WebAuthn config — RP_ID:', RP_ID, 'ORIGIN:', ORIGIN)
+
+/**
+ * Extract client IP + user-agent for audit entries. Mirrors the helper in
+ * server/middleware/audit.ts — inlined here to keep the auth route free of
+ * middleware coupling while still producing consistent audit records.
+ */
+function auditRequestContext(c: { req: { header: (n: string) => string | undefined } }): { ipAddress?: string; userAgent?: string } {
+  const ipAddress =
+    c.req.header('fly-client-ip') ||
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    undefined
+  const userAgent = c.req.header('user-agent') || undefined
+  return { ipAddress, userAgent }
+}
 
 // Rate limiting: Prevent enumeration and DoS attacks
 // A full login flow uses 2 rate-limited endpoints (check-user + login-options),
@@ -278,7 +295,7 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
  *
  * Verify registration attestation and create/update user.
  */
-authRoute.post('/webauthn/register-verify', async (c) => {
+authRoute.post('/webauthn/register-verify', authLimiter, async (c) => {
   // HIPAA mode: PGlite-native registration — verify, create user, store passkey, mint JWT.
   if (isHipaaMode()) {
     const { email, name, credential } = await c.req.json<{
@@ -332,6 +349,20 @@ authRoute.post('/webauthn/register-verify', async (c) => {
 
       const { token, expiresAt } = mintHipaaSessionToken({ id: user.id, email: user.email })
       console.log('[auth][hipaa] Registration successful, user:', user.id)
+      await logAuditEvent({
+        userId: user.id,
+        action: AuditActions.WEBAUTHN_REGISTER,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: user.id,
+        details: {
+          email: user.email,
+          credentialId: regCredential.id,
+          deviceType: credentialDeviceType ?? null,
+          backedUp: !!credentialBackedUp,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
       return c.json({
         verified: true,
         userId: user.id,
@@ -614,7 +645,7 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
  *
  * Verify authentication assertion and return session tokens.
  */
-authRoute.post('/webauthn/login-verify', async (c) => {
+authRoute.post('/webauthn/login-verify', authLimiter, async (c) => {
   // HIPAA mode: PGlite-native — verify, mint JWT.
   if (isHipaaMode()) {
     const { credential, challengeKey } = await c.req.json<{
@@ -627,7 +658,22 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     }
     const store = getPasskeyStore()
     const stored = await store.findByCredentialId(credential.id)
-    if (!stored) return c.json({ error: 'Credential not found' }, 400)
+    if (!stored) {
+      await logAuditEvent({
+        // No user known — log against the zero-UUID so the row is still
+        // queryable by action. HIPAA requires the attempt be auditable.
+        userId: '00000000-0000-0000-0000-000000000000',
+        action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+        resourceType: ResourceTypes.ACCOUNT,
+        details: {
+          reason: 'credential_not_found',
+          credentialId: credential.id,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
+      return c.json({ error: 'Credential not found' }, 400)
+    }
     try {
       const publicKeyBuffer = Buffer.from(stored.publicKey, 'base64')
       const verification = await verifyAuthenticationResponse({
@@ -643,6 +689,18 @@ authRoute.post('/webauthn/login-verify', async (c) => {
         },
       })
       if (!verification.verified) {
+        await logAuditEvent({
+          userId: stored.userId,
+          action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+          resourceType: ResourceTypes.ACCOUNT,
+          resourceId: stored.userId,
+          details: {
+            reason: 'verification_failed',
+            credentialId: credential.id,
+            mode: 'hipaa',
+          },
+          ...auditRequestContext(c),
+        })
         return c.json({ error: 'Verification failed' }, 400)
       }
       await store.updateCounter(credential.id, verification.authenticationInfo.newCounter)
@@ -660,6 +718,18 @@ authRoute.post('/webauthn/login-verify', async (c) => {
         email: userRow.email,
       })
       console.log('[auth][hipaa] Login successful for user:', userRow.id)
+      await logAuditEvent({
+        userId: userRow.id,
+        action: AuditActions.WEBAUTHN_LOGIN_SUCCESS,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: userRow.id,
+        details: {
+          email: userRow.email,
+          credentialId: credential.id,
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
       return c.json({
         verified: true,
         userId: userRow.id,
@@ -668,6 +738,19 @@ authRoute.post('/webauthn/login-verify', async (c) => {
       })
     } catch (err) {
       console.error('[auth][hipaa] Login verification failed:', err)
+      await logAuditEvent({
+        userId: stored.userId,
+        action: AuditActions.WEBAUTHN_LOGIN_FAILURE,
+        resourceType: ResourceTypes.ACCOUNT,
+        resourceId: stored.userId,
+        details: {
+          reason: 'exception',
+          credentialId: credential.id,
+          error: errorMessage(err),
+          mode: 'hipaa',
+        },
+        ...auditRequestContext(c),
+      })
       return c.json({ error: errorMessage(err) }, 500)
     }
   }

@@ -171,6 +171,11 @@ export const AuditActions = {
   ACCOUNT_LOGOUT: 'account.logout',
   ACCOUNT_DELETE: 'account.delete',
 
+  // WebAuthn / passkey operations (HIPAA §164.312(b): auth events must be audited)
+  WEBAUTHN_REGISTER: 'auth.webauthn_register',
+  WEBAUTHN_LOGIN_SUCCESS: 'auth.webauthn_login_success',
+  WEBAUTHN_LOGIN_FAILURE: 'auth.webauthn_login_failure',
+
   // API key operations
   API_KEY_CREATE: 'api_key.create',
   API_KEY_DELETE: 'api_key.delete',
