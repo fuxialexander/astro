@@ -11,23 +11,7 @@ import { connectedAccounts } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { requireAuth } from '../middleware/auth.js'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
-import { decryptJsonb, encryptJsonb, isEncrypted } from '../lib/encryption.js'
-
-/**
- * Decrypt a credentials column value, transparently handling the legacy
- * plaintext-jsonb rows that predate Phase 0 encryption. Returns a fresh
- * `Record<string, unknown>` either way.
- */
-function readCredentials(
-  raw: unknown,
-): Record<string, unknown> {
-  if (raw == null) return {}
-  if (isEncrypted(raw)) {
-    return decryptJsonb<Record<string, unknown>>(raw)
-  }
-  // Legacy plaintext row
-  return raw as Record<string, unknown>
-}
+import { encryptJsonb, readCredentials } from '../lib/encryption.js'
 
 const app = new Hono()
 

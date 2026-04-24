@@ -10,7 +10,7 @@ import { connectedAccounts } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import type { UserChannelConfig, ChannelType } from './channel-types.js'
 import { isLocalMode } from '../app-mode.js'
-import { decryptJsonb, isEncrypted } from '../encryption.js'
+import { readCredentials } from '../encryption.js'
 
 interface CacheEntry<T> {
   data: T
@@ -139,9 +139,7 @@ class ChannelConfigManager {
   }
 
   private rowToConfig(row: typeof connectedAccounts.$inferSelect): UserChannelConfig {
-    const credentials = isEncrypted(row.credentials)
-      ? decryptJsonb<Record<string, unknown>>(row.credentials)
-      : (row.credentials as Record<string, unknown>)
+    const credentials = readCredentials(row.credentials)
     return {
       userId: row.userId,
       accountId: row.id,

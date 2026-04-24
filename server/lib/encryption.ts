@@ -286,3 +286,17 @@ export function decryptJsonb<T = unknown>(value: unknown): T {
   // Legacy plaintext — return as-is.
   return value as T
 }
+
+/**
+ * Convenience wrapper for read sites that consume credential-style JSONB
+ * columns (`connected_accounts.credentials`, `registered_machines.providerConfigs`,
+ * etc). Transparently decrypts encrypted blobs and returns legacy plaintext
+ * objects unchanged. Returns an empty object for null/undefined inputs so
+ * callers can safely destructure the result.
+ */
+export function readCredentials<T extends Record<string, unknown> = Record<string, unknown>>(
+  raw: unknown,
+): T {
+  if (raw == null) return {} as T
+  return (isEncrypted(raw) ? decryptJsonb<T>(raw) : (raw as T))
+}
