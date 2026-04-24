@@ -274,4 +274,34 @@ describe('phi-encryption helpers', () => {
       expect(decryptProjectRow(legacy)).toEqual(legacy)
     })
   })
+
+  describe('hard-fail on decrypt error (no ciphertext fallthrough)', () => {
+    beforeEach(() => setHipaa(true))
+
+    it('maybeDecryptText throws on tampered ciphertext', () => {
+      const enc = maybeEncryptText('secret payload') as string
+      // Tamper: flip a character in the middle of the base64 body so auth fails
+      const tampered = enc.slice(0, -5) + (enc.slice(-5) === 'AAAAA' ? 'BBBBB' : 'AAAAA')
+      expect(() => maybeDecryptText(tampered)).toThrow(/decrypt failed/i)
+    })
+
+    it('maybeDecryptJsonb throws on tampered ciphertext', () => {
+      const enc = maybeEncryptJsonb({ phi: 'x' }) as { encrypted: string }
+      const inner = enc.encrypted
+      const tampered = {
+        encrypted: inner.slice(0, -5) + (inner.slice(-5) === 'AAAAA' ? 'BBBBB' : 'AAAAA'),
+      }
+      expect(() => maybeDecryptJsonb(tampered)).toThrow(/decrypt failed/i)
+    })
+
+    it('per-table decrypt propagates throws (does not swallow)', () => {
+      const enc = encryptProjectWrite({ id: 'p', description: 'phi', visionDoc: 'vd' })
+      const encDesc = enc.description as string
+      const tampered = {
+        ...enc,
+        description: encDesc.slice(0, -5) + (encDesc.slice(-5) === 'AAAAA' ? 'BBBBB' : 'AAAAA'),
+      }
+      expect(() => decryptProjectRow(tampered)).toThrow(/decrypt failed/i)
+    })
+  })
 })

@@ -64,8 +64,10 @@ export function maybeDecryptText(value: string | null | undefined): string | nul
   try {
     return decrypt(value)
   } catch (err) {
-    console.warn('[phi-encryption] Failed to decrypt text:', (err as Error).message)
-    return value
+    // Per HIPAA policy and CLAUDE.md "Never silently fall back to a degraded
+    // mode": surface the failure instead of returning the raw ciphertext,
+    // which would otherwise leak through to API responses / UI.
+    throw new Error(`[phi-encryption] decrypt failed for text column: ${(err as Error).message}`)
   }
 }
 
@@ -94,8 +96,8 @@ export function maybeDecryptJsonb<T = unknown>(value: unknown): T {
   try {
     return decryptJsonb<T>(value)
   } catch (err) {
-    console.warn('[phi-encryption] Failed to decrypt jsonb:', (err as Error).message)
-    return value as T
+    // Hard-fail rather than returning ciphertext. See maybeDecryptText.
+    throw new Error(`[phi-encryption] decrypt failed for jsonb column: ${(err as Error).message}`)
   }
 }
 
@@ -186,8 +188,8 @@ export function maybeDecryptStreamingEventData(data: unknown): unknown {
     const { encrypted: _omit, ...indexFields } = src
     return { ...inner, ...indexFields }
   } catch (err) {
-    console.warn('[phi-encryption] Failed to decrypt streaming_events.data:', (err as Error).message)
-    return data
+    // Hard-fail rather than returning ciphertext. See maybeDecryptText.
+    throw new Error(`[phi-encryption] decrypt failed for streaming_events.data: ${(err as Error).message}`)
   }
 }
 
