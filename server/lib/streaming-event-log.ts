@@ -10,6 +10,10 @@
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
 import { eq, gt, and, inArray, lt, sql, desc, isNull } from 'drizzle-orm'
+import {
+  maybeEncryptStreamingEventData,
+  maybeDecryptStreamingEventData,
+} from './phi-encryption.js'
 
 export interface StreamingEvent {
   seq: number
@@ -40,7 +44,7 @@ class StreamingEventLog {
       const [row] = await db.insert(streamingEvents).values({
         executionId,
         eventType: 'text',
-        data: { text },
+        data: maybeEncryptStreamingEventData({ text }) as Record<string, unknown>,
       }).returning({ seq: streamingEvents.seq })
       return row.seq
     } catch (err) {
@@ -66,7 +70,7 @@ class StreamingEventLog {
       const [row] = await db.insert(streamingEvents).values({
         executionId,
         eventType,
-        data: data as Record<string, unknown>,
+        data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
       }).returning({ seq: streamingEvents.seq })
       return row.seq
     } catch (err) {
@@ -106,7 +110,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType,
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -172,7 +176,7 @@ class StreamingEventLog {
           const [row] = await tx.insert(streamingEvents).values({
             executionId,
             eventType: 'result',
-            data: data as Record<string, unknown>,
+            data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
           }).returning({ seq: streamingEvents.seq })
 
           return { seq: row.seq, overrodeSynthetic: true }
@@ -182,7 +186,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'result',
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return { seq: row.seq, overrodeSynthetic: false }
@@ -228,7 +232,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'approval_request',
-          data,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -274,7 +278,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'approval_response',
-          data,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -323,7 +327,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'safety_prompt',
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -375,7 +379,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
@@ -429,7 +433,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
@@ -458,7 +462,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
