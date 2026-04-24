@@ -391,7 +391,8 @@ async function start() {
   try {
     const { syncSkillsFromDb } = await import('./lib/db/bootstrap-skills.js')
     const { skillManager } = await import('./lib/skill-manager.js')
-    await syncSkillsFromDb(skillManager)
+    const { decryptSkillRow } = await import('./lib/phi-encryption.js')
+    await syncSkillsFromDb(skillManager, decryptSkillRow as (r: unknown) => unknown)
     if (!skillsBootstrapOk) {
       console.warn('[bootstrap] ⚠️  Skills loaded from DB but bootstrap failed — some builtins may be stale')
     }

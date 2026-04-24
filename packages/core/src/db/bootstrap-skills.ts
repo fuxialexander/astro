@@ -190,11 +190,13 @@ interface SyncableSkillManager {
  * Called after bootstrap to do a full initial load.
  */
 export async function syncSkillsFromDb(
-  skillManager: SyncableSkillManager
+  skillManager: SyncableSkillManager,
+  decryptRow?: (row: unknown) => unknown,
 ): Promise<void> {
   const rows = await db.select().from(skills).where(eq(skills.enabled, true))
   // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
-  const mapped = (rows as Array<{ name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }>).map(mapSkillRow)
+  const decrypted = decryptRow ? rows.map(decryptRow) : rows
+  const mapped = (decrypted as Array<{ name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }>).map(mapSkillRow)
   skillManager.loadSkills(mapped)
 }
 
@@ -206,15 +208,17 @@ export async function syncSkillsFromDb(
 export async function syncSkillById(
   skillManager: SyncableSkillManager,
   skillId: string,
+  decryptRow?: (row: unknown) => unknown,
 ): Promise<void> {
   if (!skillManager.addSkill || !skillManager.removeSkill) {
     // Fallback to full sync for managers without incremental support
-    return syncSkillsFromDb(skillManager)
+    return syncSkillsFromDb(skillManager, decryptRow)
   }
 
-  const [row] = await db.select().from(skills).where(
+  const [rawRow] = await db.select().from(skills).where(
     and(eq(skills.id, skillId), eq(skills.enabled, true))
   )
+  const row = rawRow && decryptRow ? decryptRow(rawRow) : rawRow
 
   if (row) {
     skillManager.addSkill(mapSkillRow(row as { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }))
@@ -230,7 +234,7 @@ export async function syncSkillById(
     }
     // If not found at all, it was hard-deleted — do a full sync to clean up
     if (!deleted) {
-      return syncSkillsFromDb(skillManager)
+      return syncSkillsFromDb(skillManager, decryptRow)
     }
   }
 }
