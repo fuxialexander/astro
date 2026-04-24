@@ -45,7 +45,7 @@ import { readCredentials } from '../lib/encryption.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { storageMountSchema, validateStorageMount, validateHipaaBucketCompliance } from '../lib/storage-mounts.js'
 import { isHipaaMode } from '../lib/hipaa-mode.js'
-import { maybeDecryptStreamingEventData } from '../lib/phi-encryption.js'
+import { maybeDecryptStreamingEventData, decryptMachineInstructionRow } from '../lib/phi-encryption.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -1533,7 +1533,8 @@ async function dispatchViaRelay(
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
           .from(machineInstructions).where(eq(machineInstructions.id, instrId)).limit(1)
         if (instruction?.content) {
-          skillsInjection = formatMachineInstruction(instruction.name, instruction.content)
+          const decrypted = decryptMachineInstructionRow(instruction)
+          skillsInjection = formatMachineInstruction(decrypted.name, decrypted.content)
         }
       }
     } catch (err) {
