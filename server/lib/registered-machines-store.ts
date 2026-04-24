@@ -11,6 +11,22 @@ import crypto from 'crypto'
 import { db } from './db/index.js'
 import { registeredMachines, machineUsageLogs, machineTeamShares, teamMembers, teams } from './db/schema.js'
 import { eq, and, desc, or, sql } from 'drizzle-orm'
+import { decryptJsonb, encryptJsonb, isEncrypted } from './encryption.js'
+import type { ProviderConfig } from '../types/device-auth.js'
+
+/**
+ * Decrypt a raw `provider_configs` column value. Rows written before Phase 0
+ * encryption are stored as a plain JSON array; post-encryption rows use the
+ * `{ encrypted: "enc:v1:..." }` wrapper.
+ */
+export function decodeProviderConfigs(raw: unknown): ProviderConfig[] {
+  if (raw == null) return []
+  if (isEncrypted(raw)) {
+    const decoded = decryptJsonb<ProviderConfig[]>(raw)
+    return Array.isArray(decoded) ? decoded : []
+  }
+  return Array.isArray(raw) ? (raw as ProviderConfig[]) : []
+}
 
 /**
  * Generate a unique machine ID
@@ -30,7 +46,7 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect, teamIds?: 
     platform: row.platform,
     environmentType: row.environmentType ?? undefined,
     providers: (row.providers ?? []) as ProviderType[],
-    providerConfigs: (row.providerConfigs ?? []) as import('../types/device-auth.js').ProviderConfig[],
+    providerConfigs: decodeProviderConfigs(row.providerConfigs),
     userId: row.userId,
     teamId: teamIds?.[0] ?? row.teamId ?? undefined,
     teamIds: teamIds ?? (row.teamId ? [row.teamId] : []),
@@ -354,8 +370,11 @@ export async function updateMachineProviderConfigs(
     settings?: Record<string, unknown>
   }>
 ): Promise<boolean> {
+  // Encrypt the entire providerConfigs array at rest. Because the column
+  // is `jsonb`, we wrap the base64 ciphertext in `{ encrypted: "..." }`.
+  const encrypted = encryptJsonb(providerConfigs) as unknown as never[]
   const result = await db.update(registeredMachines)
-    .set({ providerConfigs: providerConfigs as never[] })
+    .set({ providerConfigs: encrypted })
     .where(eq(registeredMachines.id, machineId))
     .returning({ id: registeredMachines.id })
   return result.length > 0

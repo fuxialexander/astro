@@ -11,6 +11,23 @@ import { connectedAccounts } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { requireAuth } from '../middleware/auth.js'
 import { channelConfigManager } from '../lib/channel/channel-config-manager.js'
+import { decryptJsonb, encryptJsonb, isEncrypted } from '../lib/encryption.js'
+
+/**
+ * Decrypt a credentials column value, transparently handling the legacy
+ * plaintext-jsonb rows that predate Phase 0 encryption. Returns a fresh
+ * `Record<string, unknown>` either way.
+ */
+function readCredentials(
+  raw: unknown,
+): Record<string, unknown> {
+  if (raw == null) return {}
+  if (isEncrypted(raw)) {
+    return decryptJsonb<Record<string, unknown>>(raw)
+  }
+  // Legacy plaintext row
+  return raw as Record<string, unknown>
+}
 
 const app = new Hono()
 
@@ -58,7 +75,7 @@ app.get('/', async (c) => {
     id: row.id,
     channel: row.channel,
     label: row.label,
-    maskedCredentials: maskCredentials(row.credentials as Record<string, unknown>),
+    maskedCredentials: maskCredentials(readCredentials(row.credentials)),
     mappings: row.mappings,
     settings: row.settings,
     externalId: row.externalId,
@@ -104,7 +121,7 @@ app.post('/', async (c) => {
       userId,
       channel,
       label: label || '',
-      credentials,
+      credentials: encryptJsonb(credentials),
       mappings: mappings || {},
       settings: settings || {},
       externalId,
@@ -117,7 +134,7 @@ app.post('/', async (c) => {
     id: row.id,
     channel: row.channel,
     label: row.label,
-    maskedCredentials: maskCredentials(row.credentials as Record<string, unknown>),
+    maskedCredentials: maskCredentials(readCredentials(row.credentials)),
     mappings: row.mappings,
     settings: row.settings,
     externalId: row.externalId,
@@ -162,7 +179,7 @@ app.put('/:id', async (c) => {
     id: row.id,
     channel: row.channel,
     label: row.label,
-    maskedCredentials: maskCredentials(row.credentials as Record<string, unknown>),
+    maskedCredentials: maskCredentials(readCredentials(row.credentials)),
     mappings: row.mappings,
     settings: row.settings,
     externalId: row.externalId,
@@ -205,7 +222,7 @@ app.post('/:id/test', async (c) => {
     return c.json({ error: 'Account not found' }, 404)
   }
 
-  const creds = row.credentials as Record<string, string>
+  const creds = readCredentials(row.credentials) as Record<string, string>
   const channel = row.channel as ChannelType
 
   try {
