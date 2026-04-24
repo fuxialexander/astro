@@ -10,6 +10,7 @@ import { db } from '../lib/db/index.js'
 import { observationEvents, taskExecutions, projects } from '../lib/db/schema.js'
 import { eq, and, or, sql, asc, gte, lte, inArray, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { decryptObservationRow } from '../lib/phi-encryption.js'
 
 const observationsRoute = new Hono()
 
@@ -97,7 +98,7 @@ observationsRoute.get('/', async (c) => {
       .limit(limit)
       .offset(offset)
 
-    return c.json({ data: rows, limit, offset })
+    return c.json({ data: rows.map(decryptObservationRow), limit, offset })
   } catch (err) {
     console.error('[observations] Query failed:', err)
     return c.json({ error: 'Failed to query observations' }, 500)
@@ -188,7 +189,7 @@ observationsRoute.get('/:traceId', async (c) => {
       .where(eq(observationEvents.traceId, traceId))
       .orderBy(asc(observationEvents.startTime))
 
-    return c.json({ data: rows, traceId })
+    return c.json({ data: rows.map(decryptObservationRow), traceId })
   } catch (err) {
     console.error('[observations] Trace query failed:', err)
     return c.json({ error: 'Failed to query observations for trace' }, 500)
