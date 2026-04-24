@@ -9,6 +9,7 @@ import { db } from '../lib/db/index.js'
 import { connectedAccounts, remoteComputePools, teams } from '../lib/db/schema.js'
 import { hasFeature } from '../lib/feature-flags.js'
 import { getCloudProvisioner, type CloudProvider } from '../lib/remote-compute/cloud-provisioner.js'
+import { isHipaaMode } from '../lib/hipaa-mode.js'
 
 const isDesktop = process.env.ASTRO_DESKTOP === '1'
 
@@ -30,6 +31,17 @@ remoteComputeRoute.use('/*', requireAuth)
 async function requireFeature(user: AuthUser) {
   const [team] = await db.select({ featureFlags: teams.featureFlags }).from(teams).where(eq(teams.id, user.teamId)).limit(1)
   return hasFeature(team?.featureFlags, 'remote-compute-sandboxes')
+}
+
+/**
+ * Providers that are allowed inside a HIPAA deployment. `astro-cloud` maps to
+ * the AwsProvisioner factory (so it goes through `buildHipaaRunProfile` just
+ * like a raw `aws` provider) and is therefore inside the BAA boundary.
+ */
+const HIPAA_ALLOWED_PROVIDERS = new Set<string>(['aws', 'astro-cloud'])
+
+function isHipaaAllowedProvider(provider: string): boolean {
+  return HIPAA_ALLOWED_PROVIDERS.has(provider)
 }
 
 const createPoolSchema = z.object({
@@ -117,6 +129,11 @@ remoteComputeRoute.post('/pools', async (c) => {
   }
 
   const body = parsed.data
+  if (isHipaaMode() && !isHipaaAllowedProvider(body.provider)) {
+    return c.json({
+      error: `HIPAA mode only supports provider='aws' (got '${body.provider}'). Non-AWS vendors are outside the BAA boundary.`,
+    }, 400)
+  }
   const provisioner = getCloudProvisioner(body.provider as CloudProvider)
   try {
     const pool = await provisioner.createRunnerPool({
@@ -148,6 +165,15 @@ remoteComputeRoute.patch('/pools/:id/scale', async (c) => {
   const body = await c.req.json<{ desiredRunners: number }>()
   if (typeof body.desiredRunners !== 'number' || body.desiredRunners < 0) {
     return c.json({ error: 'desiredRunners must be a non-negative integer' }, 400)
+  }
+
+  // HIPAA: re-check the provider on the existing pool. A pool created before
+  // HIPAA mode was enabled (or via a different code path) must not be scaled
+  // up if its provider is outside the BAA boundary.
+  if (isHipaaMode() && !isHipaaAllowedProvider(pool.provider)) {
+    return c.json({
+      error: `HIPAA mode only supports provider='aws' pools (pool '${id}' is '${pool.provider}'). Refusing to scale.`,
+    }, 400)
   }
 
   const provisioner = getCloudProvisioner(pool.provider as CloudProvider)

@@ -3,6 +3,7 @@ import { db } from '../db/index.js'
 import { connectedAccounts, remoteComputePools } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { readCredentials } from '../encryption.js'
+import { isHipaaMode } from '../hipaa-mode.js'
 
 export type CloudProvider = 'astro-cloud' | 'daytona' | 'runloop' | 'aws' | 'gcp'
 
@@ -119,10 +120,19 @@ interface AwsCredentials {
   securityGroupIds?: string[]
 }
 
-function buildUserData(poolId: string, teamId: string): string {
+function buildUserData(poolId: string, teamId: string, opts?: { autoTerminateHours?: number }): string {
   const serverUrl = process.env.PUBLIC_API_URL ?? 'https://api.astroanywhere.com'
   const relayUrl = process.env.RELAY_WS_URL ?? 'wss://relay.astroanywhere.com:3002'
   const agentUrl = 'https://github.com/astro-anywhere/astro-agent/releases/latest/download/astro-agent-linux-x64'
+  // HIPAA: schedule an instance-level shutdown timer. Combined with
+  // InstanceInitiatedShutdownBehavior=terminate, this auto-terminates the
+  // instance after N hours so no PHI-bearing runner lingers past its session.
+  const autoTerminate = opts?.autoTerminateHours && opts.autoTerminateHours > 0
+    ? `# HIPAA auto-terminate: shutdown after ${opts.autoTerminateHours}h
+(sleep ${Math.round(opts.autoTerminateHours * 3600)} && /sbin/shutdown -h now) &
+disown
+`
+    : ''
   return `#!/usr/bin/env bash
 set -euo pipefail
 curl -fsSL ${agentUrl} -o /usr/local/bin/astro-agent
@@ -151,7 +161,69 @@ UNIT
 systemctl daemon-reload
 systemctl enable astro-agent.service
 systemctl start astro-agent.service
-`
+${autoTerminate}`
+}
+
+/** Default auto-terminate window for HIPAA instances, in hours. */
+const HIPAA_AUTO_TERMINATE_HOURS_DEFAULT = 4
+
+/**
+ * HIPAA enforcement profile applied to AWS runner pools when isHipaaMode().
+ *
+ * Returns the set of RunInstancesCommand overrides and extra tags required for
+ * a HIPAA-compliant runner:
+ * - KMS-CMK EBS encryption on root volume (ASTRO_KMS_KEY_ARN required).
+ * - Private subnet, no public IP.
+ * - IMDSv2-only.
+ * - Explicit security group(s) — no 0.0.0.0/0 ingress (enforced by ops config).
+ * - Hard-enforced tags for compliance inventory.
+ *
+ * Throws if ASTRO_KMS_KEY_ARN, subnetId, or securityGroupIds are missing — we
+ * fail fast rather than silently fall back to a less-encrypted default.
+ */
+function buildHipaaRunProfile(creds: AwsCredentials): {
+  kmsKeyArn: string
+  blockDeviceMappings: Array<{ DeviceName: string; Ebs: { Encrypted: true; KmsKeyId: string; DeleteOnTermination: true } }>
+  networkInterface: { DeviceIndex: 0; SubnetId: string; Groups: string[]; AssociatePublicIpAddress: false }
+  metadataOptions: { HttpTokens: 'required'; HttpEndpoint: 'enabled'; HttpPutResponseHopLimit: 2 }
+  extraTags: Array<{ Key: string; Value: string }>
+  autoTerminateHours: number
+} {
+  const kmsKeyArn = process.env.ASTRO_KMS_KEY_ARN
+  if (!kmsKeyArn) {
+    throw new Error('HIPAA mode requires ASTRO_KMS_KEY_ARN to be set (KMS CMK for EBS encryption).')
+  }
+  if (!creds.subnetId) {
+    throw new Error('HIPAA mode requires the AWS connected account to specify a private subnetId.')
+  }
+  if (!creds.securityGroupIds || creds.securityGroupIds.length === 0) {
+    throw new Error('HIPAA mode requires the AWS connected account to specify at least one securityGroupId.')
+  }
+  const autoTerminateHours = Number(process.env.ASTRO_HIPAA_AUTO_TERMINATE_HOURS ?? HIPAA_AUTO_TERMINATE_HOURS_DEFAULT)
+  const customerId = process.env.ASTRO_CUSTOMER_ID ?? 'unknown'
+  return {
+    kmsKeyArn,
+    blockDeviceMappings: [{
+      DeviceName: '/dev/xvda',
+      Ebs: { Encrypted: true, KmsKeyId: kmsKeyArn, DeleteOnTermination: true },
+    }],
+    networkInterface: {
+      DeviceIndex: 0,
+      SubnetId: creds.subnetId,
+      Groups: creds.securityGroupIds,
+      AssociatePublicIpAddress: false,
+    },
+    metadataOptions: {
+      HttpTokens: 'required',
+      HttpEndpoint: 'enabled',
+      HttpPutResponseHopLimit: 2,
+    },
+    extraTags: [
+      { Key: 'HipaaCompliance', Value: 'true' },
+      { Key: 'Customer', Value: customerId },
+    ],
+    autoTerminateHours,
+  }
 }
 
 async function getLatestAl2023Ami(ec2: EC2Client): Promise<string> {
@@ -207,8 +279,18 @@ class AwsProvisioner implements CloudProvisioner {
       const { ec2, creds } = await this.getEc2(request.userId, request.accountId)
       const instanceType = pickAwsInstanceType(request.resourceProfile)
       const amiId = await getLatestAl2023Ami(ec2)
-      const userData = Buffer.from(buildUserData(pool.id, request.teamId)).toString('base64')
       const region = creds.region ?? 'us-east-1'
+      const hipaa = isHipaaMode() ? buildHipaaRunProfile(creds) : null
+      const userData = Buffer.from(buildUserData(pool.id, request.teamId, hipaa
+        ? { autoTerminateHours: hipaa.autoTerminateHours }
+        : undefined,
+      )).toString('base64')
+
+      const baseTags = [
+        { Key: 'Name', Value: `astro-runner-${pool.id.slice(0, 8)}` },
+        { Key: 'astroPoolId', Value: pool.id },
+        { Key: 'astroTeamId', Value: request.teamId },
+      ]
 
       const result = await ec2.send(new RunInstancesCommand({
         ImageId: amiId,
@@ -217,16 +299,18 @@ class AwsProvisioner implements CloudProvisioner {
         MaxCount: request.desiredRunners,
         UserData: userData,
         IamInstanceProfile: creds.iamInstanceProfileArn ? { Arn: creds.iamInstanceProfileArn } : undefined,
-        SubnetId: creds.subnetId,
-        SecurityGroupIds: creds.securityGroupIds,
+        // In HIPAA mode, subnet + security groups are provided via NetworkInterfaces
+        // (so we can force AssociatePublicIpAddress=false). Outside HIPAA, we keep
+        // the historical flat SubnetId/SecurityGroupIds so non-HIPAA behavior is unchanged.
+        SubnetId: hipaa ? undefined : creds.subnetId,
+        SecurityGroupIds: hipaa ? undefined : creds.securityGroupIds,
+        NetworkInterfaces: hipaa ? [hipaa.networkInterface] : undefined,
+        BlockDeviceMappings: hipaa ? hipaa.blockDeviceMappings : undefined,
+        MetadataOptions: hipaa ? hipaa.metadataOptions : undefined,
         InstanceInitiatedShutdownBehavior: 'terminate',
         TagSpecifications: [{
           ResourceType: 'instance',
-          Tags: [
-            { Key: 'Name', Value: `astro-runner-${pool.id.slice(0, 8)}` },
-            { Key: 'astroPoolId', Value: pool.id },
-            { Key: 'astroTeamId', Value: request.teamId },
-          ],
+          Tags: hipaa ? [...baseTags, ...hipaa.extraTags] : baseTags,
         }],
       }))
 
@@ -262,7 +346,17 @@ class AwsProvisioner implements CloudProvisioner {
       const toAdd = desiredRunners - current
       const instanceType = (meta.instanceType ?? pickAwsInstanceType(pool.resourceProfile as RunnerResourceProfile)) as InstanceType
       const amiId = meta.amiId ?? await getLatestAl2023Ami(ec2)
-      const userData = Buffer.from(buildUserData(poolId, pool.teamId)).toString('base64')
+      const hipaa = isHipaaMode() ? buildHipaaRunProfile(creds) : null
+      const userData = Buffer.from(buildUserData(poolId, pool.teamId, hipaa
+        ? { autoTerminateHours: hipaa.autoTerminateHours }
+        : undefined,
+      )).toString('base64')
+
+      const baseTags = [
+        { Key: 'Name', Value: `astro-runner-${poolId.slice(0, 8)}` },
+        { Key: 'astroPoolId', Value: poolId },
+        { Key: 'astroTeamId', Value: pool.teamId },
+      ]
 
       const result = await ec2.send(new RunInstancesCommand({
         ImageId: amiId,
@@ -271,16 +365,15 @@ class AwsProvisioner implements CloudProvisioner {
         MaxCount: toAdd,
         UserData: userData,
         IamInstanceProfile: creds.iamInstanceProfileArn ? { Arn: creds.iamInstanceProfileArn } : undefined,
-        SubnetId: creds.subnetId,
-        SecurityGroupIds: creds.securityGroupIds,
+        SubnetId: hipaa ? undefined : creds.subnetId,
+        SecurityGroupIds: hipaa ? undefined : creds.securityGroupIds,
+        NetworkInterfaces: hipaa ? [hipaa.networkInterface] : undefined,
+        BlockDeviceMappings: hipaa ? hipaa.blockDeviceMappings : undefined,
+        MetadataOptions: hipaa ? hipaa.metadataOptions : undefined,
         InstanceInitiatedShutdownBehavior: 'terminate',
         TagSpecifications: [{
           ResourceType: 'instance',
-          Tags: [
-            { Key: 'Name', Value: `astro-runner-${poolId.slice(0, 8)}` },
-            { Key: 'astroPoolId', Value: poolId },
-            { Key: 'astroTeamId', Value: pool.teamId },
-          ],
+          Tags: hipaa ? [...baseTags, ...hipaa.extraTags] : baseTags,
         }],
       }))
 
@@ -440,6 +533,11 @@ class UnsupportedProvisioner implements CloudProvisioner {
 }
 
 export function getCloudProvisioner(provider: CloudProvider): CloudProvisioner {
+  // HIPAA mode: only AWS is allowed. Reject every other provider at the
+  // factory boundary so we fail before touching a non-AWS API.
+  if (isHipaaMode() && provider !== 'aws' && provider !== 'astro-cloud') {
+    throw new Error(`HIPAA mode only supports the 'aws' provider (got '${provider}').`)
+  }
   if (provider === 'daytona') return new DaytonaProvisioner()
   if (provider === 'aws' || provider === 'astro-cloud') return new AwsProvisioner()
   return new UnsupportedProvisioner(provider)
