@@ -193,6 +193,42 @@ Key invariants:
 | `X-Internal-Dispatch` | Trusted with JWT | Always audit-logged; refuses empty `RELAY_JWT_SECRET` |
 | Frontend route wrapper | `FeatureFlagRoute` | Dedicated `HipaaRoute` wrapper |
 
+## 6a. Vendor Boundary Extensions (Phase 7)
+
+Phase 7 implements the provisioner-level and client-level enforcement of the vendor boundary described above.
+
+### AWS provisioner HIPAA profile
+
+When `isHipaaMode()` is true, `AwsProvisioner` (`server/lib/remote-compute/cloud-provisioner.ts`) enforces the following on every `RunInstancesCommand`:
+
+- **KMS-CMK EBS encryption.** Root volume mapped via `BlockDeviceMappings` with `Ebs.Encrypted=true` and `KmsKeyId=ASTRO_KMS_KEY_ARN`. Startup fails if the env var is unset — never falls back to SSE-S3 or unencrypted volumes.
+- **Private subnet, no public IP.** Subnet and security groups are passed via `NetworkInterfaces` (not the flat `SubnetId`/`SecurityGroupIds`), which lets us set `AssociatePublicIpAddress=false`. The AWS connected account must supply `subnetId` + `securityGroupIds`; otherwise the provisioner refuses the request.
+- **Security group with default-deny ingress.** Ingress hardening is an ops-side responsibility — the provisioner does not create SGs, only references them, so the customer's Terraform must ensure no `0.0.0.0/0` rules. (Not enforced by code; captured in the compliance checklist.)
+- **IMDSv2-only.** `MetadataOptions: { HttpTokens: 'required', HttpEndpoint: 'enabled', HttpPutResponseHopLimit: 2 }` — SSRF into the metadata service must present a session token.
+- **Auto-terminate.** UserData appends a background `sleep N*3600 && shutdown -h now`. Combined with `InstanceInitiatedShutdownBehavior=terminate`, this guarantees PHI-bearing runners do not linger past the session. Default N=4 hours, tunable via `ASTRO_HIPAA_AUTO_TERMINATE_HOURS`.
+- **Compliance tags.** Every instance is tagged with `HipaaCompliance=true` and `Customer=${ASTRO_CUSTOMER_ID}` for inventory and billing audit.
+
+Non-AWS providers (`daytona`, `runloop`, `gcp`) are rejected at two layers: the `/api/remote-compute/pools` route returns a 400 with an explanatory error before invoking the provisioner, and the `getCloudProvisioner` factory throws. Defense in depth.
+
+### Storage mount HIPAA restrictions
+
+In HIPAA mode, `storage-mounts.ts` + `routes/storage-mounts.ts` enforce:
+
+- **S3-only.** GCS mounts fail `validateStorageMount` synchronously.
+- **SSE-KMS required.** `validateHipaaBucketCompliance` calls `GetBucketEncryption`. Only `aws:kms` and `aws:kms:dsse` pass; `AES256` (SSE-S3) is rejected because it uses AWS-managed keys outside our CMK.
+- **No public ACLs.** `GetBucketAcl` is inspected; any grantee URI matching `AllUsers` or `AuthenticatedUsers` fails the mount.
+- **Explicit account required.** HIPAA mounts must reference an `accountId` so the live bucket check can run. Mounts without credentials are rejected.
+
+### CLI pinning
+
+`packages/cli/src/hipaa-pin.ts` runs before every CLI command (via a Commander `preAction` hook). It fetches `${serverUrl}/api/config` and compares:
+
+- `ASTRO_HIPAA_MODE=true` on host **+** `hipaa: false` from server → refuse. Prevents PHI from being sent to a general-purpose deployment.
+- `ASTRO_HIPAA_MODE` unset **+** `hipaa: true` from server → refuse. Surfaces misconfiguration early; the server would otherwise reject authenticated operations.
+- `ASTRO_HIPAA_MODE=true` on host **+** `/api/config` unreachable → refuse. In HIPAA, unreachable ≠ safe fallback.
+
+Match is silent. Mismatch aborts the command with an actionable error before any authenticated request is made.
+
 ## 7. Risks & Open Questions
 
 1. **Bedrock model availability.** `ANTHROPIC_MODEL` must map to a Bedrock model id whose version is approved for the customer's region. Open question: do we pin a specific model version per HIPAA deployment, or follow the SaaS upgrade cadence?

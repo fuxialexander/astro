@@ -9,6 +9,7 @@ import { db } from '../lib/db/index.js'
 import { connectedAccounts, remoteComputePools, teams } from '../lib/db/schema.js'
 import { hasFeature } from '../lib/feature-flags.js'
 import { getCloudProvisioner, type CloudProvider } from '../lib/remote-compute/cloud-provisioner.js'
+import { isHipaaMode } from '../lib/hipaa-mode.js'
 
 const isDesktop = process.env.ASTRO_DESKTOP === '1'
 
@@ -117,6 +118,11 @@ remoteComputeRoute.post('/pools', async (c) => {
   }
 
   const body = parsed.data
+  if (isHipaaMode() && body.provider !== 'aws') {
+    return c.json({
+      error: `HIPAA mode only supports provider='aws' (got '${body.provider}'). Non-AWS vendors are outside the BAA boundary.`,
+    }, 400)
+  }
   const provisioner = getCloudProvisioner(body.provider as CloudProvider)
   try {
     const pool = await provisioner.createRunnerPool({
