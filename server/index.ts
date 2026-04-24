@@ -247,7 +247,6 @@ export function createApp() {
   app.route('/api/repo', repoRoute)
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
-  app.route('/api/skills', skillsRoute)
   app.route('/api/machine-instructions', machineInstructionsRoute)
   app.route('/api/schedules', schedulesRoute)
   app.route('/api/examples', examplesRoute)
@@ -293,6 +292,7 @@ export function createApp() {
   // `connected_accounts` table directly via Drizzle and does not require the
   // CRUD route to be mounted. The route is safely gated here.
   if (!isHipaaMode()) {
+    app.route('/api/skills', skillsRoute)
     app.route('/api/community', communityRoute)
     app.route('/api/connected-accounts', connectedAccountsRoute)
     app.route('/api/telegram', telegramRoute)

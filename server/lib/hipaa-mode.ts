@@ -27,11 +27,15 @@ const FORBIDDEN_HIPAA_ENV_VARS = [
   'SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
   'FLY_APP_NAME',
-]
-
-/** Env var prefixes that must NOT be set when running in HIPAA mode. */
-const FORBIDDEN_HIPAA_ENV_PREFIXES = [
-  'CLOUDFLARE_',
+  // Cloudflare credentials that grant access to non-AWS vendors. We use an
+  // explicit allowlist (not a CLOUDFLARE_* prefix scan) so legitimate SaaS
+  // identifiers like CLOUDFLARE_PAGES_PROJECT or CLOUDFLARE_ACCOUNT_ID don't
+  // trip the check.
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_API_KEY',
+  'CLOUDFLARE_TUNNEL_TOKEN',
+  'CLOUDFLARED_DOMAIN',
+  'CLOUDFLARED_TOKEN',
 ]
 
 /**
@@ -65,17 +69,6 @@ export function assertHipaaStartupConfig(): void {
         `HIPAA mode forbids env var ${name} (detected non-empty value). ` +
           `HIPAA deployments must not reach non-AWS vendors.`,
       )
-    }
-  }
-
-  for (const prefix of FORBIDDEN_HIPAA_ENV_PREFIXES) {
-    for (const name of Object.keys(process.env)) {
-      if (name.startsWith(prefix) && process.env[name]) {
-        errors.push(
-          `HIPAA mode forbids env var ${name} (prefix ${prefix}). ` +
-            `HIPAA deployments must not reach non-AWS vendors.`,
-        )
-      }
     }
   }
 
