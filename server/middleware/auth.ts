@@ -306,6 +306,35 @@ export async function requireAuth(c: Context, next: Next) {
   }
 
   try {
+    // HIPAA mode: only the self-signed HS256 token + the device-auth fallback
+    // are valid. Never reach for Supabase.
+    if (isHipaaMode()) {
+      const { verifyHipaaSessionToken } = await import('../lib/hipaa-auth.js')
+      const hipaaPayload = verifyHipaaSessionToken(token)
+      if (hipaaPayload) {
+        const requestedTeamId = c.req.header('X-Team-Id')
+        const { teamId, teamIds } = await resolveTeams(hipaaPayload.sub, requestedTeamId || undefined)
+        c.set('user', {
+          id: hipaaPayload.sub,
+          email: hipaaPayload.email,
+          teamId,
+          teamIds,
+        } satisfies AuthUser)
+        return next()
+      }
+      // Device-auth tokens (CLI) are still allowed in HIPAA mode.
+      const { verifyAccessToken: verifyAccessTokenHipaa } = await import('../lib/token-manager.js')
+      const devicePayload = verifyAccessTokenHipaa(token)
+      if (devicePayload) {
+        const requestedTeamId = c.req.header('X-Team-Id')
+        const { teamId, teamIds } = await resolveTeams(devicePayload.userId, requestedTeamId || undefined)
+        c.set('user', { id: devicePayload.userId, teamId, teamIds } satisfies AuthUser)
+        return next()
+      }
+      console.error('[auth] HIPAA mode token validation failed')
+      return c.json({ error: 'Invalid or expired token' }, 401)
+    }
+
     // Try local JWT verification first (zero network calls after initial JWKS fetch)
     const jwtPayload = await verifySupabaseJwt(token)
     if (jwtPayload) {
@@ -391,6 +420,31 @@ export async function optionalAuth(c: Context, next: Next) {
   const token = authHeader.slice(7)
 
   try {
+    // HIPAA mode: only HS256 self-signed tokens or device-auth tokens.
+    if (isHipaaMode()) {
+      const { verifyHipaaSessionToken } = await import('../lib/hipaa-auth.js')
+      const hipaaPayload = verifyHipaaSessionToken(token)
+      if (hipaaPayload) {
+        const requestedTeamId = c.req.header('X-Team-Id')
+        const { teamId, teamIds } = await resolveTeams(hipaaPayload.sub, requestedTeamId || undefined)
+        c.set('user', {
+          id: hipaaPayload.sub,
+          email: hipaaPayload.email,
+          teamId,
+          teamIds,
+        } satisfies AuthUser)
+      } else {
+        const { verifyAccessToken: verifyAccessTokenHipaaOpt } = await import('../lib/token-manager.js')
+        const devicePayload = verifyAccessTokenHipaaOpt(token)
+        if (devicePayload) {
+          const requestedTeamId = c.req.header('X-Team-Id')
+          const { teamId, teamIds } = await resolveTeams(devicePayload.userId, requestedTeamId || undefined)
+          c.set('user', { id: devicePayload.userId, teamId, teamIds } satisfies AuthUser)
+        }
+      }
+      return next()
+    }
+
     // Try local JWT verification first (zero network calls after initial JWKS fetch)
     const jwtPayload = await verifySupabaseJwt(token)
     if (jwtPayload) {
