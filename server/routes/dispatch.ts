@@ -43,8 +43,9 @@ import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
 import { readCredentials } from '../lib/encryption.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
-import { storageMountSchema, validateStorageMount } from '../lib/storage-mounts.js'
-import { isHipaaMode, maybeDecryptStreamingEventData } from '../lib/phi-encryption.js'
+import { storageMountSchema, validateStorageMount, validateHipaaBucketCompliance } from '../lib/storage-mounts.js'
+import { isHipaaMode } from '../lib/hipaa-mode.js'
+import { maybeDecryptStreamingEventData } from '../lib/phi-encryption.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -2041,6 +2042,31 @@ ${verificationSection}${executiveSummarySection}`)
           return c.json({ success: false, error: `Storage mount account not found or disabled: ${mount.accountId}` }, 400)
         }
         credentials = readCredentials<Record<string, string>>(account.credentials)
+      }
+      // HIPAA: every S3 mount used in dispatch must pass the bucket-level
+      // SSE-KMS + ACL check. validateStorageMount already rejected non-S3,
+      // but we still need an accountId so we can run the live AWS check.
+      if (isHipaaMode()) {
+        if (!credentials) {
+          return c.json({
+            success: false,
+            error: 'HIPAA mode requires storage mounts to specify an accountId (for SSE-KMS + ACL verification).',
+          }, 400)
+        }
+        if (!credentials.accessKeyId || !credentials.secretAccessKey) {
+          return c.json({
+            success: false,
+            error: 'HIPAA storage mount account is missing accessKeyId or secretAccessKey.',
+          }, 400)
+        }
+        const hipaaCheck = await validateHipaaBucketCompliance(mount, {
+          accessKeyId: String(credentials.accessKeyId),
+          secretAccessKey: String(credentials.secretAccessKey),
+          region: typeof credentials.region === 'string' ? credentials.region : undefined,
+        })
+        if (!hipaaCheck.ok) {
+          return c.json({ success: false, error: hipaaCheck.error }, 400)
+        }
       }
       resolvedStorageMounts.push({ ...mount, credentials })
     }
