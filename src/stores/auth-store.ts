@@ -1,9 +1,38 @@
 import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase, setCachedSession } from "@/lib/supabase-client"
-import { isLocalMode } from "@/lib/app-mode"
+import { isLocalMode, isHipaaMode } from "@/lib/app-mode"
 import { teardownRealtimeSync } from "@/lib/realtime-sync"
 import { apiUrl } from "@/lib/api-url"
+import {
+  subscribeHipaaAuth,
+  loadStoredHipaaSession,
+  dispatchHipaaSignOut,
+  type HipaaSession,
+} from "@/lib/hipaa-auth-bus"
+
+/**
+ * Build a Supabase-shaped Session from a HIPAA self-signed JWT, so the rest
+ * of the app (which expects Session/User from @supabase/supabase-js) keeps
+ * working without per-mode branching at every consumer.
+ */
+function hipaaSessionToSupabaseShape(s: HipaaSession): Session {
+  return {
+    access_token: s.token,
+    refresh_token: '',
+    expires_in: Math.max(0, s.expiresAt - Math.floor(Date.now() / 1000)),
+    expires_at: s.expiresAt,
+    token_type: 'bearer',
+    user: {
+      id: s.user.id,
+      email: s.user.email,
+      app_metadata: { provider: 'webauthn-hipaa' },
+      user_metadata: { name: s.user.name ?? '' },
+      aud: 'authenticated',
+      created_at: new Date(0).toISOString(),
+    } as unknown as User,
+  } as Session
+}
 
 interface AuthState {
   session: Session | null
@@ -35,6 +64,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (authSubscription) {
       authSubscription.unsubscribe()
       authSubscription = null
+    }
+
+    // HIPAA mode: hydrate from localStorage and subscribe to the bus.
+    if (isHipaaMode()) {
+      const stored = loadStoredHipaaSession()
+      const session = stored ? hipaaSessionToSupabaseShape(stored) : null
+      set({
+        session,
+        user: session?.user ?? null,
+        loading: false,
+        initialized: true,
+      })
+      const unsubscribe = subscribeHipaaAuth((event) => {
+        if (event.type === 'SIGNED_IN') {
+          const sess = hipaaSessionToSupabaseShape(event.session)
+          set({ session: sess, user: sess.user })
+        } else {
+          set({ session: null, user: null })
+          teardownRealtimeSync()
+        }
+      })
+      authSubscription = { unsubscribe }
+      initializeInProgress = false
+      return
     }
 
     // If Supabase is not in use (not configured or local mode), skip auth
@@ -109,6 +162,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    if (isHipaaMode()) {
+      dispatchHipaaSignOut()
+      await teardownRealtimeSync()
+      set({ session: null, user: null })
+      return
+    }
     const supabase = getSupabase()
     if (supabase) {
       await supabase.auth.signOut()
