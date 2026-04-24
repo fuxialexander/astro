@@ -45,6 +45,7 @@ import { useGitHubStore } from "@/stores/github-store"
 import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
+import { HipaaRoute } from "@/components/HipaaRoute"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
@@ -420,9 +421,9 @@ export default function App() {
                 <Route path="examples" element={<Navigate to="/dashboard" replace />} />
                 <Route path="templates" element={<Navigate to="/dashboard" replace />} />
                 <Route path="references" element={<References />} />
-                <Route path="community" element={<Community />} />
-                <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
-                <Route path="share/:id" element={<ShareImport />} />
+                <Route path="community" element={<HipaaRoute><Community /></HipaaRoute>} />
+                <Route path="community/plans/:id" element={<HipaaRoute><CommunityPlanDetail /></HipaaRoute>} />
+                <Route path="share/:id" element={<HipaaRoute><ShareImport /></HipaaRoute>} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="stats" element={<StatsPage />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />

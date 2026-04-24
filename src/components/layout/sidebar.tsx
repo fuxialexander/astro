@@ -41,6 +41,7 @@ import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
+import { useIsHipaaMode } from "@/hooks/use-hipaa-mode"
 import { isDesktop } from "@/lib/desktop-detect"
 import { deriveActiveTasks } from "@/lib/active-tasks"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -179,6 +180,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const effortPopoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [navHovered, setNavHovered] = useState(false)
   const showAuth = isServerMode()
+  const isHipaa = useIsHipaaMode()
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const activeProjectId = params.id
 
@@ -205,6 +207,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const editableItems = sidebarItems.filter((item) => {
     if (item.id === 'community' && !showAuth) return false
     if (item.featureFlag && !teamFeatureFlags[item.featureFlag]) return false
+    if (isHipaa && item.disableInHipaa) return false
     return true
   })
 

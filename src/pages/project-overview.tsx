@@ -36,6 +36,7 @@ import { dataClient } from "@/lib/data-client"
 import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
+import { useIsHipaaMode } from "@/hooks/use-hipaa-mode"
 import { downloadBibTeX } from "@/lib/export/download-bibtex"
 import { downloadDocx } from "@/lib/export/download-docx"
 import type { Project } from "@/types"
@@ -254,6 +255,7 @@ export function OverviewTab({
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const [sharing, setSharing] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
+  const isHipaa = useIsHipaaMode()
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [draftPaperOpen, setDraftPaperOpen] = useState(false)
   const [exportingDocx, setExportingDocx] = useState(false)
@@ -419,7 +421,7 @@ export function OverviewTab({
               </div>
             )}
           </div>
-          <button
+          {!isHipaa && <button
             className={cn(
               "flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs transition-colors",
               sharing ? "opacity-60 cursor-wait text-muted-foreground" : "text-muted-foreground hover:bg-muted/50"
@@ -449,7 +451,7 @@ export function OverviewTab({
           >
             {shareCopied ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
             {shareCopied ? "Copied!" : "Share"}
-          </button>
+          </button>}
           {project.discoveryMode && (
             <button
               className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
