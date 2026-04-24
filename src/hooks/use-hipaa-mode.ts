@@ -30,12 +30,15 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
     })
     .catch((err) => {
       // Fail-safe: on network error, assume env-var value (which defaults to false).
+      // Do NOT cache the fallback — a transient failure shouldn't poison the
+      // cache for the rest of the session. Clear inflight so the next caller
+      // can retry the fetch.
       console.warn('[hipaa] Failed to fetch /api/config, falling back to env:', err)
+      inflight = null
       const fallback: ServerConfig = {
         hipaa: isHipaaModeEnv(),
         mode: isHipaaModeEnv() ? 'hipaa' : 'server',
       }
-      cachedConfig = fallback
       return fallback
     })
     .finally(() => {

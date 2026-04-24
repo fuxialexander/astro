@@ -12,6 +12,7 @@ export interface SidebarItem {
   autoRevealed?: boolean   // system auto-showed this item
   userDismissed?: boolean  // user explicitly dismissed after auto-reveal
   featureFlag?: string     // if set, item hidden when flag is off for the team
+  disableInHipaa?: boolean // if true, item is hidden when the server is in HIPAA mode
 }
 
 export interface AutoRevealCounts {
@@ -69,7 +70,7 @@ const defaultItems: SidebarItem[] = [
   { id: "environments", to: "/environments", icon: "Server", label: "Environments", visible: true, protected: false },
   { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false },
   { id: "references", to: "/references", icon: "BookOpen", label: "References", visible: true, protected: false },
-  { id: "community", to: "/community", icon: "Globe", label: "Community", visible: false, protected: false },
+  { id: "community", to: "/community", icon: "Globe", label: "Community", visible: false, protected: false, disableInHipaa: true },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
 ]
@@ -83,7 +84,7 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
       if (!defaultItem) return [] // Item removed from defaults — drop it
       // Always take icon/to/label/protected/featureFlag from defaults (code is source of truth)
       // Keep user preferences: visible, autoRevealed, userDismissed, ordering
-      const result: SidebarItem = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag }
+      const result: SidebarItem = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag, disableInHipaa: defaultItem.disableInHipaa }
       if (defaultItem.protected) {
         return [{ ...result, visible: true }]
       }

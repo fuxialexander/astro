@@ -62,6 +62,7 @@ import {
 } from "@/lib/project-grouping"
 import { isServerMode } from "@/lib/app-mode"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
+import { useIsHipaaMode } from "@/hooks/use-hipaa-mode"
 import { cn } from "@/lib/utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -2323,6 +2324,7 @@ export function PlanView() {
 
 
   const canSyncGitHub = isGitHubProject
+  const isHipaa = useIsHipaaMode()
 
   // GitHub issue sync handler
   const [syncing, setSyncing] = useState(false)
@@ -2508,7 +2510,7 @@ export function PlanView() {
               </TooltipTrigger>
               <TooltipContent>Export project</TooltipContent>
             </Tooltip>
-            <Tooltip>
+            {!isHipaa && <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
@@ -2535,7 +2537,7 @@ export function PlanView() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Copy share link</TooltipContent>
-            </Tooltip>
+            </Tooltip>}
             {canSyncGitHub ? (
               <div className="flex items-center gap-1.5">
                 <SyncHealthDot projectId={project?.id} className="mr-0.5" />
@@ -2653,7 +2655,7 @@ export function PlanView() {
               <Download className="h-3.5 w-3.5 mr-2" />
               Export
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={async () => {
+            {!isHipaa && <DropdownMenuItem onClick={async () => {
               try {
                 const bundle = exportProject(project.id)
                 const res = await fetch(apiUrl("/api/share"), {
@@ -2671,7 +2673,7 @@ export function PlanView() {
             }}>
               <Link2 className="h-3.5 w-3.5 mr-2" />
               Share
-            </DropdownMenuItem>
+            </DropdownMenuItem>}
             {project.discoveryMode && (
               <>
                 <DropdownMenuSeparator />

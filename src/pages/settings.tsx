@@ -39,6 +39,7 @@ import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
+import { useIsHipaaMode } from "@/hooks/use-hipaa-mode"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -1608,8 +1609,14 @@ export function Settings() {
   const { t: ts } = useTranslation("settings")
   const [searchParams] = useSearchParams()
   const initialTab = (searchParams.get("tab") as SettingsTab) || "general"
+  const isHipaa = useIsHipaaMode()
+  // In HIPAA mode, hide the Connected Accounts tab — backend route 404s and we
+  // must not expose Slack/Telegram/GitHub-App/Linear integration surfaces.
+  const visiblePersonalItems = isHipaa
+    ? personalItems.filter((item) => item.id !== "connected-accounts")
+    : personalItems
   const [activeTab, setActiveTab] = useState<SettingsTab>(
-    initialTab in tabTitles ? initialTab : "general"
+    initialTab in tabTitles && !(isHipaa && initialTab === "connected-accounts") ? initialTab : "general"
   )
   const [showContent, setShowContent] = useState(initialTab !== "general")
 
@@ -1631,6 +1638,7 @@ export function Settings() {
       case "notifications":
         return <NotificationsContent />
       case "connected-accounts":
+        if (isHipaa) return <PlaceholderContent title={tabTitles["connected-accounts"]} />
         return <ConnectedAccountsContent />
       case "environments":
         return <EnvironmentsSettingsContent />
@@ -1663,7 +1671,7 @@ export function Settings() {
 
         {/* Personal section */}
         <div className="flex flex-col gap-0.5 px-2 py-2">
-          {personalItems.map((item) => {
+          {visiblePersonalItems.map((item) => {
             const Icon = item.icon
             return (
               <button

@@ -7,7 +7,8 @@
 
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { getSupabase } from './supabase-client'
-import { isLocalMode } from './app-mode'
+import { isLocalMode, isHipaaMode } from './app-mode'
+import { useToastStore } from '@/stores/toast-store'
 import { snakeToCamel } from './utils'
 import { useProjectStore } from '@/stores/project-store'
 import { usePlanStore } from '@/stores/plan-store'
@@ -26,6 +27,7 @@ const CLIENT_ID = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)
 // Track active subscriptions
 let activeChannels: RealtimeChannel[] = []
 let realtimeSyncEnabled = false
+let hipaaToastShown = false
 
 /**
  * Helper to normalize timestamps from Supabase
@@ -550,6 +552,25 @@ function subscribeToTaskChatMessages(supabase: ReturnType<typeof getSupabase>) {
  * Setup all realtime subscriptions.
  */
 export function setupRealtimeSync() {
+  // In HIPAA mode, Supabase Realtime is forbidden (PHI exfiltration risk).
+  // Skip all subscriptions and notify the user once per session.
+  if (isHipaaMode()) {
+    console.log('[realtime-sync] Skipping setup - HIPAA mode (multi-device sync disabled)')
+    if (!hipaaToastShown) {
+      hipaaToastShown = true
+      try {
+        useToastStore.getState().add({
+          type: 'info',
+          title: 'Multi-device sync disabled',
+          description: 'Multi-device collaboration is disabled in HIPAA mode.',
+          duration: 6000,
+        })
+      } catch {
+        // Toast store may not be initialised during SSR/early boot
+      }
+    }
+    return
+  }
   // Only setup if Supabase is configured
   if (isLocalMode()) {
     console.log('[realtime-sync] Skipping setup - local mode')
