@@ -8,7 +8,7 @@
 import type { Context, Next } from 'hono';
 import { db } from '../lib/db/index.js';
 import { auditLogs } from '../lib/db/schema.js';
-import { isLocalMode } from '../lib/app-mode.js';
+import { isLocalMode, isHipaaMode } from '../lib/app-mode.js';
 
 interface AuditLogEntry {
   userId: string;
@@ -24,8 +24,10 @@ interface AuditLogEntry {
  * Log an audit event
  */
 export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
-  // Only log in Supabase mode (audit logs are in Postgres)
-  if (isLocalMode()) {
+  // In HIPAA mode, audit writes are REQUIRED (against PGlite). In plain local
+  // mode (no HIPAA), skip because there is no audit table wired up.
+  // In SaaS/server mode we always write.
+  if (isLocalMode() && !isHipaaMode()) {
     return;
   }
 
@@ -88,10 +90,26 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       // Observability pipeline unavailable; the console.error above is
       // still emitted, so we do not mask the original audit failure.
     }
-    // Don't throw in Phase 0 — auditing must not take down request handling
-    // on the SaaS build. Phase 5 (HIPAA mode) will change this to rethrow.
+    // Phase 5: in HIPAA mode, a broken audit pipeline MUST fail the request.
+    // HIPAA §164.312(b) requires audit controls; silently dropping evidence
+    // is not acceptable. SaaS/server mode remains non-fatal to avoid
+    // regressing Phase 0's behavior under known-flaky deploy windows.
+    if (isHipaaMode()) {
+      throw new Error(
+        `[audit] HIPAA mode: failed to persist audit event for ${entry.action} on ${entry.resourceType}. ` +
+          `Request aborted to preserve audit integrity.`,
+        { cause: error },
+      );
+    }
   }
 }
+
+/**
+ * Alias for logAuditEvent — this is the ONLY approved write path for the
+ * `audit_logs` table. All direct `db.insert(auditLogs)` calls outside this
+ * module are disallowed by `scripts/check-audit-log-writes.ts`.
+ */
+export const writeAuditLog = logAuditEvent;
 
 /**
  * Extract IP address from request
@@ -175,6 +193,11 @@ export const AuditActions = {
 
   // Auth internals
   INTERNAL_DISPATCH_USED: 'auth.internal_dispatch_used',
+
+  // HIPAA / compliance
+  PHI_ACCESS: 'phi.access',
+  AUTH_POLICY_CHANGE: 'auth.policy_change',
+  HIPAA_MODE_TOGGLED: 'hipaa.mode_toggled',
 } as const;
 
 /**
