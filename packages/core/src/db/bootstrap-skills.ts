@@ -29,8 +29,15 @@ import type { BuiltinSkillDefinition } from '../skills/types.js'
  * use a non-privileged role, this function will fail to seed builtins.
  *
  * @param builtinSkills - Skill definitions loaded from SKILL.md files on disk
+ * @param decryptRow - Optional per-row decryptor (required in HIPAA mode so the
+ *   change-detection comparison sees plaintext on both sides; omitted the DB
+ *   stores `enc:v1:...` ciphertext while `skill.instructions` is plaintext, and
+ *   every boot would re-UPDATE every builtin row).
  */
-export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefinition[]): Promise<void> {
+export async function bootstrapBuiltinSkills(
+  builtinSkills: BuiltinSkillDefinition[],
+  decryptRow?: (row: unknown) => unknown,
+): Promise<void> {
   console.log('[bootstrap] Seeding built-in skills...')
 
   if (builtinSkills.length === 0) {
@@ -86,7 +93,7 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
         continue
       }
       try {
-        const [existing] = await tx.select({
+        const [rawExisting] = await tx.select({
           id: skills.id,
           version: skills.version,
           description: skills.description,
@@ -97,6 +104,13 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
         })
           .from(skills)
           .where(and(eq(skills.name, skill.name), eq(skills.source, 'builtin')))
+
+        // Apply decryption (if provided) so the equality check below compares
+        // plaintext to plaintext. Without this, HIPAA-mode boots would see
+        // ciphertext !== plaintext and UPDATE every builtin skill on every boot.
+        const existing = rawExisting && decryptRow
+          ? (decryptRow(rawExisting) as typeof rawExisting)
+          : rawExisting
 
         if (existing) {
           // Compare all frontmatter fields to avoid unnecessary writes.
