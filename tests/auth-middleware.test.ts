@@ -16,6 +16,7 @@ let mockIsLocal = true
 
 vi.mock('../server/lib/app-mode.js', () => ({
   isLocalMode: () => mockIsLocal,
+  isHipaaMode: () => false,
 }))
 
 vi.mock('../server/lib/db/bootstrap-local.js', () => ({

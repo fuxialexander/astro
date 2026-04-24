@@ -172,6 +172,9 @@ export const AuditActions = {
   // Data operations
   DATA_EXPORT: 'data.export',
   DATA_DELETE: 'data.delete',
+
+  // Auth internals
+  INTERNAL_DISPATCH_USED: 'auth.internal_dispatch_used',
 } as const;
 
 /**
