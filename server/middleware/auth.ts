@@ -29,9 +29,10 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import type { Context, Next } from 'hono'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
-import { isLocalMode } from '../lib/app-mode.js'
+import { isLocalMode, isHipaaMode } from '../lib/app-mode.js'
 import { LOCAL_USER_ID, LOCAL_TEAM_ID } from '../lib/db/bootstrap-local.js'
 import { PERSONAL_WORKSPACE_DESCRIPTION } from '../lib/team-utils.js'
+import { logAuditEvent, AuditActions } from './audit.js'
 
 export interface AuthUser {
   id: string
@@ -197,8 +198,9 @@ async function resolveTeams(userId: string, requestedTeamId?: string): Promise<{
  * from the X-User-Id header to provide per-browser user isolation.
  */
 export async function requireAuth(c: Context, next: Next) {
-  // In local mode (PGlite, no auth), allow unauthenticated access
-  if (isLocalMode()) {
+  // In local mode (PGlite, no auth), allow unauthenticated access.
+  // HIPAA mode NEVER takes this branch — real credential is always required.
+  if (isLocalMode() && !isHipaaMode()) {
     // In local mode, use fixed local user and team IDs
     const browserUserId = c.req.header('X-User-Id')
     const userId = browserUserId || LOCAL_USER_ID
@@ -238,8 +240,23 @@ export async function requireAuth(c: Context, next: Next) {
     if (internalDispatch && internalUserId && internalTeamId) {
       const secret = process.env.RELAY_JWT_SECRET
       if (!secret) {
-        // RELAY_JWT_SECRET must be set in server mode — refuse rather than fall back
+        // RELAY_JWT_SECRET must be set — refuse rather than fall back.
+        // HIPAA mode: never trust an empty-secret dispatch header.
         console.error('[auth] RELAY_JWT_SECRET not set — rejecting X-Internal-Dispatch')
+        if (isHipaaMode()) {
+          await logAuditEvent({
+            userId: internalUserId,
+            action: 'internal_dispatch.rejected_no_secret',
+            resourceType: 'auth',
+            details: {
+              reason: 'RELAY_JWT_SECRET missing',
+              teamId: internalTeamId,
+              path: c.req.path,
+            },
+            ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+            userAgent: c.req.header('user-agent'),
+          }).catch((e) => console.error('[auth] audit write failed:', e))
+        }
         return c.json({ error: 'Server misconfiguration' }, 500)
       }
       const expected = createHmac('sha256', secret)
@@ -249,6 +266,24 @@ export async function requireAuth(c: Context, next: Next) {
       const expectedBuf = Buffer.from(expected, 'hex')
       const valid = actual.length === expectedBuf.length &&
         timingSafeEqual(actual, expectedBuf)
+
+      // In HIPAA mode, always audit-log internal-dispatch attempts (valid or not).
+      if (isHipaaMode()) {
+        await logAuditEvent({
+          userId: internalUserId,
+          action: AuditActions.INTERNAL_DISPATCH_USED,
+          resourceType: 'auth',
+          details: {
+            valid,
+            teamId: internalTeamId,
+            path: c.req.path,
+            method: c.req.method,
+          },
+          ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+          userAgent: c.req.header('user-agent'),
+        }).catch((e) => console.error('[auth] audit write failed:', e))
+      }
+
       if (valid) {
         const { teamId, teamIds } = await resolveTeams(internalUserId, internalTeamId)
         c.set('user', { id: internalUserId, teamId, teamIds } satisfies AuthUser)
@@ -337,7 +372,7 @@ export async function requireAuth(c: Context, next: Next) {
  * Optional auth middleware - attaches user if present, continues regardless.
  */
 export async function optionalAuth(c: Context, next: Next) {
-  if (isLocalMode()) {
+  if (isLocalMode() && !isHipaaMode()) {
     // Use fixed local user and team IDs
     c.set('user', {
       id: LOCAL_USER_ID,

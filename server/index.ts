@@ -76,6 +76,16 @@ import { observationsRoute } from './routes/observations.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 import { streamingEventLog } from './lib/streaming-event-log.js'
+import { isHipaaMode, assertHipaaStartupConfig } from './lib/hipaa-mode.js'
+import { getAppMode } from './lib/app-mode.js'
+
+// HIPAA startup assertions run first — abort boot before touching any other env.
+try {
+  assertHipaaStartupConfig()
+} catch (err) {
+  console.error((err as Error).message)
+  if (!isTest()) process.exit(1)
+}
 
 // Validate environment variables on startup
 try {
@@ -257,22 +267,39 @@ export function createApp() {
   app.route('/api/references', referencesRoute)
   app.route('/api/export', exportRoute)
   app.route('/api/teams', teamsRoute)
-  app.route('/api/community', communityRoute)
   app.route('/api/executions', executionsRoute)
 
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
 
-  // Connected accounts — needed in all modes for OpenClaw channel config
-  app.route('/api/connected-accounts', connectedAccountsRoute)
+  // Config endpoint — lets frontend and CLI pin their behavior to the server's mode.
+  app.get('/api/config', (c) => c.json({
+    hipaa: isHipaaMode(),
+    mode: getAppMode(),
+  }))
+
   app.route('/api/remote-compute', remoteComputeRoute)
   app.route('/api/storage-mounts', storageMountsRoute)
 
-  // Telegram channel (webhook + link/status/disconnect)
-  app.route('/api/telegram', telegramRoute)
+  // ── Fail-closed route registration for HIPAA mode ────────────────────
+  // These routes touch external vendors (Telegram/Slack/Linear/GitHub webhooks),
+  // expose sharing surfaces (community), or manage non-AWS compute/storage.
+  // They must not be reachable in a HIPAA deployment.
+  //
+  // OpenClaw dependency note: the previous comment here claimed
+  // `connectedAccountsRoute` was needed in all modes for OpenClaw channel
+  // config. Investigation showed this was stale — `channelConfigManager`
+  // (server/lib/channel/channel-config-manager.ts) reads the
+  // `connected_accounts` table directly via Drizzle and does not require the
+  // CRUD route to be mounted. The route is safely gated here.
+  if (!isHipaaMode()) {
+    app.route('/api/community', communityRoute)
+    app.route('/api/connected-accounts', connectedAccountsRoute)
+    app.route('/api/telegram', telegramRoute)
+  }
 
-  // Server-only routes (require Supabase Auth)
-  if (!isLocalModeEnv()) {
+  // Server-only routes (require Supabase Auth). These are also fail-closed in HIPAA.
+  if (!isLocalModeEnv() && !isHipaaMode()) {
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
     app.route('/api/github-app', githubAppRoute)
@@ -677,8 +704,9 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
-  // Start channel adapters (non-blocking, optional)
-  if (!isTest()) {
+  // Start channel adapters (non-blocking, optional).
+  // Skipped in HIPAA mode — external channel vendors are outside the AWS BAA.
+  if (!isTest() && !isHipaaMode()) {
     openClawChannel.start().catch((err) => {
       console.warn('[openclaw] Failed to start channel adapter:', err)
     })
