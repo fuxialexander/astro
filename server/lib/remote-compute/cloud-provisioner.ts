@@ -2,6 +2,7 @@ import { EC2Client, RunInstancesCommand, TerminateInstancesCommand, DescribeImag
 import { db } from '../db/index.js'
 import { connectedAccounts, remoteComputePools } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
+import { decryptJsonb, isEncrypted } from '../encryption.js'
 
 export type CloudProvider = 'astro-cloud' | 'daytona' | 'runloop' | 'aws' | 'gcp'
 
@@ -332,7 +333,9 @@ async function getAccountCredentials(userId: string, accountId: string | undefin
   )
   const row = accountId ? rows.find((r) => r.id === accountId) : rows[0]
   if (!row) throw new Error(`No enabled ${channel} connected account found`)
-  return row.credentials as Record<string, unknown>
+  return isEncrypted(row.credentials)
+    ? decryptJsonb<Record<string, unknown>>(row.credentials)
+    : (row.credentials as Record<string, unknown>)
 }
 
 class DaytonaProvisioner implements CloudProvisioner {
