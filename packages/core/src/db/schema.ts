@@ -585,6 +585,12 @@ export const refreshTokens = pgTable('refresh_tokens', {
 }))
 
 // ── Passkey Credentials ──────────────────────────────────────────────
+// Used in two modes:
+//   - SaaS (Supabase): user_id references auth.users(id); rows mirror Supabase auth.
+//   - HIPAA / local (PGlite): user_id references user_profiles(id); inserted by
+//     the PGlitePasskeyStore in server/lib/passkey-store.ts.
+// Phase 2 (HIPAA) added: deviceType, backedUp, name, updatedAt — additive,
+// nullable / defaulted so existing SaaS rows keep working unchanged.
 export const passkeyCredentials = pgTable('passkey_credentials', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
@@ -592,7 +598,12 @@ export const passkeyCredentials = pgTable('passkey_credentials', {
   counter: integer('counter').notNull().default(0),
   transports: text('transports').array(),
   deviceName: text('device_name'),
+  // HIPAA Phase 2 extensions:
+  deviceType: text('device_type'), // 'singleDevice' | 'multiDevice'
+  backedUp: boolean('backed_up').notNull().default(false),
+  name: text('name'), // user-visible label
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
   lastUsedAt: timestamp('last_used_at'),
 }, (table) => ({
   userIdIdx: index('idx_passkey_credentials_user_id').on(table.userId),

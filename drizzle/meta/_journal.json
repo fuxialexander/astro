@@ -309,6 +309,13 @@
       "when": 1776962012318,
       "tag": "0043_high_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1777008763364,
+      "tag": "0044_long_leopardon",
+      "breakpoints": true
     }
   ]
 }
