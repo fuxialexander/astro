@@ -10,6 +10,11 @@
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
 import { eq, gt, and, inArray, lt, sql, desc, isNull } from 'drizzle-orm'
+import {
+  maybeEncryptStreamingEventData,
+  maybeDecryptStreamingEventData,
+  isHipaaMode,
+} from './phi-encryption.js'
 
 export interface StreamingEvent {
   seq: number
@@ -40,7 +45,7 @@ class StreamingEventLog {
       const [row] = await db.insert(streamingEvents).values({
         executionId,
         eventType: 'text',
-        data: { text },
+        data: maybeEncryptStreamingEventData({ text }) as Record<string, unknown>,
       }).returning({ seq: streamingEvents.seq })
       return row.seq
     } catch (err) {
@@ -66,7 +71,7 @@ class StreamingEventLog {
       const [row] = await db.insert(streamingEvents).values({
         executionId,
         eventType,
-        data: data as Record<string, unknown>,
+        data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
       }).returning({ seq: streamingEvents.seq })
       return row.seq
     } catch (err) {
@@ -106,7 +111,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType,
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -155,7 +160,12 @@ class StreamingEventLog {
           .limit(1)
 
         if (existing[0]) {
-          const existingData = existing[0].data as Record<string, unknown> | null
+          // Decrypt before reading `synthetic` — in HIPAA mode the raw row may
+          // be a `{ encrypted: ..., ...indexFields }` envelope. `synthetic` is
+          // an index field today and would survive at the top level, but
+          // routing through `maybeDecryptStreamingEventData` keeps this code
+          // correct even if the index-field allowlist changes.
+          const existingData = maybeDecryptStreamingEventData(existing[0].data) as Record<string, unknown> | null
           const isSynthetic = existingData?.synthetic === true
 
           if (!isSynthetic) {
@@ -172,7 +182,7 @@ class StreamingEventLog {
           const [row] = await tx.insert(streamingEvents).values({
             executionId,
             eventType: 'result',
-            data: data as Record<string, unknown>,
+            data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
           }).returning({ seq: streamingEvents.seq })
 
           return { seq: row.seq, overrodeSynthetic: true }
@@ -182,7 +192,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'result',
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return { seq: row.seq, overrodeSynthetic: false }
@@ -211,24 +221,49 @@ class StreamingEventLog {
       return await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-approval:${executionId}:${data.requestId}`}))`)
 
-        const existing = await tx.select({ seq: streamingEvents.seq })
-          .from(streamingEvents)
-          .where(
-            and(
-              eq(streamingEvents.executionId, executionId),
-              eq(streamingEvents.eventType, 'approval_request'),
-              sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
-            ),
-          )
-          .orderBy(desc(streamingEvents.seq))
-          .limit(1)
+        // In HIPAA mode, `requestId` is currently kept at the top level so the
+        // JSONB `->> 'requestId'` filter still works. We defend in depth by
+        // fetching candidates and matching after decryption — keeps this code
+        // correct if the index-field allowlist ever changes.
+        let existingSeq: number | null = null
+        if (isHipaaMode()) {
+          const candidates = await tx.select({ seq: streamingEvents.seq, data: streamingEvents.data })
+            .from(streamingEvents)
+            .where(
+              and(
+                eq(streamingEvents.executionId, executionId),
+                eq(streamingEvents.eventType, 'approval_request'),
+              ),
+            )
+            .orderBy(desc(streamingEvents.seq))
+          for (const row of candidates) {
+            const decoded = maybeDecryptStreamingEventData(row.data) as { requestId?: string } | null
+            if (decoded?.requestId === data.requestId) {
+              existingSeq = row.seq
+              break
+            }
+          }
+        } else {
+          const existing = await tx.select({ seq: streamingEvents.seq })
+            .from(streamingEvents)
+            .where(
+              and(
+                eq(streamingEvents.executionId, executionId),
+                eq(streamingEvents.eventType, 'approval_request'),
+                sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
+              ),
+            )
+            .orderBy(desc(streamingEvents.seq))
+            .limit(1)
+          if (existing[0]) existingSeq = existing[0].seq
+        }
 
-        if (existing[0]) return existing[0].seq
+        if (existingSeq !== null) return existingSeq
 
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'approval_request',
-          data,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -257,24 +292,45 @@ class StreamingEventLog {
       return await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-approval-resp:${executionId}:${data.requestId}`}))`)
 
-        const existing = await tx.select({ seq: streamingEvents.seq })
-          .from(streamingEvents)
-          .where(
-            and(
-              eq(streamingEvents.executionId, executionId),
-              eq(streamingEvents.eventType, 'approval_response'),
-              sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
-            ),
-          )
-          .orderBy(desc(streamingEvents.seq))
-          .limit(1)
+        let existingSeq: number | null = null
+        if (isHipaaMode()) {
+          const candidates = await tx.select({ seq: streamingEvents.seq, data: streamingEvents.data })
+            .from(streamingEvents)
+            .where(
+              and(
+                eq(streamingEvents.executionId, executionId),
+                eq(streamingEvents.eventType, 'approval_response'),
+              ),
+            )
+            .orderBy(desc(streamingEvents.seq))
+          for (const row of candidates) {
+            const decoded = maybeDecryptStreamingEventData(row.data) as { requestId?: string } | null
+            if (decoded?.requestId === data.requestId) {
+              existingSeq = row.seq
+              break
+            }
+          }
+        } else {
+          const existing = await tx.select({ seq: streamingEvents.seq })
+            .from(streamingEvents)
+            .where(
+              and(
+                eq(streamingEvents.executionId, executionId),
+                eq(streamingEvents.eventType, 'approval_response'),
+                sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
+              ),
+            )
+            .orderBy(desc(streamingEvents.seq))
+            .limit(1)
+          if (existing[0]) existingSeq = existing[0].seq
+        }
 
-        if (existing[0]) return existing[0].seq
+        if (existingSeq !== null) return existingSeq
 
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'approval_response',
-          data,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -323,7 +379,7 @@ class StreamingEventLog {
         const [row] = await tx.insert(streamingEvents).values({
           executionId,
           eventType: 'safety_prompt',
-          data: data as Record<string, unknown>,
+          data: maybeEncryptStreamingEventData(data) as Record<string, unknown>,
         }).returning({ seq: streamingEvents.seq })
 
         return row.seq
@@ -375,7 +431,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
@@ -429,7 +485,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
@@ -441,8 +497,55 @@ class StreamingEventLog {
   /**
    * Atomically claim pending steer messages by updating status to 'sent' and returning them.
    * Prevents race conditions between the steer endpoint and drainPendingSteers.
+   *
+   * Note on HIPAA mode: in HIPAA mode the row stores a `{ encrypted, ...indexFields }`
+   * envelope. The JSONB `||` shallow-merge would only update top-level index
+   * fields and leaves the encrypted blob untouched (which is what we want for
+   * `status` / `batchId`, both index fields). We still take the SELECT → mutate
+   * → re-encrypt path under HIPAA so the rewrite remains correct even if a
+   * future encryption change ever moves these fields inside the encrypted
+   * payload.
    */
   async claimPendingSteers(executionId: string, batchId: string): Promise<StreamingEvent[]> {
+    if (isHipaaMode()) {
+      try {
+        return await db.transaction(async (tx) => {
+          // Lock + fetch pending rows in a stable order
+          const rows = await tx.execute(sql`
+            SELECT seq, execution_id AS "executionId", event_type AS "eventType", data, created_at AS "createdAt"
+            FROM streaming_events
+            WHERE execution_id = ${executionId}
+              AND event_type = 'steer_message'
+              AND data->>'status' = 'pending'
+            ORDER BY seq
+            FOR UPDATE
+          `)
+          const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }>
+
+          const claimed: StreamingEvent[] = []
+          for (const r of rowArray) {
+            const decrypted = maybeDecryptStreamingEventData(r.data) as Record<string, unknown>
+            const mutated = { ...decrypted, status: 'sent', batchId }
+            const reEncrypted = maybeEncryptStreamingEventData(mutated) as Record<string, unknown>
+            await tx.update(streamingEvents)
+              .set({ data: reEncrypted })
+              .where(eq(streamingEvents.seq, r.seq))
+            claimed.push({
+              seq: r.seq,
+              executionId: r.executionId,
+              eventType: r.eventType,
+              data: mutated,
+              createdAt: r.createdAt,
+            })
+          }
+          return claimed
+        })
+      } catch (err) {
+        console.warn('[streaming-event-log] Failed to claimPendingSteers (hipaa):', (err as Error).message)
+        return []
+      }
+    }
+
     try {
       const rows = await db.execute(sql`
         UPDATE streaming_events
@@ -458,7 +561,7 @@ class StreamingEventLog {
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
-        data: r.data,
+        data: maybeDecryptStreamingEventData(r.data),
         createdAt: r.createdAt,
       }))
     } catch (err) {
@@ -469,8 +572,29 @@ class StreamingEventLog {
 
   /**
    * Update the status of a steer_message event by seq number.
+   * In HIPAA mode: SELECT FOR UPDATE → decrypt → mutate → re-encrypt → UPDATE.
    */
   async updateSteerStatus(seq: number, status: 'sent' | 'acknowledged' | 'timed_out', batchId?: string): Promise<void> {
+    if (isHipaaMode()) {
+      try {
+        await db.transaction(async (tx) => {
+          const rows = await tx.execute(sql`
+            SELECT data FROM streaming_events WHERE seq = ${seq} FOR UPDATE
+          `)
+          const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ data: unknown }>
+          if (rowArray.length === 0) return
+          const decrypted = maybeDecryptStreamingEventData(rowArray[0].data) as Record<string, unknown>
+          const mutated: Record<string, unknown> = { ...decrypted, status }
+          if (batchId) mutated.batchId = batchId
+          const reEncrypted = maybeEncryptStreamingEventData(mutated) as Record<string, unknown>
+          await tx.update(streamingEvents).set({ data: reEncrypted }).where(eq(streamingEvents.seq, seq))
+        })
+      } catch (err) {
+        console.warn('[streaming-event-log] Failed to updateSteerStatus (hipaa):', (err as Error).message)
+      }
+      return
+    }
+
     try {
       const update: Record<string, unknown> = { status }
       if (batchId) update.batchId = batchId
@@ -486,9 +610,35 @@ class StreamingEventLog {
 
   /**
    * Batch update status for multiple steer_message events.
+   * In HIPAA mode: SELECT FOR UPDATE → decrypt → mutate → re-encrypt → UPDATE per row.
    */
   async batchUpdateSteerStatus(seqs: number[], status: 'pending' | 'sent' | 'acknowledged' | 'timed_out', batchId?: string): Promise<void> {
     if (seqs.length === 0) return
+
+    if (isHipaaMode()) {
+      try {
+        await db.transaction(async (tx) => {
+          const rows = await tx.execute(sql`
+            SELECT seq, data FROM streaming_events
+            WHERE seq = ANY(${seqs})
+            ORDER BY seq
+            FOR UPDATE
+          `)
+          const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ seq: number; data: unknown }>
+          for (const r of rowArray) {
+            const decrypted = maybeDecryptStreamingEventData(r.data) as Record<string, unknown>
+            const mutated: Record<string, unknown> = { ...decrypted, status }
+            if (batchId) mutated.batchId = batchId
+            const reEncrypted = maybeEncryptStreamingEventData(mutated) as Record<string, unknown>
+            await tx.update(streamingEvents).set({ data: reEncrypted }).where(eq(streamingEvents.seq, r.seq))
+          }
+        })
+      } catch (err) {
+        console.warn('[streaming-event-log] Failed to batchUpdateSteerStatus (hipaa):', (err as Error).message)
+      }
+      return
+    }
+
     try {
       const update: Record<string, unknown> = { status }
       if (batchId) update.batchId = batchId
@@ -507,6 +657,31 @@ class StreamingEventLog {
    * Used when the agent acks (or rejects) all pending steers at once.
    */
   async updateSentSteersStatus(executionId: string, status: 'acknowledged' | 'timed_out'): Promise<void> {
+    if (isHipaaMode()) {
+      try {
+        await db.transaction(async (tx) => {
+          const rows = await tx.execute(sql`
+            SELECT seq, data FROM streaming_events
+            WHERE execution_id = ${executionId}
+              AND event_type = 'steer_message'
+              AND data->>'status' = 'sent'
+            ORDER BY seq
+            FOR UPDATE
+          `)
+          const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ seq: number; data: unknown }>
+          for (const r of rowArray) {
+            const decrypted = maybeDecryptStreamingEventData(r.data) as Record<string, unknown>
+            const mutated = { ...decrypted, status }
+            const reEncrypted = maybeEncryptStreamingEventData(mutated) as Record<string, unknown>
+            await tx.update(streamingEvents).set({ data: reEncrypted }).where(eq(streamingEvents.seq, r.seq))
+          }
+        })
+      } catch (err) {
+        console.warn('[streaming-event-log] Failed to updateSentSteersStatus (hipaa):', (err as Error).message)
+      }
+      return
+    }
+
     try {
       await db.update(streamingEvents)
         .set({
