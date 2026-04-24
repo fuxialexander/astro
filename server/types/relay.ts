@@ -150,6 +150,26 @@ export interface ImageAttachment {
  */
 export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize' | 'playground' | 'follow-up';
 
+export interface StorageMount {
+  provider: 's3' | 'gcs';
+  accountId?: string;
+  uri: string;
+  path: string;
+  access?: 'staged' | 'streaming';
+  mode: 'read' | 'readwrite';
+  sync?: 'start' | 'finish' | 'both';
+  formatHint?: 'zarr' | 'parquet' | 'delta' | 'iceberg' | 'custom';
+  /** Private runner handoff; never returned to frontend APIs. */
+  credentials?: Record<string, string>;
+}
+
+export interface ResourceProfile {
+  cpu?: number;
+  memoryGb?: number;
+  gpu?: number;
+  ttlMinutes?: number;
+}
+
 /**
  * A single message in a conversation history.
  *
@@ -193,6 +213,10 @@ export interface TaskDispatch {
   preferredProvider?: ProviderType;
   /** Preferred execution strategy (direct, slurm, docker, k8s-exec) */
   executionStrategy?: string;
+  /** Staged object-storage mounts prepared by the runner before/after execution */
+  storageMounts?: StorageMount[];
+  /** Optional resource request for provisioned or distributed compute backends */
+  resourceProfile?: ResourceProfile;
   priority?: number;
   timeout?: number;  // Timeout in milliseconds
   workingDirectory?: string;

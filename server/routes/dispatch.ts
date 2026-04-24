@@ -19,13 +19,13 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { getAvailableMachines } from '../lib/registered-machines-store.js'
 import { getUserDispatchPublicKeys } from '../lib/user-dispatch-public-keys.js'
-import type { ProviderType, ImageAttachment, MachineRegistryEntry } from '../types/relay.js'
+import type { ProviderType, ImageAttachment, MachineRegistryEntry, StorageMount } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planEdges, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams, deliveryBranches } from '../lib/db/schema.js'
+import { projects, planNodes, planEdges, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams, deliveryBranches, connectedAccounts } from '../lib/db/schema.js'
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -42,6 +42,7 @@ import { redisPubSub } from '../lib/redis-pubsub.js'
 import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
+import { storageMountSchema, validateStorageMount } from '../lib/storage-mounts.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -352,6 +353,12 @@ const dispatchTaskSchema = z.object({
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   computeBackend: z.string().max(100).optional(),
+  resourceProfile: z.object({
+    cpu: z.number().int().min(1).max(512).optional(),
+    memoryGb: z.number().min(0.5).max(4096).optional(),
+    gpu: z.number().int().min(0).max(64).optional(),
+    ttlMinutes: z.number().int().min(1).max(1440).optional(),
+  }).optional(),
   deliveryMode: z.enum(['pr', 'push', 'branch', 'copy', 'direct']).optional(),
   remoteType: z.enum(['github', 'gitlab', 'bitbucket', 'generic', 'none']).optional(),
   agentDir: z.string().max(100).optional(),
@@ -378,6 +385,7 @@ const dispatchTaskSchema = z.object({
     ),
     mode: z.enum(['working', 'reference']),
   })).max(10).optional(),
+  storageMounts: z.array(storageMountSchema).max(10).optional(),
   imageRefs: z.array(z.string().uuid()).max(20).optional(),
   isInteractivePlan: z.boolean().optional(),
   skipSafetyCheck: z.boolean().optional(),
@@ -490,6 +498,7 @@ dispatchRoute.post('/task', async (c) => {
     force = false,
     dryRun = false,
     computeBackend,
+    resourceProfile,
     agentDir,
     worktreeStrategy,
     imageRefs,
@@ -507,6 +516,7 @@ dispatchRoute.post('/task', async (c) => {
     followUpMessage,
     dispatchOrigin,
     additionalFolders,
+    storageMounts,
   } = body
   // telegramContext is re-assigned below to enforce server-controlled userId
   let telegramContext = body.telegramContext
@@ -1016,6 +1026,8 @@ dispatchRoute.post('/task', async (c) => {
     dispatchOrigin,
     telegramContext,
     additionalFolders,
+    storageMounts,
+    resourceProfile,
     importManifest: body.importManifest,
   })
 })
@@ -1041,6 +1053,7 @@ async function dispatchViaRelay(
     priority: DispatchPriority
     workingDirectory?: string
     computeBackend?: string
+    resourceProfile?: { cpu?: number; memoryGb?: number; gpu?: number; ttlMinutes?: number }
     deliveryMode?: string
     remoteType?: string
     isGit?: boolean
@@ -1083,6 +1096,7 @@ async function dispatchViaRelay(
     nodeMetadata?: Record<string, unknown> | null
     discoveryMode?: boolean
     additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+    storageMounts?: Array<{ provider: 's3' | 'gcs'; accountId?: string; uri: string; path: string; access?: 'staged' | 'streaming'; mode: 'read' | 'readwrite'; sync?: 'start' | 'finish' | 'both'; formatHint?: 'zarr' | 'parquet' | 'delta' | 'iceberg' | 'custom' }>
     importManifest?: z.infer<typeof dispatchTaskSchema>['importManifest']
   }
 ) {
@@ -1105,6 +1119,7 @@ async function dispatchViaRelay(
     priority,
     workingDirectory,
     computeBackend,
+    resourceProfile,
     deliveryMode: deliveryModeParam,
     remoteType,
     isGit,
@@ -1147,6 +1162,7 @@ async function dispatchViaRelay(
     dispatchOrigin,
     telegramContext,
     additionalFolders,
+    storageMounts,
     importManifest,
   } = params
   const deliveryMode = deliveryModeParam
@@ -2002,6 +2018,32 @@ ${verificationSection}${executiveSummarySection}`)
     }
   }
 
+  let resolvedStorageMounts: StorageMount[] | undefined
+  if (storageMounts && storageMounts.length > 0) {
+    resolvedStorageMounts = []
+    for (const mount of storageMounts) {
+      const validation = validateStorageMount(mount)
+      if (!validation.ok) {
+        return c.json({ success: false, error: validation.error }, 400)
+      }
+      const expectedChannel = mount.provider === 's3' ? 'aws' : 'gcp'
+      let credentials: Record<string, string> | undefined
+      if (mount.accountId) {
+        const [account] = await db.select().from(connectedAccounts).where(and(
+          eq(connectedAccounts.id, mount.accountId),
+          eq(connectedAccounts.userId, user!.id),
+          eq(connectedAccounts.channel, expectedChannel),
+          eq(connectedAccounts.enabled, true),
+        )).limit(1)
+        if (!account) {
+          return c.json({ success: false, error: `Storage mount account not found or disabled: ${mount.accountId}` }, 400)
+        }
+        credentials = account.credentials as Record<string, string>
+      }
+      resolvedStorageMounts.push({ ...mount, credentials })
+    }
+  }
+
   const relayPrompt = promptParts.join('\n\n---\n\n')
 
   // Dry run: return assembled prompt without dispatching
@@ -2099,6 +2141,7 @@ ${verificationSection}${executiveSummarySection}`)
     effort: effort || undefined,
     maxTurns: maxTurns || undefined,
     executionStrategy: computeBackend,
+    resourceProfile,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
     deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType, isGit)),
@@ -2127,6 +2170,7 @@ ${verificationSection}${executiveSummarySection}`)
     ...(dispatchOrigin && { dispatchOrigin }),
     ...(dispatchOrigin === 'telegram' && telegramContext?.chatId && { telegramChatId: telegramContext.chatId }),
     ...(additionalFolders && additionalFolders.length > 0 && { additionalFolders }),
+    ...(resolvedStorageMounts && resolvedStorageMounts.length > 0 && { storageMounts: resolvedStorageMounts }),
   }
 
   // Track directory for safety decision caching (local + Redis write-through)

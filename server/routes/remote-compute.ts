@@ -1,0 +1,175 @@
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { db } from '../lib/db/index.js'
+import { connectedAccounts, remoteComputePools, teams } from '../lib/db/schema.js'
+import { hasFeature } from '../lib/feature-flags.js'
+import { getCloudProvisioner, type CloudProvider } from '../lib/remote-compute/cloud-provisioner.js'
+
+const isDesktop = process.env.ASTRO_DESKTOP === '1'
+
+function detectAwsLocally(): boolean {
+  if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return true
+  return existsSync(join(homedir(), '.aws', 'credentials')) ||
+         existsSync(join(homedir(), '.aws', 'config'))
+}
+
+function detectGcpLocally(): boolean {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT) return true
+  return existsSync(join(homedir(), '.config', 'gcloud', 'application_default_credentials.json'))
+}
+
+export const remoteComputeRoute = new Hono()
+
+remoteComputeRoute.use('/*', requireAuth)
+
+async function requireFeature(user: AuthUser) {
+  const [team] = await db.select({ featureFlags: teams.featureFlags }).from(teams).where(eq(teams.id, user.teamId)).limit(1)
+  return hasFeature(team?.featureFlags, 'remote-compute-sandboxes')
+}
+
+const createPoolSchema = z.object({
+  provider: z.enum(['daytona', 'runloop', 'aws', 'gcp']),
+  accountId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
+  desiredRunners: z.number().int().min(1).max(32).default(1),
+  resourceProfile: z.object({
+    cpu: z.number().int().min(1).max(64).optional(),
+    memoryGb: z.number().min(0.5).max(512).optional(),
+    gpu: z.number().int().min(0).max(16).optional(),
+    ttlMinutes: z.number().int().min(1).max(1440).optional(),
+  }).default({}),
+  limits: z.object({
+    maxActiveSandboxes: z.number().int().min(1).max(256).optional(),
+    maxVcpu: z.number().int().min(1).max(4096).optional(),
+    maxMemoryGb: z.number().min(1).max(16384).optional(),
+    maxTtlMinutes: z.number().int().min(1).max(10080).optional(),
+    maxEstimatedHourlyCostUsd: z.number().min(0.01).max(10_000).optional(),
+  }).default({}),
+})
+
+remoteComputeRoute.get('/detect', async (c) => {
+  const user = c.get('user') as AuthUser
+
+  // Daytona: always checkable (stored in DB, scoped to user)
+  const daytonaAccounts = await db.select({ id: connectedAccounts.id })
+    .from(connectedAccounts)
+    .where(and(eq(connectedAccounts.userId, user.id), eq(connectedAccounts.channel, 'daytona')))
+    .limit(1)
+  const hasDaytona = daytonaAccounts.length > 0
+
+  // AWS / GCP: only detectable in Electron (server runs on user's machine)
+  // In web/production mode, infer from past successful pools instead
+  let awsDetected: boolean | null = null
+  let gcpDetected: boolean | null = null
+
+  if (isDesktop) {
+    awsDetected = detectAwsLocally()
+    gcpDetected = detectGcpLocally()
+  } else {
+    // Infer from past pools that provisioned successfully
+    const pastProviders = await db.select({ provider: remoteComputePools.provider })
+      .from(remoteComputePools)
+      .where(and(
+        inArray(remoteComputePools.teamId, user.teamIds),
+        inArray(remoteComputePools.provider, ['aws', 'gcp']),
+        sql`${remoteComputePools.status} != 'failed'`,
+      ))
+      .limit(10)
+    const pastSet = new Set(pastProviders.map((r) => r.provider))
+    if (pastSet.has('aws')) awsDetected = true
+    if (pastSet.has('gcp')) gcpDetected = true
+  }
+
+  return c.json({
+    isDesktop,
+    providers: {
+      daytona: { detected: hasDaytona, source: 'connected-accounts' as const },
+      aws: { detected: awsDetected, source: isDesktop ? 'local-credentials' as const : 'pool-history' as const },
+      gcp: { detected: gcpDetected, source: isDesktop ? 'local-credentials' as const : 'pool-history' as const },
+    },
+  })
+})
+
+remoteComputeRoute.get('/pools', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const rows = await db.select().from(remoteComputePools)
+    .where(inArray(remoteComputePools.teamId, user.teamIds))
+    .orderBy(desc(remoteComputePools.createdAt))
+    .limit(100)
+
+  return c.json({ pools: rows })
+})
+
+remoteComputeRoute.post('/pools', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const parsed = createPoolSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+
+  const body = parsed.data
+  const provisioner = getCloudProvisioner(body.provider as CloudProvider)
+  try {
+    const pool = await provisioner.createRunnerPool({
+      teamId: user.teamId,
+      userId: user.id,
+      provider: body.provider as CloudProvider,
+      accountId: body.accountId,
+      projectId: body.projectId,
+      desiredRunners: body.desiredRunners,
+      resourceProfile: body.resourceProfile,
+      limits: body.limits,
+    })
+    return c.json({ pool }, pool.status === 'failed' ? 502 : 201)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+  }
+})
+
+remoteComputeRoute.patch('/pools/:id/scale', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const id = c.req.param('id')
+  const [pool] = await db.select().from(remoteComputePools)
+    .where(and(eq(remoteComputePools.id, id), inArray(remoteComputePools.teamId, user.teamIds)))
+    .limit(1)
+  if (!pool) return c.json({ error: 'Pool not found' }, 404)
+
+  const body = await c.req.json<{ desiredRunners: number }>()
+  if (typeof body.desiredRunners !== 'number' || body.desiredRunners < 0) {
+    return c.json({ error: 'desiredRunners must be a non-negative integer' }, 400)
+  }
+
+  const provisioner = getCloudProvisioner(pool.provider as CloudProvider)
+  try {
+    await provisioner.scaleRunnerPool(id, body.desiredRunners)
+    return c.json({ success: true })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+  }
+})
+
+remoteComputeRoute.delete('/pools/:id', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const id = c.req.param('id')
+  const [pool] = await db.select().from(remoteComputePools)
+    .where(and(eq(remoteComputePools.id, id), inArray(remoteComputePools.teamId, user.teamIds)))
+    .limit(1)
+  if (!pool) return c.json({ error: 'Pool not found' }, 404)
+
+  const provisioner = getCloudProvisioner(pool.provider as CloudProvider)
+  await provisioner.terminateRunnerPool(id)
+  return c.json({ success: true })
+})

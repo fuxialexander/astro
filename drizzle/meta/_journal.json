@@ -302,6 +302,13 @@
       "when": 1776798190506,
       "tag": "0042_known_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1776962012318,
+      "tag": "0043_high_king_cobra",
+      "breakpoints": true
     }
   ]
 }

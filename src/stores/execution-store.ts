@@ -176,6 +176,10 @@ export interface ExecutionOptions {
   baseBranch?: string
   /** Extra folders to mount alongside the primary workingDirectory. */
   additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+  /** Object-storage prefixes exposed as staged local paths or streaming cloud-native URIs for the task. */
+  storageMounts?: Array<{ provider: 's3' | 'gcs'; accountId?: string; uri: string; path: string; access?: 'staged' | 'streaming'; mode: 'read' | 'readwrite'; sync?: 'start' | 'finish' | 'both'; formatHint?: 'zarr' | 'parquet' | 'delta' | 'iceberg' | 'custom' }>
+  /** Resource request for provisioned or distributed compute backends. */
+  resourceProfile?: { cpu?: number; memoryGb?: number; gpu?: number; ttlMinutes?: number }
   /** Follow-up execution: re-dispatch with delivery pipeline after task completion */
   isFollowUp?: boolean
   /** The follow-up instruction from the user */
@@ -301,6 +305,8 @@ interface ExecutionState {
       baseBranch?: string
       useWorktree?: boolean
       additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+      storageMounts?: ExecutionOptions['storageMounts']
+      resourceProfile?: ExecutionOptions['resourceProfile']
     }
   ) => Promise<{ projectId: string; nodeId: string }>
 
@@ -343,6 +349,8 @@ interface ExecutionState {
       selectedBackends?: string[]
       teamId?: string
       additionalFolders?: Array<{ machineId: string; path: string; mode: 'working' | 'reference' }>
+      storageMounts?: ExecutionOptions['storageMounts']
+      resourceProfile?: ExecutionOptions['resourceProfile']
       /**
        * Bootstrap the new session from external agent transcripts. The server
        * copies each referenced JSONL into `.astro/imports/` on the target
@@ -630,7 +638,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           worktreeStrategy: project?.worktreeStrategy || undefined,
           useWorktree: options?.useWorktree ?? project?.useWorktree,
           ...(options?.baseBranch && { baseBranch: options.baseBranch }),
-          ...(options?.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
+      ...(options?.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
+      ...(options?.storageMounts?.length && { storageMounts: options.storageMounts }),
+      ...(options?.resourceProfile && { resourceProfile: options.resourceProfile }),
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria || undefined,
           ...(options?.isFollowUp && { isFollowUp: true, force: true }),
@@ -1333,6 +1343,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             ...(options?.baseBranch && { baseBranch: options.baseBranch }),
             ...(options?.useWorktree !== undefined && { useWorktree: options.useWorktree }),
             ...(options?.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
+            ...(options?.storageMounts?.length && { storageMounts: options.storageMounts }),
+            ...(options?.resourceProfile && { resourceProfile: options.resourceProfile }),
             ...signing,
           }),
           signal: abortController.signal,
@@ -1613,6 +1625,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             ...(options.baseBranch && { baseBranch: options.baseBranch }),
             ...(options.useWorktree !== undefined && { useWorktree: options.useWorktree }),
             ...(options.additionalFolders?.length && { additionalFolders: options.additionalFolders }),
+            ...(options.storageMounts?.length && { storageMounts: options.storageMounts }),
+            ...(options.resourceProfile && { resourceProfile: options.resourceProfile }),
             ...(options.resumeSessionId && { resumeSessionId: options.resumeSessionId }),
             ...(options.forkSession && { forkSession: options.forkSession }),
             ...(options.importManifest && { importManifest: options.importManifest }),

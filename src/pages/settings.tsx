@@ -56,6 +56,8 @@ import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { GitHubProjectLinker } from "@/components/github-project-linker"
 import { TelegramConnectCard } from "@/components/telegram-connect-card"
+import { ChannelAccountCard } from "@/components/channel-account-card"
+import { DaytonaIcon } from "@/components/icons/daytona-icon"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise } from "@/types"
 import { dataClient } from "@/lib/data-client"
@@ -653,6 +655,7 @@ function ProfileContent() {
 function ConnectedAccountsContent() {
   const { t } = useTranslation("settings")
   const gitHubEnabled = useFeatureFlag('github-integration')
+  const remoteComputeEnabled = useFeatureFlag('remote-compute-sandboxes')
   const oauthConnected = useGitHubStore((s) => s.connected)
   const oauthUser = useGitHubStore((s) => s.user)
   const fetchOAuthStatus = useGitHubStore((s) => s.fetchStatus)
@@ -809,6 +812,19 @@ function ConnectedAccountsContent() {
 
       {/* Telegram */}
       <TelegramConnectCard />
+
+      {/* Daytona — only shown when remote compute feature is on */}
+      {remoteComputeEnabled && (
+        <ChannelAccountCard
+          channel="daytona"
+          icon={DaytonaIcon}
+          title="Daytona"
+          description="Cloud sandbox runner pools via Daytona API."
+          fields={[
+            { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'dtn_...' },
+          ]}
+        />
+      )}
 
     </div>
   )

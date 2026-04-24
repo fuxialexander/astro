@@ -31,6 +31,7 @@ import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { TeamMachinesSection } from "@/components/environments/team-machines-section"
+import { ComputePoolsSection } from "@/components/environments/compute-pools-section"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
@@ -562,6 +563,7 @@ export function Environments() {
   // Check if we're in multi-tenant mode
   const isMultiTenant = isServerMode()
   const showTeamMachines = useFeatureFlag('team-machines')
+  const showRemoteCompute = useFeatureFlag('remote-compute-sandboxes')
 
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
   const registeredMachines = useMachinesStore((s) => s.machines)
@@ -1015,6 +1017,11 @@ export function Environments() {
           </div>
           <TeamMachinesSection />
         </div>
+      )}
+
+      {/* Remote Compute Pools */}
+      {showRemoteCompute && (
+        <ComputePoolsSection />
       )}
 
       {/* Compute Backends */}

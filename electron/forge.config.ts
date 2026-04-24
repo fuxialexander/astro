@@ -74,7 +74,7 @@ const config: ForgeConfig = {
     // posix_spawnp failures at runtime. VSCode does the same.
     asar: {
       unpack:
-        '**/{node_modules/node-pty/**,node_modules/ssh2/**,node_modules/cpu-features/**}',
+        '**/{node_modules/node-pty/**,node_modules/ssh2/**,node_modules/cpu-features/**,node_modules/@vscode/ripgrep/**}',
     },
     icon: path.join(repoRoot, 'electron', 'icons', 'icon'),
     extraResource: extraResources,
@@ -88,7 +88,7 @@ const config: ForgeConfig = {
     // prebuilds, so we route them through x64ArchFiles. Keep this glob in
     // sync with `asar.unpack` above and the `afterCopy` natives list below.
     osxUniversal: {
-      x64ArchFiles: '**/node_modules/{node-pty,ssh2,cpu-features}/**',
+      x64ArchFiles: '**/node_modules/{node-pty,ssh2,cpu-features,@vscode/ripgrep}/**',
       mergeASARs: false,
     },
     // The vite plugin bundles main.js but leaves native modules external,
@@ -97,7 +97,7 @@ const config: ForgeConfig = {
     // to app.asar.unpacked so Electron can dlopen them at runtime.
     afterCopy: [
       (buildPath, _electronVersion, _platform, _arch, callback) => {
-        const natives = ['node-pty', 'ssh2', 'cpu-features']
+        const natives = ['node-pty', 'ssh2', 'cpu-features', '@vscode/ripgrep']
         try {
           for (const name of natives) {
             const src = path.join(repoRoot, 'node_modules', name)

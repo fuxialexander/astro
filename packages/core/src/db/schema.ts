@@ -677,6 +677,44 @@ export const connectedAccounts = pgTable('connected_accounts', {
   userIdIdx: index('idx_connected_accounts_user_id').on(table.userId),
 }))
 
+// ── Remote Compute Pools ────────────────────────────────────────────
+// Ephemeral runner pools created by cloud sandbox provisioners. The live
+// execution channel is still the relay machine registry; this table records
+// desired lifecycle/cost state so cleanup and UI can survive backend restarts.
+export const remoteComputePools = pgTable('remote_compute_pools', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  provider: text('provider').notNull(), // 'daytona' | 'runloop' | 'aws' | 'gcp'
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  status: text('status').notNull().default('provisioning'), // provisioning | active | scaling | terminating | terminated | failed
+  desiredRunners: integer('desired_runners').notNull().default(1),
+  activeRunners: integer('active_runners').notNull().default(0),
+  resourceProfile: jsonb('resource_profile').$type<{
+    cpu?: number
+    memoryGb?: number
+    gpu?: number
+    ttlMinutes?: number
+  }>().notNull().default({}),
+  limits: jsonb('limits').$type<{
+    maxActiveSandboxes?: number
+    maxVcpu?: number
+    maxMemoryGb?: number
+    maxTtlMinutes?: number
+    maxEstimatedHourlyCostUsd?: number
+  }>().notNull().default({}),
+  costMetadata: jsonb('cost_metadata').$type<Record<string, unknown>>().notNull().default({}),
+  providerMetadata: jsonb('provider_metadata').$type<Record<string, unknown>>().notNull().default({}),
+  error: text('error'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index('idx_remote_compute_pools_team_id').on(table.teamId),
+  userIdIdx: index('idx_remote_compute_pools_user_id').on(table.userId),
+  statusIdx: index('idx_remote_compute_pools_status').on(table.status),
+}))
+
 // ── WebAuthn Challenges ─────────────────────────────────────────
 // Stores short-lived WebAuthn challenges for cross-instance verification.
 // Fixes production auth bug: challenges created on Machine A are now

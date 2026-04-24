@@ -67,6 +67,25 @@ export interface AdditionalFolder {
   mode: 'working' | 'reference'
 }
 
+export interface StorageMount {
+  provider: 's3' | 'gcs'
+  accountId?: string
+  uri: string
+  path: string
+  access?: 'staged' | 'streaming'
+  mode: 'read' | 'readwrite'
+  sync?: 'start' | 'finish' | 'both'
+  formatHint?: 'zarr' | 'parquet' | 'delta' | 'iceberg' | 'custom'
+  credentials?: Record<string, string>
+}
+
+export interface ResourceProfile {
+  cpu?: number
+  memoryGb?: number
+  gpu?: number
+  ttlMinutes?: number
+}
+
 /** Options that callers can override per-dispatch */
 export interface DispatchPayloadOptions {
   targetMachineId?: string
@@ -80,6 +99,10 @@ export interface DispatchPayloadOptions {
   baseBranch?: string
   /** Extra folders to mount alongside the primary workingDirectory. */
   additionalFolders?: AdditionalFolder[]
+  /** Object-storage prefixes exposed to the task as staged paths or streaming URIs. */
+  storageMounts?: StorageMount[]
+  /** Resource request for provisioned/distributed backends. */
+  resourceProfile?: ResourceProfile
   /** Origin of the dispatch request */
   dispatchOrigin?: DispatchOrigin
   /** Telegram context when dispatched from Telegram */
@@ -112,6 +135,8 @@ export interface DispatchTaskPayload {
   baseBranch?: string
   /** Extra folders to mount alongside the primary workingDirectory. */
   additionalFolders?: AdditionalFolder[]
+  storageMounts?: StorageMount[]
+  resourceProfile?: ResourceProfile
   /** Origin of the dispatch request */
   dispatchOrigin?: DispatchOrigin
   /** Telegram context when dispatched from Telegram */
@@ -203,6 +228,8 @@ export function buildDispatchPayload(
     // payload wins. Any code iterating `payload.additionalFolders` must
     // therefore nullish-check it first.
     ...(options?.additionalFolders && options.additionalFolders.length > 0 && { additionalFolders: options.additionalFolders }),
+    ...(options?.storageMounts && options.storageMounts.length > 0 && { storageMounts: options.storageMounts }),
+    ...(options?.resourceProfile && { resourceProfile: options.resourceProfile }),
     ...(options?.dispatchOrigin && { dispatchOrigin: options.dispatchOrigin }),
     ...(options?.telegramContext && { telegramContext: options.telegramContext }),
   }
