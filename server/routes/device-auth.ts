@@ -60,7 +60,9 @@ import {
   shareMachineWithTeam,
   unshareMachineFromTeam,
   getTeamMachines,
+  decodeProviderConfigs,
 } from '../lib/registered-machines-store.js';
+import { encryptJsonb } from '../lib/encryption.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
 import { db } from '../lib/db/index.js';
@@ -744,7 +746,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
         hostname: row.hostname as string,
         platform: row.platform as string,
         providers: row.providers as string[],
-        providerConfigs: row.provider_configs ?? [],
+        providerConfigs: decodeProviderConfigs(row.provider_configs),
         defaultInstructionId: (row.default_instruction_id as string) ?? null,
         userId: row.user_id as string,
         teamId: tIds[0] ?? (row.team_id as string) ?? null,
@@ -901,7 +903,7 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
     // Build update object
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
-    if (body.providerConfigs !== undefined) updates.provider_configs = body.providerConfigs;
+    if (body.providerConfigs !== undefined) updates.provider_configs = encryptJsonb(body.providerConfigs);
 
     const { data, error } = await supabase
       .from('registered_machines')
@@ -924,7 +926,7 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
       machine: {
         id: data.id,
         name: data.name,
-        providerConfigs: data.provider_configs,
+        providerConfigs: decodeProviderConfigs(data.provider_configs),
       },
     });
   } else {

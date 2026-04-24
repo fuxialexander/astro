@@ -40,15 +40,56 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       userAgent: entry.userAgent ?? null,
     });
   } catch (error: unknown) {
-    // Silently skip audit logging if table doesn't exist (backwards compatibility)
-    const err = error as { cause?: { code?: string } }
-    if (err?.cause?.code === '42P01') {
-      // PostgreSQL error code for "relation does not exist"
-      console.warn('[audit] Skipping - audit_logs table not found. Run migrations to enable.');
+    // Surface every audit failure at error level with a full stack. HIPAA
+    // mode (Phase 5) will escalate this to a hard failure so a broken audit
+    // pipeline cannot silently drop evidence; for Phase 0 we keep it
+    // non-fatal to avoid a SaaS regression, but we log loudly enough that
+    // the on-call is paged by log alerts.
+    const err = error as { cause?: { code?: string }; stack?: string; message?: string };
+    const pgCode = err?.cause?.code;
+    const context = {
+      action: entry.action,
+      resourceType: entry.resourceType,
+      resourceId: entry.resourceId,
+      userId: entry.userId,
+      pgCode,
+    };
+    if (pgCode === '42P01') {
+      // The `audit_logs` table is missing. This used to be treated as a
+      // benign "backward compat" case; it is in fact a deployment bug
+      // (migrations haven't been applied) and must be visible.
+      console.error(
+        '[audit] audit_logs table not found — audit event dropped. Run migrations.',
+        context,
+      );
     } else {
-      console.error('[audit] Failed to log audit event:', error);
+      console.error(
+        '[audit] Failed to persist audit event:',
+        err?.message ?? error,
+        context,
+      );
+      if (err?.stack) console.error(err.stack);
     }
-    // Don't throw - audit logging should not break the application
+    // Emit a metric if the observability pipeline is wired up. We resolve
+    // the recorder lazily so this module does not force the import graph.
+    try {
+      const mod = await import('../lib/observability/observation-collector.js');
+      const rec = (mod as unknown as {
+        recordMetric?: (name: string, value: number, tags?: Record<string, string>) => void;
+      }).recordMetric;
+      if (typeof rec === 'function') {
+        rec('audit.write_failed', 1, {
+          action: entry.action,
+          resourceType: entry.resourceType,
+          pgCode: pgCode ?? 'unknown',
+        });
+      }
+    } catch {
+      // Observability pipeline unavailable; the console.error above is
+      // still emitted, so we do not mask the original audit failure.
+    }
+    // Don't throw in Phase 0 — auditing must not take down request handling
+    // on the SaaS build. Phase 5 (HIPAA mode) will change this to rethrow.
   }
 }
 
