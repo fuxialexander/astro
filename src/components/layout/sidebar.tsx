@@ -613,11 +613,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   shouldCollapseNav && !collapsed && cn(
                     "absolute top-0 left-0 right-0 w-full",
                     navHovered && cn(
-                      "bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl backdrop-saturate-150",
-                      "ring-1 ring-inset ring-white/40 dark:ring-white/[0.06]",
+                      // Solid tinted card — must fully occlude projects behind.
+                      // Off-white (light) / elevated-dark (dark) blends with the
+                      // glass sidebar's rendered tone without standing out.
+                      "bg-zinc-50 dark:bg-[#1C1C1F]",
+                      "ring-1 ring-inset ring-black/[0.06] dark:ring-white/[0.06]",
                       "rounded-b-[12px]",
-                      "shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_8px_24px_-12px_rgba(0,0,0,0.18)]",
-                      "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_-12px_rgba(0,0,0,0.6)]",
+                      "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]",
                     ),
                   ),
                 )}
