@@ -500,9 +500,10 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       {desktopMode ? (
         <div className={cn(
           "flex shrink-0 items-center px-2",
-          // Expanded sidebar floats at top-2 (above traffic-light row), so push
-          // the workspace switcher right of the macOS traffic lights (~64px).
-          collapsed ? "flex-col py-2 gap-1" : "h-10 flex-row pl-[64px] pr-2 justify-between",
+          // Expanded sidebar floats at top-2 — macOS traffic lights are
+          // centered inside this 40px header (set in main-window.ts). The
+          // cluster spans ~14px → 66px, so leave 76px of left padding.
+          collapsed ? "flex-col py-2 gap-1" : "h-10 flex-row pl-[76px] pr-2 gap-1 justify-between",
         )}>
           <WorkspaceSwitcher iconOnly={!collapsed} collapsed={collapsed} />
           <Tooltip>
