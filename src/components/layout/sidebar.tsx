@@ -486,10 +486,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
               "bg-white/55 dark:bg-white/[0.04]",
               "backdrop-blur-2xl backdrop-saturate-150",
               // Hairline ring (replaces solid border) + bright top sheen
-              "ring-1 ring-inset ring-white/40 dark:ring-white/[0.06]",
-              // Softer shadow — lighter than demo, just enough to lift the card
-              "shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_4px_20px_-10px_rgba(0,0,0,0.08)]",
-              "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_4px_20px_-10px_rgba(0,0,0,0.45)]",
+              // Two-tone ring: bright white sheen + faint dark hairline so the
+              // bottom edge stays visible against the gradient background.
+              "ring-1 ring-inset ring-black/[0.06] dark:ring-white/[0.06]",
+              "shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_10px_30px_-12px_rgba(0,0,0,0.16),0_2px_6px_-2px_rgba(0,0,0,0.06)]",
+              "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.55),0_2px_6px_-2px_rgba(0,0,0,0.4)]",
             )
           : "border-r bg-card",
       )}
@@ -499,7 +500,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       {desktopMode ? (
         <div className={cn(
           "flex shrink-0 items-center gap-1.5 px-2",
-          collapsed ? "flex-col py-2" : "h-10 flex-row",
+          // Expanded sidebar floats at top-2 (above traffic-light row), so push
+          // the workspace switcher right of the macOS traffic lights (~64px).
+          collapsed ? "flex-col py-2" : "h-10 flex-row pl-[64px]",
         )}>
           <WorkspaceSwitcher iconOnly={!collapsed} collapsed={collapsed} />
           {!collapsed && <div className="flex-1" />}
@@ -614,11 +617,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                     "absolute top-0 left-0 right-0 w-full",
                     navHovered && cn(
                       // Solid tinted card — must fully occlude projects behind.
-                      // Off-white (light) / elevated-dark (dark) blends with the
-                      // glass sidebar's rendered tone without standing out.
                       "bg-zinc-50 dark:bg-[#1C1C1F]",
                       "ring-1 ring-inset ring-black/[0.06] dark:ring-white/[0.06]",
-                      "rounded-b-[12px]",
+                      "rounded-[12px] mx-1",
                       "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]",
                     ),
                   ),

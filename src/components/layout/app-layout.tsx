@@ -245,7 +245,7 @@ export function AppLayout() {
           sidebar header provides branding + search instead. */}
       {desktop && (
         <div
-          className="flex justify-between px-2 z-40 shrink-0 absolute top-0 left-0 right-0 h-8 items-center pointer-events-none"
+          className="flex justify-between px-2 z-40 shrink-0 absolute top-0 left-0 right-0 h-7 items-center pointer-events-none"
           style={{ ['WebkitAppRegion' as never]: 'drag' }}
         >
           <div
@@ -312,7 +312,7 @@ export function AppLayout() {
               "absolute z-30",
               effectiveCollapsed
                 ? "top-9 bottom-3 left-3"
-                : "top-9 bottom-3 left-3",
+                : "top-2 bottom-3 left-3",
             )}
             style={{
               width: effectiveCollapsed ? 52 : sidebarWidth,
@@ -328,7 +328,7 @@ export function AppLayout() {
 
         <main className={cn(
           "flex-1 min-w-0 flex flex-col overflow-hidden",
-          desktop ? "pt-9 pl-3 pr-3 bg-transparent" : "bg-background",
+          desktop ? "pt-2 pl-3 pr-3 bg-transparent" : "bg-background",
         )}>
           <SseDisconnectBanner />
           <PasskeyNudgeBanner />
