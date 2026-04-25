@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Bind Tailwind's `dark:` variant to the `.dark` class on <html> instead of
+   the OS media query, so it tracks the app's theme state (useTheme) and
+   doesn't fire when system is dark but app theme is light. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-primary: "DM Sans", "Noto Sans SC", sans-serif;
   --font-secondary: "Cormorant Garamond", "Noto Serif SC", serif;
