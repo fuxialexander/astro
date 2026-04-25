@@ -487,8 +487,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
               "backdrop-blur-2xl backdrop-saturate-150",
               // Hairline ring (replaces solid border) + bright top sheen
               "ring-1 ring-inset ring-white/40 dark:ring-white/[0.06]",
-              "shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_8px_32px_-12px_rgba(0,0,0,0.12),0_2px_8px_-4px_rgba(0,0,0,0.08)]",
-              "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_32px_-12px_rgba(0,0,0,0.6),0_2px_8px_-4px_rgba(0,0,0,0.4)]",
+              // Softer shadow — lighter than demo, just enough to lift the card
+              "shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_4px_20px_-10px_rgba(0,0,0,0.08)]",
+              "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_4px_20px_-10px_rgba(0,0,0,0.45)]",
             )
           : "border-r bg-card",
       )}
@@ -611,7 +612,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   collapsed ? "items-center" : "px-4",
                   shouldCollapseNav && !collapsed && cn(
                     "absolute top-0 left-0 right-0 w-full",
-                    navHovered && "bg-card border-b border-border/50 rounded-b-[10px] shadow-md",
+                    navHovered && cn(
+                      "bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl backdrop-saturate-150",
+                      "ring-1 ring-inset ring-white/40 dark:ring-white/[0.06]",
+                      "rounded-b-[12px]",
+                      "shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_8px_24px_-12px_rgba(0,0,0,0.18)]",
+                      "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_-12px_rgba(0,0,0,0.6)]",
+                    ),
                   ),
                 )}
               >
