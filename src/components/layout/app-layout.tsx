@@ -239,7 +239,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
+    <div className={`flex h-dvh flex-col overflow-hidden bg-background${desktop ? " glass-shell" : ""}`}>
       {/* Titlebar — desktop only: absolute overlay for window drag with
           sidebar-toggle + search (left) and panel-menu (right). On web the
           sidebar header provides branding + search instead. */}
@@ -327,8 +327,8 @@ export function AppLayout() {
         )}
 
         <main className={cn(
-          "flex-1 min-w-0 flex flex-col overflow-hidden bg-background",
-          desktop && "pt-8 pl-3 pr-3",
+          "flex-1 min-w-0 flex flex-col overflow-hidden",
+          desktop ? "pt-8 pl-3 pr-3 bg-transparent" : "bg-background",
         )}>
           <SseDisconnectBanner />
           <PasskeyNudgeBanner />

@@ -481,9 +481,14 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         "group/sidebar flex flex-col overflow-hidden h-full w-full",
         desktopMode
           ? cn(
-              "rounded-lg border bg-sidebar text-sidebar-foreground border-sidebar-border",
-              "shadow-[0_0_6px_-2px_rgba(0,0,0,0.16),0_0_18px_-10px_rgba(0,0,0,0.16)]",
-              "dark:shadow-[0_0_6px_-2px_rgba(0,0,0,0.65),0_0_18px_-10px_rgba(0,0,0,0.65)]",
+              "rounded-xl text-sidebar-foreground",
+              // Liquid glass: translucent fill + heavy blur + saturate boost
+              "bg-white/55 dark:bg-white/[0.04]",
+              "backdrop-blur-2xl backdrop-saturate-150",
+              // Hairline ring (replaces solid border) + bright top sheen
+              "ring-1 ring-inset ring-white/40 dark:ring-white/[0.06]",
+              "shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_8px_32px_-12px_rgba(0,0,0,0.12),0_2px_8px_-4px_rgba(0,0,0,0.08)]",
+              "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_32px_-12px_rgba(0,0,0,0.6),0_2px_8px_-4px_rgba(0,0,0,0.4)]",
             )
           : "border-r bg-card",
       )}
