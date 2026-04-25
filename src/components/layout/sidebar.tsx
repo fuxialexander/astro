@@ -499,13 +499,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       {/* ─── Header ─── desktop: workspace switcher; web: Astro branding + search. */}
       {desktopMode ? (
         <div className={cn(
-          "flex shrink-0 items-center gap-1.5 px-2",
+          "flex shrink-0 items-center px-2",
           // Expanded sidebar floats at top-2 (above traffic-light row), so push
           // the workspace switcher right of the macOS traffic lights (~64px).
-          collapsed ? "flex-col py-2" : "h-10 flex-row pl-[64px]",
+          collapsed ? "flex-col py-2 gap-1" : "h-10 flex-row pl-[64px] pr-2 justify-between",
         )}>
           <WorkspaceSwitcher iconOnly={!collapsed} collapsed={collapsed} />
-          {!collapsed && <div className="flex-1" />}
           <Tooltip>
             <TooltipTrigger asChild>
               <button onClick={() => navigate("/onboarding")} className={cn("flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors", location.pathname === "/onboarding" && "text-primary bg-primary/10")}>
@@ -523,15 +522,16 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             <TooltipContent side={collapsed ? "right" : "bottom"}>Search ({isMac ? "⌘" : "Ctrl+"}K)</TooltipContent>
           </Tooltip>
           {!collapsed && (
-            <div
-              className={cn(
-                "h-1.5 w-1.5 rounded-full shrink-0",
-                connectionStatus === "connected" ? "bg-success"
-                  : connectionStatus === "checking" ? "bg-warning animate-pulse"
-                  : "bg-destructive"
-              )}
-              title={`Connection: ${connectionStatus}`}
-            />
+            <div className="flex h-8 w-8 items-center justify-center" title={`Connection: ${connectionStatus}`}>
+              <div
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  connectionStatus === "connected" ? "bg-success"
+                    : connectionStatus === "checking" ? "bg-warning animate-pulse"
+                    : "bg-destructive"
+                )}
+              />
+            </div>
           )}
         </div>
       ) : collapsed ? (
@@ -614,12 +614,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   "flex flex-col py-2",
                   collapsed ? "items-center" : "px-4",
                   shouldCollapseNav && !collapsed && cn(
-                    "absolute top-0 left-0 right-0 w-full",
+                    "absolute top-0 inset-x-1",
                     navHovered && cn(
                       // Solid tinted card — must fully occlude projects behind.
                       "bg-zinc-50 dark:bg-[#1C1C1F]",
                       "ring-1 ring-inset ring-black/[0.06] dark:ring-white/[0.06]",
-                      "rounded-[12px] mx-1",
+                      "rounded-[12px]",
                       "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]",
                     ),
                   ),

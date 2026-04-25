@@ -1,15 +1,14 @@
 import { useEffect, useCallback, useRef, useState } from "react"
 import { Outlet } from "react-router"
-import { PanelRightClose, PanelLeft, Search } from "lucide-react"
+import { PanelRightClose } from "lucide-react"
 /**
- * Shared class strings for titlebar buttons so sidebar-toggle, search,
- * close-all-panels, and the panel menu all share one visual language.
+ * Shared class strings for titlebar buttons (right-side panel controls).
+ * Sidebar-toggle and search live in the sidebar header itself.
  */
 const TITLEBAR_BTN =
   "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground " +
   "transition-colors duration-[120ms] hover:bg-foreground/[0.06] hover:text-foreground " +
   "disabled:opacity-30 disabled:pointer-events-none"
-const TITLEBAR_BTN_ACTIVE = "bg-foreground/[0.06] text-foreground"
 
 import { Sidebar } from "./sidebar"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
@@ -80,8 +79,6 @@ function SidebarResizeHandle() {
 export function AppLayout() {
   const params = useParams()
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
-  const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const sidebarWidth = useUIStore((s) => s.sidebarWidth)
   const dockviewWidth = useUIStore((s) => s.dockviewWidth)
   const isSidebarResizing = useUIStore((s) => s.isSidebarResizing)
@@ -248,25 +245,10 @@ export function AppLayout() {
           className="flex justify-between px-2 z-40 shrink-0 absolute top-0 left-0 right-0 h-7 items-center pointer-events-none"
           style={{ ['WebkitAppRegion' as never]: 'drag' }}
         >
-          <div
-            className="flex items-center gap-1 pointer-events-auto ml-[72px]"
-            style={{ ['WebkitAppRegion' as never]: 'no-drag' }}
-          >
-            <button
-              onClick={toggleSidebar}
-              title={effectiveCollapsed ? "Show sidebar" : "Hide sidebar"}
-              className={cn(TITLEBAR_BTN, !effectiveCollapsed && TITLEBAR_BTN_ACTIVE)}
-            >
-              <PanelLeft className="h-3.5 w-3.5" strokeWidth={2} />
-            </button>
-            <button
-              onClick={() => setCommandPaletteOpen(true)}
-              title="Search (⌘K)"
-              className={TITLEBAR_BTN}
-            >
-              <Search className="h-3.5 w-3.5" strokeWidth={2} />
-            </button>
-          </div>
+          {/* Left side intentionally empty — sidebar-toggle + search live
+              inside the sidebar header. The titlebar still renders for
+              window dragging across this region. */}
+          <div />
           <div
             className="flex items-center gap-1 pointer-events-auto"
             style={{ ['WebkitAppRegion' as never]: 'no-drag' }}
