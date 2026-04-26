@@ -47,6 +47,27 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
 
   useEffect(() => () => cleanupSubscription(), [cleanupSubscription])
 
+  // If a prior session already finished auth (or we missed the broker event
+  // last time), don't re-run the device-code dance. Probe the local config
+  // on mount and self-advance.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const auth = await desktopBridge.onboarding.authState()
+        if (cancelled || !auth.authed) return
+        // Idempotent — start() returns the existing pid if already running.
+        void desktopBridge.localAgent.start().catch(() => {})
+        onComplete()
+      } catch {
+        // probe failed — keep showing the connect button
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [onComplete])
+
   const handleAuthEvent = useCallback(
     async (s: DeviceAuthState) => {
       if (s.state === "pending") {

@@ -48,18 +48,13 @@ export function AgentSetupStep() {
 
   const runPreparing = useCallback(async () => {
     setStep({ type: "preparing" })
+
+    // 1. Install bundled binaries to ~/.astro/bin if needed.
     try {
       const status = await desktopBridge.agent.setupStatus()
-      if (status.installed) {
-        setStep({ type: "connect" })
-        return
+      if (!status.installed) {
+        await desktopBridge.agent.setup()
       }
-    } catch {
-      // proceed to install regardless
-    }
-    try {
-      await desktopBridge.agent.setup()
-      setStep({ type: "connect" })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setStep({
@@ -68,7 +63,28 @@ export function AgentSetupStep() {
           ? "Bundled binaries not built yet. Run `npm run build:binaries` first."
           : msg,
       })
+      return
     }
+
+    // 2. If the user is already signed in (config.json has tokens +
+    //    setupCompleted), skip the connect step. Also kick off the local
+    //    agent in the background — it might not be running if a previous
+    //    attempt crashed or if the user reset the modal without quitting
+    //    the app.
+    try {
+      const auth = await desktopBridge.onboarding.authState()
+      if (auth.authed) {
+        // Fire-and-forget: starting the agent shouldn't block onboarding.
+        // The orchestrator is idempotent (re-call returns the existing pid).
+        void desktopBridge.localAgent.start().catch(() => {})
+        setStep({ type: "providers" })
+        return
+      }
+    } catch {
+      // If the auth-state probe fails, fall through to the connect step.
+    }
+
+    setStep({ type: "connect" })
   }, [])
 
   useEffect(() => {
