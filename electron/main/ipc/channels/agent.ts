@@ -15,9 +15,7 @@
 import { existsSync, mkdirSync, copyFileSync, chmodSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir, hostname, platform } from 'node:os'
-import os from 'node:os'
 import { execSync } from 'node:child_process'
-import { randomUUID, createHash } from 'node:crypto'
 import { app, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -25,12 +23,7 @@ import { defineHandler } from '../registry.js'
 import * as schema from '../schema/agent.js'
 import * as onboardingSchema from '../schema/onboarding.js'
 import { streamBroker } from '../broker.js'
-import {
-  startDeviceAuth,
-  pollDeviceToken,
-  registerMachine,
-  type MachineInfoForRegister,
-} from '../../lib/device-auth.js'
+import { startPair } from '../../lib/device-auth.js'
 import { detectAllProviders } from '../../lib/provider-detect.js'
 import {
   start as startAgent,
@@ -205,13 +198,6 @@ export function registerAgentChannels(): void {
 
 const ONBOARDING_BROKER_CHANNEL = 'onboarding:device-auth'
 
-/** Tracks the in-flight device-auth poll loop so we can cancel it. */
-let activePollAbort: { cancelled: boolean } | null = null
-/** Tracks the userCode of the in-flight device-auth session so the renderer
- * can trigger an explicit one-shot poll ("Verify now") if the timer-based
- * loop appears stuck. */
-let activeUserCode: string | null = null
-
 function astroDir(): string {
   return join(homedir(), '.astro')
 }
@@ -222,36 +208,6 @@ function machineIdPath(): string {
 
 function configPath(): string {
   return join(astroDir(), 'config.json')
-}
-
-function getOrCreateMachineId(): string {
-  try {
-    if (existsSync(machineIdPath())) {
-      const v = readFileSync(machineIdPath(), 'utf8').trim()
-      if (v.length > 0) return v
-    }
-  } catch {
-    // fall through to regenerate
-  }
-  // Stable seed first; if disk write fails, fall back to a fresh uuid.
-  const seed = `${hostname()}|${platform()}`
-  const hash = createHash('sha256').update(seed).digest('hex').slice(0, 32)
-  // Format hash as UUID-like string (8-4-4-4-12).
-  const uuid = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`
-  try {
-    mkdirSync(astroDir(), { recursive: true })
-    writeFileSync(machineIdPath(), uuid, 'utf8')
-  } catch {
-    return randomUUID()
-  }
-  return uuid
-}
-
-function getMachineResources(): { cpus: number; totalMemBytes: number } {
-  return {
-    cpus: os.cpus()?.length ?? 1,
-    totalMemBytes: os.totalmem(),
-  }
 }
 
 interface AstroConfigShape {
@@ -295,149 +251,7 @@ function publishAuthState(payload: Record<string, unknown>): void {
   streamBroker.publish(ONBOARDING_BROKER_CHANNEL, payload, { sticky: true })
 }
 
-/** Process one poll result + register-on-success. Shared by the background
- * loop and the explicit "verify now" IPC. Returns the kind so the caller
- * can decide whether to continue polling. */
-async function processPollResult(
-  userCode: string,
-  result: Awaited<ReturnType<typeof pollDeviceToken>>,
-): Promise<'pending' | 'slow-down' | 'terminal'> {
-  if (result.kind === 'pending') return 'pending'
-  if (result.kind === 'slow-down') return 'slow-down'
-  if (result.kind === 'error') {
-    if (result.error === 'access_denied') publishAuthState({ state: 'denied' })
-    else if (result.error === 'expired_token') publishAuthState({ state: 'expired' })
-    else publishAuthState({ state: 'error', message: result.message })
-    return 'terminal'
-  }
-  // success — register machine
-  try {
-    const machineId = getOrCreateMachineId()
-    const providers = (await detectAllProviders()).filter((p) => p.installed).map((p) => p.id)
-    const info: MachineInfoForRegister = {
-      machineId,
-      hostname: hostname(),
-      name: hostname(),
-      platform: platform(),
-      providers,
-      resources: getMachineResources(),
-    }
-    const reg = await registerMachine(result.accessToken, info)
-    writeAstroConfig({
-      machineId: reg.machineId,
-      accessToken: reg.accessToken ?? result.accessToken,
-      refreshToken: reg.refreshToken ?? result.refreshToken,
-      wsToken: reg.wsToken ?? result.wsToken,
-      apiUrl: reg.apiUrl,
-      relayUrl: reg.relayUrl,
-      setupCompleted: true,
-    })
-    publishAuthState({ state: 'authorized', machineId: reg.machineId })
-  } catch (err) {
-    publishAuthState({
-      state: 'error',
-      message: `register failed: ${(err as Error).message ?? String(err)}`,
-    })
-  }
-  // Whether register succeeded or failed, the poll itself reached a terminal
-  // outcome — stop the background loop. The renderer's state machine handles
-  // both outcomes via `authorized` / `error` events.
-  void userCode
-  return 'terminal'
-}
-
-async function runDeviceAuthPollLoop(opts: {
-  userCode: string
-  intervalSec: number
-  expiresIn: number
-  abortRef: { cancelled: boolean }
-}): Promise<void> {
-  const { userCode, abortRef } = opts
-  let interval = Math.max(1, opts.intervalSec)
-  const deadline = Date.now() + opts.expiresIn * 1000
-  publishAuthState({ state: 'pending' })
-
-  while (!abortRef.cancelled) {
-    if (Date.now() > deadline) {
-      publishAuthState({ state: 'expired' })
-      return
-    }
-    await new Promise((r) => setTimeout(r, interval * 1000))
-    if (abortRef.cancelled) return
-
-    let result
-    try {
-      result = await pollDeviceToken(userCode)
-    } catch (err) {
-      publishAuthState({
-        state: 'network-error',
-        message: (err as Error).message ?? String(err),
-      })
-      continue
-    }
-
-    const outcome = await processPollResult(userCode, result)
-    if (outcome === 'pending') continue
-    if (outcome === 'slow-down') {
-      interval = interval + 5
-      continue
-    }
-    return // terminal — authorized, denied, expired, error, or registered
-  }
-}
-
 function registerOnboardingAgentChannels(): void {
-  defineHandler('agent:device-auth-start', onboardingSchema.deviceAuthStart, async () => {
-    // Cancel any pre-existing poll loop before starting a new one.
-    if (activePollAbort) activePollAbort.cancelled = true
-    const abortRef = { cancelled: false }
-    activePollAbort = abortRef
-    activeUserCode = null
-    // Don't let a terminal value from a previous session (e.g. 'authorized')
-    // pre-resolve the new flow when the renderer probes via getSticky.
-    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
-
-    const auth = await startDeviceAuth({ hostname: hostname(), platform: platform() })
-    activeUserCode = auth.userCode
-
-    // Open the verification URL in the user's default browser.
-    try {
-      await shell.openExternal(auth.verificationUriComplete)
-    } catch {
-      // non-fatal — the renderer also shows the URL/code
-    }
-
-    // Kick off polling in the background; we return immediately.
-    void runDeviceAuthPollLoop({
-      userCode: auth.userCode,
-      intervalSec: auth.interval ?? 5,
-      expiresIn: auth.expiresIn,
-      abortRef,
-    }).catch((err) => {
-      publishAuthState({
-        state: 'error',
-        message: (err as Error).message ?? String(err),
-      })
-    })
-
-    return {
-      deviceCode: auth.deviceCode,
-      userCode: auth.userCode,
-      verificationUriComplete: auth.verificationUriComplete,
-      expiresIn: auth.expiresIn,
-    }
-  })
-
-  defineHandler('agent:device-auth-cancel', onboardingSchema.deviceAuthCancel, () => {
-    if (activePollAbort) {
-      activePollAbort.cancelled = true
-      activePollAbort = null
-    }
-    activeUserCode = null
-    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
-    return { ok: true as const }
-  })
-
   // Lightweight check: does ~/.astro/config.json already contain a complete
   // token bundle? Used by the renderer to detect a previously-successful
   // sign-in (e.g., from a prior session, or a race where the broker
@@ -462,28 +276,6 @@ function registerOnboardingAgentChannels(): void {
     }
   })
 
-  // One-shot poll: the renderer calls this when the user clicks
-  // "I clicked Approve — verify now". Useful when the background timer-based
-  // poll seems stuck (e.g., a sleep wedge or an event delivery race). Idempotent
-  // with the background loop — both paths funnel through processPollResult,
-  // which publishes the canonical 'authorized' / 'error' state on success.
-  defineHandler('agent:device-auth-verify', onboardingSchema.deviceAuthVerify, async () => {
-    if (!activeUserCode) {
-      return { kind: 'no-session' as const }
-    }
-    try {
-      const result = await pollDeviceToken(activeUserCode)
-      const outcome = await processPollResult(activeUserCode, result)
-      if (outcome === 'pending') return { kind: 'pending' as const }
-      if (outcome === 'slow-down') return { kind: 'slow-down' as const }
-      return { kind: 'terminal' as const }
-    } catch (err) {
-      const message = (err as Error).message ?? String(err)
-      publishAuthState({ state: 'network-error', message })
-      return { kind: 'network-error' as const, message }
-    }
-  })
-
   defineHandler('agent:start-local', onboardingSchema.startLocal, async () => {
     const r = await startAgent()
     return { ok: r.ok, pid: r.pid, error: r.error }
@@ -493,24 +285,99 @@ function registerOnboardingAgentChannels(): void {
     const s = getLocalStatus()
     return { running: s.running, pid: s.pid, lastError: s.lastError }
   })
+
+  // ── Callback-style pair flow ─────────────────────────────────────────────
+  // The browser does the work; we open the pair URL and wait for
+  // astro://pair/callback to arrive with tokens. handlePairCallback (called
+  // from the deep-link handler in main/index.ts) writes the config and
+  // publishes 'authorized' on the broker channel ConnectThisMacStep
+  // subscribes to.
+  defineHandler('agent:pair-start', onboardingSchema.pairStart, async () => {
+    // Clear any sticky 'authorized' from a prior session so a stale event
+    // doesn't pre-resolve this flow when ConnectThisMacStep probes via
+    // getSticky.
+    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
+
+    const providers = (await detectAllProviders())
+      .filter((p) => p.installed)
+      .map((p) => p.id)
+
+    const init = await startPair({
+      hostname: hostname(),
+      platform: platform(),
+      providers,
+    })
+
+    // Open the verification URL. This is fire-and-forget — if it fails the
+    // renderer falls back to showing the URL.
+    try {
+      await shell.openExternal(init.pairUrl)
+    } catch {
+      // non-fatal
+    }
+
+    // Tell the renderer we're now waiting for the deep-link.
+    publishAuthState({ state: 'pending' })
+
+    return {
+      pairToken: init.pairToken,
+      pairUrl: init.pairUrl,
+      expiresIn: init.expiresIn,
+    }
+  })
+
+  defineHandler('agent:pair-cancel', onboardingSchema.pairCancel, () => {
+    // No background task to cancel — this just clears the sticky state so
+    // a future startFlow call doesn't see stale data.
+    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
+    return { ok: true as const }
+  })
 }
 
 /**
- * Programmatic one-shot poll, triggered by the deep-link handler in
- * electron/main/index.ts when the browser navigates to
- * `astro://device-auth/approved` after the user clicks Approve.
+ * Handle the astro://pair/callback deep-link. Writes the token bundle to
+ * ~/.astro/config.json (so the next app boot auto-starts the agent),
+ * publishes 'authorized' on the broker so any active ConnectThisMacStep
+ * advances, and registers the machineId for downstream callers.
  *
- * Funnels through the same processPollResult as the background loop and the
- * Verify-now IPC, so a success here publishes 'authorized' on the broker
- * and the renderer advances immediately.
+ * Idempotent — if the callback fires twice (rare but possible if the user
+ * clicks Approve again), the second call is a harmless config rewrite.
  */
-export async function triggerImmediateDeviceAuthPoll(): Promise<void> {
-  if (!activeUserCode) return
+export async function handlePairCallback(tokens: {
+  accessToken: string
+  refreshToken: string
+  wsToken: string
+  machineId: string
+  machineName?: string
+  apiUrl?: string
+  relayUrl?: string
+}): Promise<void> {
   try {
-    const result = await pollDeviceToken(activeUserCode)
-    await processPollResult(activeUserCode, result)
+    // Persist machine-id-on-disk so getOrCreateMachineId() and the
+    // server's view of "this machine" stay in sync.
+    try {
+      mkdirSync(astroDir(), { recursive: true })
+      writeFileSync(machineIdPath(), tokens.machineId, 'utf8')
+    } catch (err) {
+      console.warn('[pair] failed to persist machine-id:', err)
+    }
+
+    writeAstroConfig({
+      machineId: tokens.machineId,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      wsToken: tokens.wsToken,
+      ...(tokens.apiUrl && { apiUrl: tokens.apiUrl }),
+      ...(tokens.relayUrl && { relayUrl: tokens.relayUrl }),
+      setupCompleted: true,
+    })
+
+    publishAuthState({ state: 'authorized', machineId: tokens.machineId })
   } catch (err) {
-    const message = (err as Error).message ?? String(err)
-    publishAuthState({ state: 'network-error', message })
+    publishAuthState({
+      state: 'error',
+      message: `pair callback failed: ${(err as Error).message ?? String(err)}`,
+    })
   }
 }
+
