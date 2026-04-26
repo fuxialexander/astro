@@ -162,6 +162,10 @@ remoteComputeRoute.patch('/pools/:id/scale', async (c) => {
     .limit(1)
   if (!pool) return c.json({ error: 'Pool not found' }, 404)
 
+  if (pool.provisionerType === 'local') {
+    return c.json({ error: 'This pool was provisioned from your local desktop app. Use the desktop app to scale or terminate it.' }, 409)
+  }
+
   const body = await c.req.json<{ desiredRunners: number }>()
   if (typeof body.desiredRunners !== 'number' || body.desiredRunners < 0) {
     return c.json({ error: 'desiredRunners must be a non-negative integer' }, 400)
@@ -195,7 +199,147 @@ remoteComputeRoute.delete('/pools/:id', async (c) => {
     .limit(1)
   if (!pool) return c.json({ error: 'Pool not found' }, 404)
 
+  if (pool.provisionerType === 'local') {
+    return c.json({ error: 'This pool was provisioned from your local desktop app. Use the desktop app to scale or terminate it.' }, 409)
+  }
+
   const provisioner = getCloudProvisioner(pool.provider as CloudProvider)
   await provisioner.terminateRunnerPool(id)
+  return c.json({ success: true })
+})
+
+// ── Desktop-provisioned pools ───────────────────────────────────
+// The Electron renderer uses the user's on-device cloud credentials to call
+// AWS/GCP directly (creds never leave the desktop). These endpoints only
+// mirror lifecycle metadata so the cloud UI and other devices can see the
+// pool. The server never touches the cloud provider for `provisionerType: 'local'`.
+
+const externalCreatePoolSchema = z.object({
+  provider: z.enum(['aws', 'gcp']),
+  region: z.string().min(1),
+  instanceIds: z.array(z.string().min(1)).min(1),
+  instanceType: z.string().min(1),
+  amiId: z.string().min(1).optional(),
+  resourceProfile: z.object({
+    cpu: z.number().int().min(1).max(64).optional(),
+    memoryGb: z.number().min(0.5).max(512).optional(),
+    gpu: z.number().int().min(0).max(16).optional(),
+    ttlMinutes: z.number().int().min(1).max(1440).optional(),
+  }).default({}),
+  limits: z.object({
+    maxActiveSandboxes: z.number().int().min(1).max(256).optional(),
+    maxVcpu: z.number().int().min(1).max(4096).optional(),
+    maxMemoryGb: z.number().min(1).max(16384).optional(),
+    maxTtlMinutes: z.number().int().min(1).max(10080).optional(),
+    maxEstimatedHourlyCostUsd: z.number().min(0.01).max(10_000).optional(),
+  }).default({}),
+  projectId: z.string().uuid().optional(),
+  desiredRunners: z.number().int().min(1).max(32),
+  costMetadata: z.record(z.string(), z.unknown()).optional(),
+})
+
+remoteComputeRoute.post('/pools/external', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const parsed = externalCreatePoolSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+  const body = parsed.data
+
+  if (isHipaaMode() && !isHipaaAllowedProvider(body.provider)) {
+    return c.json({
+      error: `HIPAA mode only supports provider='aws' (got '${body.provider}'). Non-AWS vendors are outside the BAA boundary.`,
+    }, 400)
+  }
+
+  const [pool] = await db.insert(remoteComputePools).values({
+    teamId: user.teamId,
+    userId: user.id,
+    provider: body.provider,
+    provisionerType: 'local',
+    projectId: body.projectId,
+    status: 'active',
+    desiredRunners: body.desiredRunners,
+    activeRunners: body.instanceIds.length,
+    resourceProfile: body.resourceProfile,
+    limits: body.limits,
+    costMetadata: body.costMetadata ?? {},
+    providerMetadata: {
+      instanceIds: body.instanceIds,
+      region: body.region,
+      instanceType: body.instanceType,
+      amiId: body.amiId,
+      provisionedFrom: 'desktop',
+    },
+  }).returning()
+
+  return c.json({ pool }, 201)
+})
+
+const externalUpdatePoolSchema = z.object({
+  status: z.enum(['provisioning', 'active', 'scaling', 'terminating', 'terminated', 'failed']).optional(),
+  activeRunners: z.number().int().min(0).max(256).optional(),
+  desiredRunners: z.number().int().min(0).max(256).optional(),
+  providerMetadata: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().nullable().optional(),
+})
+
+remoteComputeRoute.patch('/pools/external/:id', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const id = c.req.param('id')
+  const [pool] = await db.select().from(remoteComputePools)
+    .where(and(eq(remoteComputePools.id, id), inArray(remoteComputePools.teamId, user.teamIds)))
+    .limit(1)
+  if (!pool) return c.json({ error: 'Pool not found' }, 404)
+
+  if (pool.provisionerType !== 'local') {
+    return c.json({ error: 'This endpoint only manages locally-provisioned pools.' }, 409)
+  }
+
+  const parsed = externalUpdatePoolSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+  const body = parsed.data
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() }
+  if (body.status !== undefined) updates.status = body.status
+  if (body.activeRunners !== undefined) updates.activeRunners = body.activeRunners
+  if (body.desiredRunners !== undefined) updates.desiredRunners = body.desiredRunners
+  if (body.providerMetadata !== undefined) updates.providerMetadata = body.providerMetadata
+  if (body.error !== undefined) updates.error = body.error
+
+  const [updated] = await db.update(remoteComputePools)
+    .set(updates)
+    .where(eq(remoteComputePools.id, id))
+    .returning()
+
+  return c.json({ pool: updated })
+})
+
+remoteComputeRoute.delete('/pools/external/:id', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (!(await requireFeature(user))) return c.json({ error: 'Not available' }, 404)
+
+  const id = c.req.param('id')
+  const [pool] = await db.select().from(remoteComputePools)
+    .where(and(eq(remoteComputePools.id, id), inArray(remoteComputePools.teamId, user.teamIds)))
+    .limit(1)
+  if (!pool) return c.json({ error: 'Pool not found' }, 404)
+
+  if (pool.provisionerType !== 'local') {
+    return c.json({ error: 'This endpoint only manages locally-provisioned pools.' }, 409)
+  }
+
+  // The renderer's IPC handler already terminated the EC2/GCE instances using
+  // the user's on-device credentials. We only mark lifecycle state here.
+  await db.update(remoteComputePools)
+    .set({ status: 'terminated', updatedAt: new Date() })
+    .where(eq(remoteComputePools.id, id))
+
   return c.json({ success: true })
 })

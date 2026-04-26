@@ -26,6 +26,7 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isDesktop } from "@/lib/desktop-detect"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { useTheme } from "@/components/theme-provider"
 import { useUserProfileStore } from "@/stores/user-profile-store"
@@ -1651,12 +1652,15 @@ export function Settings() {
     }
   }
 
+  const desktopMode = isDesktop()
+
   return (
     <div className="flex h-full">
       {/* Settings Sidebar - hidden on mobile when content is shown */}
       <div className={cn(
-        "flex shrink-0 flex-col border-r border-border bg-card",
+        "flex shrink-0 flex-col",
         "w-full md:w-[240px]",
+        desktopMode ? "bg-transparent md:border-r md:border-border/40" : "border-r border-border bg-card",
         showContent ? "hidden md:flex" : "flex"
       )}>
         <div className="px-3 pt-4 pb-2">

@@ -51,6 +51,10 @@ export type IpcChannels = {
     req: z.infer<typeof fsSchema.search.req>
     res: z.infer<typeof fsSchema.search.res>
   }
+  'fs:search-content': {
+    req: z.infer<typeof fsSchema.searchContent.req>
+    res: z.infer<typeof fsSchema.searchContent.res>
+  }
   'git:status': {
     req: z.infer<typeof gitSchema.status.req>
     res: z.infer<typeof gitSchema.status.res>
@@ -209,6 +213,7 @@ export interface DesktopBridgeSurface {
     mkdir: (req: IpcReq<'fs:mkdir'>) => Promise<IpcRes<'fs:mkdir'>>
     rm: (req: IpcReq<'fs:rm'>) => Promise<IpcRes<'fs:rm'>>
     search: (req: IpcReq<'fs:search'>) => Promise<IpcRes<'fs:search'>>
+    searchContent: (req: IpcReq<'fs:search-content'>) => Promise<IpcRes<'fs:search-content'>>
   }
   git: {
     status: (req: IpcReq<'git:status'>) => Promise<IpcRes<'git:status'>>

@@ -697,6 +697,9 @@ export const remoteComputePools = pgTable('remote_compute_pools', {
   teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull(),
   provider: text('provider').notNull(), // 'daytona' | 'runloop' | 'aws' | 'gcp'
+  // 'server' = backend provisioned the cloud resources (creds stored as connected account).
+  // 'local'  = desktop app provisioned them with on-device credentials; server only mirrors lifecycle.
+  provisionerType: text('provisioner_type').notNull().default('server').$type<'server' | 'local'>(),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   status: text('status').notNull().default('provisioning'), // provisioning | active | scaling | terminating | terminated | failed
   desiredRunners: integer('desired_runners').notNull().default(1),

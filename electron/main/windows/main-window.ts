@@ -31,9 +31,9 @@ export async function createMainWindow(options: CreateMainWindowOptions): Promis
     minHeight: 480,
     show: false, // show after first paint to avoid white flash
     titleBarStyle: 'hiddenInset',
-    // Lights are centered within the expanded sidebar header (which floats at
-    // top-2 = 8px and is 40px tall): center y = 8 + (40-12)/2 = 22.
-    trafficLightPosition: { x: 14, y: 22 },
+    // Centered within the expanded sidebar header (top-2, h-10):
+    // y = 8 + (40-12)/2 = 22. Match Finder's slightly-inset cluster.
+    trafficLightPosition: { x: 20, y: 22 },
     // transparent: false (default) so Chromium has a real compositing surface
     // behind fixed-position elements. With transparent:true, backdrop-filter
     // blurs the desktop compositor instead of web content behind the element,

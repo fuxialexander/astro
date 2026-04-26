@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cloud, Plus, Zap, CheckCircle2, XCircle, HelpCircle, Settings } from 'lucide-react'
+import { Cloud, Plus, Zap, CheckCircle2, XCircle, HelpCircle, Settings, Lock } from 'lucide-react'
 import { Link } from 'react-router'
 import { isDesktop as getIsDesktop } from '@/lib/desktop-detect'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { useRemoteComputeStore, type RemoteComputePool, type RemoteComputeProvider, type ProviderDetection } from '@/stores/remote-compute-store'
 import { useToastStore } from '@/stores/toast-store'
 import { CreateComputePoolDialog, ScalePoolDialog } from '@/components/environments/create-compute-pool-dialog'
+import { ConnectLocalCloudDialog } from '@/components/environments/connect-local-cloud-dialog'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 
@@ -63,6 +64,13 @@ function PoolCard({ pool }: PoolCardProps) {
   const addToast = useToastStore((s) => s.add)
   const [scaleOpen, setScaleOpen] = useState(false)
   const [terminating, setTerminating] = useState(false)
+  const onDesktop = getIsDesktop()
+  const isLocalPool = pool.provisionerType === 'local'
+  // Locally-provisioned pools can only be managed from the device that holds
+  // the credentials. On web (or another desktop without those creds) we hide
+  // the live controls — the store would also throw, but disabling the buttons
+  // is clearer.
+  const lifecycleDisabled = isLocalPool && !onDesktop
 
   const handleTerminate = async () => {
     setTerminating(true)
@@ -99,6 +107,12 @@ function PoolCard({ pool }: PoolCardProps) {
             <span className={cn('text-xs font-semibold', PROVIDER_COLORS[pool.provider])}>
               {PROVIDER_LABELS[pool.provider]}
             </span>
+            {isLocalPool && (
+              <Lock
+                className="h-3 w-3 text-emerald-500 shrink-0"
+                aria-label="Provisioned from this device using local credentials"
+              />
+            )}
             <StatusDot status={pool.status} />
             <span className="text-xs text-muted-foreground capitalize">{pool.status}</span>
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
@@ -134,6 +148,8 @@ function PoolCard({ pool }: PoolCardProps) {
               size="sm"
               className="h-7 text-xs"
               onClick={() => setScaleOpen(true)}
+              disabled={lifecycleDisabled}
+              title={lifecycleDisabled ? 'Scale from the desktop app that created this pool' : undefined}
             >
               Scale
             </Button>
@@ -142,7 +158,8 @@ function PoolCard({ pool }: PoolCardProps) {
               size="sm"
               className="h-7 text-xs text-destructive hover:text-destructive"
               onClick={handleTerminate}
-              disabled={terminating}
+              disabled={terminating || lifecycleDisabled}
+              title={lifecycleDisabled ? 'Terminate from the desktop app that created this pool' : undefined}
             >
               Terminate
             </Button>
@@ -170,14 +187,19 @@ interface ProviderRowProps {
 
 function ProviderRow({ label, detection, isDesktop, setupHint, action }: ProviderRowProps) {
   const detected = detection?.detected
+  const connectedLocally = detection?.connectedLocally === true
 
-  const icon = detected === true
+  const icon = connectedLocally
+    ? <Lock className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+    : detected === true
     ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
     : detected === false
     ? <XCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
     : <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
 
-  const statusLabel = detected === true
+  const statusLabel = connectedLocally
+    ? <span className="text-[11px] text-emerald-500">configured locally</span>
+    : detected === true
     ? <span className="text-[11px] text-emerald-500">detected</span>
     : detected === false
     ? <span className="text-[11px] text-muted-foreground">not configured</span>
@@ -206,12 +228,34 @@ function ByocGuideCard() {
   const detection = useRemoteComputeStore((s) => s.detection)
   const detectionLoaded = useRemoteComputeStore((s) => s.detectionLoaded)
   const detect = useRemoteComputeStore((s) => s.detect)
+  const onDesktop = getIsDesktop()
+  const [connectProvider, setConnectProvider] = useState<'aws' | 'gcp' | null>(null)
 
   useEffect(() => {
     if (!detectionLoaded) detect()
   }, [detectionLoaded, detect])
 
   const isDesktop = detection?.isDesktop ?? false
+
+  const showConnect = (p: 'aws' | 'gcp'): boolean => {
+    if (!onDesktop) return false
+    const row = detection?.providers[p]
+    return row?.detected === true && row.connectedLocally !== true
+  }
+
+  const connectButton = (p: 'aws' | 'gcp') =>
+    showConnect(p)
+      ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-xs gap-1"
+          onClick={() => setConnectProvider(p)}
+        >
+          <Settings className="h-3 w-3" />Connect
+        </Button>
+      )
+      : null
 
   return (
     <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-3">
@@ -235,18 +279,28 @@ function ByocGuideCard() {
           detection={detection?.providers.aws ?? null}
           isDesktop={isDesktop}
           setupHint={<>Run <code className="font-mono">aws configure</code> or set <code className="font-mono">AWS_ACCESS_KEY_ID</code> in your environment</>}
+          action={connectButton('aws')}
         />
         <ProviderRow
           label="GCP"
           detection={detection?.providers.gcp ?? null}
           isDesktop={isDesktop}
           setupHint={<>Run <code className="font-mono">gcloud auth application-default login</code></>}
+          action={connectButton('gcp')}
         />
       </div>
       {!isDesktop && (
         <p className="mt-2 text-[10px] text-muted-foreground/60">
           AWS/GCP credential detection requires the desktop app — credentials live on your machine, not the server.
         </p>
+      )}
+
+      {connectProvider && (
+        <ConnectLocalCloudDialog
+          provider={connectProvider}
+          open={connectProvider !== null}
+          onOpenChange={(open) => { if (!open) setConnectProvider(null) }}
+        />
       )}
     </div>
   )

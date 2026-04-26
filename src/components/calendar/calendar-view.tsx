@@ -13,7 +13,7 @@ export function CalendarView() {
   useCalendarKeyboard()
 
   return (
-    <div className="flex flex-col h-full bg-background select-none pl-4">
+    <div className="flex flex-col h-full select-none pl-4">
       <CalendarToolbar />
       <div className="flex-1 overflow-hidden cal-view-enter-forward" key={`${view}-${focusedDate}`}>
         {view === 'day'   && <DayView   focusedDate={focusedDate} />}

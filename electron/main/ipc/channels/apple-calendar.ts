@@ -78,10 +78,10 @@ async function runHelper(args: string[], stdinJson?: unknown): Promise<unknown> 
       `echo '${JSON.stringify(stdinJson).replace(/'/g, "'\\''")}' | "${bin}" ${args.join(' ')}`,
       opts,
     )
-    return JSON.parse(stdout.trim())
+    return JSON.parse(String(stdout).trim())
   }
   const { stdout } = await execAsync(cmd, opts)
-  return JSON.parse(stdout.trim())
+  return JSON.parse(String(stdout).trim())
 }
 
 // ── ICS fallback (read-only, no TCC) ─────────────────────────────────────────

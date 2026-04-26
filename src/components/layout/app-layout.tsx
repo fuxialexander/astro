@@ -274,7 +274,7 @@ export function AppLayout() {
         <div
           className="flex shrink-0 relative"
           style={{
-            width: desktop ? (effectiveCollapsed ? 52 + 12 : width + 12) : width,
+            width: desktop ? (effectiveCollapsed ? 52 + 8 : width + 8) : width,
             transition: (desktop && !isSidebarResizing) ? 'width 420ms cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
           }}
         >
@@ -293,8 +293,8 @@ export function AppLayout() {
             className={cn(
               "absolute z-30",
               effectiveCollapsed
-                ? "top-9 bottom-3 left-3"
-                : "top-2 bottom-3 left-3",
+                ? "top-9 bottom-3 left-2"
+                : "top-2 bottom-3 left-2",
             )}
             style={{
               width: effectiveCollapsed ? 52 : sidebarWidth,

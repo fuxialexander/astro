@@ -24,6 +24,8 @@ import { registerUpdaterChannels } from './updater.js'
 import { registerZoteroChannels } from './zotero.js'
 import { registerAppleCalendarChannels } from './apple-calendar.js'
 import { registerAgentChannels } from './agent.js'
+import { registerCloudCredsChannels } from './cloud-creds.js'
+import { registerCloudPoolChannels } from './cloud-pool.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -47,4 +49,6 @@ export function registerAllChannels(): void {
   registerZoteroChannels()
   registerAppleCalendarChannels()
   registerAgentChannels()
+  registerCloudCredsChannels()
+  registerCloudPoolChannels()
 }

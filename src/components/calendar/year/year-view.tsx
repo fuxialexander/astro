@@ -14,11 +14,11 @@ interface YearViewProps {
   focusedDate: string
 }
 
-/** Background heat using orange: 15%–65% of #F97316, matching the filter legend. */
+/** Background heat using soft blue: 8%–32% of #60A5FA, matching the filter legend. */
 function heatStyle(heat: number): React.CSSProperties | undefined {
   if (heat <= 0) return undefined
-  const pct = Math.round(15 + heat * 50)
-  return { background: `color-mix(in srgb, #F97316 ${pct}%, transparent)` }
+  const pct = Math.round(8 + heat * 24)
+  return { background: `color-mix(in srgb, #60A5FA ${pct}%, transparent)` }
 }
 
 interface MiniMonthProps {
@@ -85,7 +85,7 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
 
       {/* Date grid — fixed 6 rows so all months have equal cell sizes */}
       <div
-        className="grid grid-cols-7 flex-1 min-h-0"
+        className="grid grid-cols-7 flex-1 min-h-0 gap-[4px]"
         style={{ gridTemplateRows: 'repeat(6, 1fr)' }}
       >
         {cells.map(({ dateStr, day, inMonth }) => {
@@ -100,7 +100,7 @@ function MiniMonth({ year, month, today, byDay, heatMap, onDateClick }: MiniMont
               type="button"
               onClick={() => inMonth && onDateClick(dateStr)}
               className={cn(
-                'flex items-center justify-center text-[11px] leading-none w-full rounded-sm transition-colors',
+                'flex items-center justify-center text-[11px] leading-none w-full rounded-[2px] transition-colors',
                 inMonth ? 'cursor-pointer hover:bg-accent/50' : 'opacity-20 pointer-events-none',
                 inMonth && !isToday && 'text-foreground/75',
               )}

@@ -30,9 +30,12 @@
     "./dispatch/payload": "./src/dispatch/payload.ts",
     "./dispatch/summary-utils": "./src/dispatch/summary-utils.ts",
     "./templates": "./src/templates/index.ts",
-    "./achievements": "./src/achievements.ts"
+    "./achievements": "./src/achievements.ts",
+    "./cloud-provisioner": "./src/cloud-provisioner/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-ec2": "^3.1036.0",
+    "@google-cloud/compute": "^6.0.0",
     "drizzle-orm": "^0.45.1"
   }
 }

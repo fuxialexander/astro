@@ -49,6 +49,11 @@ export default defineConfig({
         '@electric-sql/pglite',
         'node-pty',
         'ssh2',
+        // Cloud SDKs: large CJS trees (google-gax uses __dirname, AWS SDK has
+        // dynamic requires) that don't survive ESM bundling. Resolved at runtime.
+        '@google-cloud/compute',
+        /^@aws-sdk\//,
+        /^@smithy\//,
         ...nodeBuiltins,
       ],
       output: {

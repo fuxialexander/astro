@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, Server } from 'lucide-react'
+import { Loader2, Server, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useRemoteComputeStore, type CreatePoolParams, type RemoteComputeProvider } from '@/stores/remote-compute-store'
 import { useConnectedAccountsStore } from '@/stores/connected-accounts-store'
 import { useToastStore } from '@/stores/toast-store'
+import { isDesktop as getIsDesktop } from '@/lib/desktop-detect'
 import { cn } from '@/lib/utils'
 
 // Client-side cost estimates ($/hr per runner)
@@ -37,8 +38,10 @@ interface Props {
 
 export function CreateComputePoolDialog({ open, onOpenChange }: Props) {
   const createPool = useRemoteComputeStore((s) => s.createPool)
+  const detection = useRemoteComputeStore((s) => s.detection)
   const getAccountsForChannel = useConnectedAccountsStore((s) => s.getAccountsForChannel)
   const addToast = useToastStore((s) => s.add)
+  const onDesktop = getIsDesktop()
 
   const hasDaytona = getAccountsForChannel('daytona').length > 0
 
@@ -58,6 +61,11 @@ export function CreateComputePoolDialog({ open, onOpenChange }: Props) {
 
   const daytonaAccount = getAccountsForChannel('daytona')[0]
   const cost = estimateCost(provider, cpu, memoryGb, runners)
+
+  const isByocProvider = provider === 'aws' || provider === 'gcp'
+  const usingLocalCreds = isByocProvider
+    && detection?.providers[provider].connectedLocally === true
+  const desktopMissingLocalConfig = isByocProvider && onDesktop && !usingLocalCreds
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -128,6 +136,17 @@ export function CreateComputePoolDialog({ open, onOpenChange }: Props) {
                 </button>
               ))}
             </div>
+            {usingLocalCreds && (
+              <div className="flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <Lock className="h-3 w-3 shrink-0" />
+                <span>Using local {provider.toUpperCase()} credentials — never sent to Astro</span>
+              </div>
+            )}
+            {desktopMissingLocalConfig && (
+              <p className="text-[11px] text-muted-foreground">
+                Tip: connect this machine in the BYOC card to use local credentials instead of a connected account.
+              </p>
+            )}
           </div>
 
           {/* Resource profile */}

@@ -396,12 +396,15 @@ fly status --app astro-backend-deploy
 fly logs --app astro-backend-deploy | head -50
 ```
 
+**Electron release: bump `package.json` version BEFORE `npm run electron:publish`.** `electron-forge publish` uploads to the GitHub release tag matching the current `version` field. If that tag already exists (because you didn't bump), it appends artifacts to the existing release — the auto-updater won't trigger and users stay on the old build. Always run `npm version <next> --no-git-tag-version` and commit before publishing. Verify with `gh release list --repo astro-anywhere/astro-desktop --limit 3` that the new tag does not yet exist.
+
 | Common Deploy Issue | Fix |
 |-------------------|-----|
 | `--frozen-lockfile` fails | Run `pnpm install` and commit the lockfile |
 | Docker build fails | Run `npm run build` locally first |
 | Health check fails after deploy | Check `fly logs` for the error |
 | Frontend shows old code | Wait 1-2 min or purge Cloudflare cache |
+| Desktop release uploaded but users see no change | Forgot to bump `version` — appended to existing tag, auto-updater silent. Bump and republish. |
 
 ### Planning
 **When referencing existing codebases or config paths for integration plans, verify the actual paths and file structure by reading the filesystem first. Do not assume paths like ~/.cyrus/ — check what actually exists.**

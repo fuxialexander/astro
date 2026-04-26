@@ -56,6 +56,9 @@ export function setupAutoUpdater(): void {
       notifyUser: false,
       logger: {
         log: (...args: unknown[]) => console.log('[updater]', ...args),
+        info: (...args: unknown[]) => console.log('[updater]', ...args),
+        warn: (...args: unknown[]) => console.warn('[updater]', ...args),
+        error: (...args: unknown[]) => console.error('[updater]', ...args),
       },
     })
     updaterConfigured = true
@@ -68,9 +71,14 @@ export function setupAutoUpdater(): void {
       console.log('[updater] checking for updates')
     })
 
-    autoUpdater.on('update-available', (info) => {
-      console.log('[updater] update available:', info?.version)
-    })
+    // Electron's autoUpdater types only expose 'update-not-available' but the
+    // runtime emits 'update-available' too — cast to the loose listener form.
+    ;(autoUpdater.on as (e: string, cb: (info: { version?: string }) => void) => void)(
+      'update-available',
+      (info) => {
+        console.log('[updater] update available:', info?.version)
+      },
+    )
 
     autoUpdater.on('update-not-available', () => {
       console.log('[updater] up to date')
@@ -134,13 +142,13 @@ export async function checkForUpdatesManual(): Promise<UpdateCheckResult> {
     }
     const cleanup = () => {
       autoUpdater.removeListener('update-not-available', onNotAvailable)
-      autoUpdater.removeListener('update-available', onAvailable)
+      ;(autoUpdater.removeListener as (e: string, cb: (...a: unknown[]) => void) => void)('update-available', onAvailable as (...a: unknown[]) => void)
       autoUpdater.removeListener('update-downloaded', onDownloaded)
       autoUpdater.removeListener('error', onError)
     }
 
     autoUpdater.once('update-not-available', onNotAvailable)
-    autoUpdater.once('update-available', onAvailable)
+    ;(autoUpdater.once as (e: string, cb: (...a: unknown[]) => void) => void)('update-available', onAvailable as (...a: unknown[]) => void)
     autoUpdater.once('update-downloaded', onDownloaded)
     autoUpdater.once('error', onError)
 

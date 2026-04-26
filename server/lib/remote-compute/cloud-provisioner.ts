@@ -1,26 +1,24 @@
-import { EC2Client, RunInstancesCommand, TerminateInstancesCommand, DescribeImagesCommand, type InstanceType } from '@aws-sdk/client-ec2'
 import { db } from '../db/index.js'
 import { connectedAccounts, remoteComputePools } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { readCredentials } from '../encryption.js'
 import { isHipaaMode } from '../hipaa-mode.js'
+import {
+  AwsCloudOps,
+  GcpCloudOps,
+  estimateHourlyCostUsd,
+  type AwsCredentials,
+  type CloudProvider,
+  type GcpCredentials,
+  type HipaaConfig,
+  type PoolLimits,
+  type ProvisionRequest,
+  type ResourceProfile,
+} from '@astro/core/cloud-provisioner'
 
-export type CloudProvider = 'astro-cloud' | 'daytona' | 'runloop' | 'aws' | 'gcp'
-
-export interface RunnerPoolLimits {
-  maxActiveSandboxes?: number
-  maxVcpu?: number
-  maxMemoryGb?: number
-  maxTtlMinutes?: number
-  maxEstimatedHourlyCostUsd?: number
-}
-
-export interface RunnerResourceProfile {
-  cpu?: number
-  memoryGb?: number
-  gpu?: number
-  ttlMinutes?: number
-}
+export type { CloudProvider } from '@astro/core/cloud-provisioner'
+export type RunnerPoolLimits = PoolLimits
+export type RunnerResourceProfile = ResourceProfile
 
 export interface CreateRunnerPoolRequest {
   teamId: string
@@ -78,183 +76,37 @@ function applyLimits(request: CreateRunnerPoolRequest): Required<RunnerPoolLimit
   return limits
 }
 
-// t3 on-demand pricing, us-east-1, as of implementation date.
-const AWS_T3_HOURLY: Record<string, number> = {
-  'micro': 0.0104, 'small': 0.0208, 'medium': 0.0416,
-  'large': 0.0832, 'xlarge': 0.1664, '2xlarge': 0.3328,
-}
-
-function pickAwsInstanceType(profile: RunnerResourceProfile): InstanceType {
-  const cpu = profile.cpu ?? 1
-  const mem = profile.memoryGb ?? 1
-  if (cpu <= 1 && mem <= 1)  return 't3.micro'
-  if (cpu <= 1 && mem <= 2)  return 't3.small'
-  if (cpu <= 2 && mem <= 4)  return 't3.medium'
-  if (cpu <= 2 && mem <= 8)  return 't3.large'
-  if (cpu <= 4 && mem <= 16) return 't3.xlarge'
-  return 't3.2xlarge'
-}
-
-function awsHourlyCost(profile: RunnerResourceProfile): number {
-  const size = pickAwsInstanceType(profile).split('.')[1]
-  return AWS_T3_HOURLY[size] ?? 0.0832
-}
-
-function estimateHourlyCostUsd(request: CreateRunnerPoolRequest): number {
-  const cpu = request.resourceProfile.cpu ?? 1
-  const memoryGb = request.resourceProfile.memoryGb ?? 1
-  const runners = request.desiredRunners
-  // Daytona public pricing model at time of implementation: vCPU + RAM per hour.
-  if (request.provider === 'daytona') return runners * ((cpu * 0.0504) + (memoryGb * 0.0162))
-  if (request.provider === 'aws') return runners * awsHourlyCost(request.resourceProfile)
-  // Conservative placeholder for providers without a configured pricing adapter.
-  return runners * ((cpu * 0.06) + (memoryGb * 0.02))
-}
-
-interface AwsCredentials {
-  accessKeyId: string
-  secretAccessKey: string
-  region?: string
-  iamInstanceProfileArn?: string
-  subnetId?: string
-  securityGroupIds?: string[]
-}
-
-function buildUserData(poolId: string, teamId: string, opts?: { autoTerminateHours?: number }): string {
-  const serverUrl = process.env.PUBLIC_API_URL ?? 'https://api.astroanywhere.com'
-  const relayUrl = process.env.RELAY_WS_URL ?? 'wss://relay.astroanywhere.com:3002'
-  const agentUrl = 'https://github.com/astro-anywhere/astro-agent/releases/latest/download/astro-agent-linux-x64'
-  // HIPAA: schedule an instance-level shutdown timer. Combined with
-  // InstanceInitiatedShutdownBehavior=terminate, this auto-terminates the
-  // instance after N hours so no PHI-bearing runner lingers past its session.
-  const autoTerminate = opts?.autoTerminateHours && opts.autoTerminateHours > 0
-    ? `# HIPAA auto-terminate: shutdown after ${opts.autoTerminateHours}h
-(sleep ${Math.round(opts.autoTerminateHours * 3600)} && /sbin/shutdown -h now) &
-disown
-`
-    : ''
-  return `#!/usr/bin/env bash
-set -euo pipefail
-curl -fsSL ${agentUrl} -o /usr/local/bin/astro-agent
-chmod +x /usr/local/bin/astro-agent
-mkdir -p /etc/astro
-cat >/etc/astro/runner.env <<'EOF'
-ASTRO_SERVER_URL=${serverUrl}
-ASTRO_RELAY_URL=${relayUrl}
-ASTRO_REMOTE_POOL_ID=${poolId}
-ASTRO_TEAM_ID=${teamId}
-EOF
-cat >/etc/systemd/system/astro-agent.service <<'UNIT'
-[Unit]
-Description=Astro Agent Runner
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-EnvironmentFile=/etc/astro/runner.env
-ExecStart=/usr/local/bin/astro-agent start --foreground --relay $ASTRO_RELAY_URL --max-tasks 2 --log-level info
-Restart=always
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-UNIT
-systemctl daemon-reload
-systemctl enable astro-agent.service
-systemctl start astro-agent.service
-${autoTerminate}`
-}
-
-/** Default auto-terminate window for HIPAA instances, in hours. */
 const HIPAA_AUTO_TERMINATE_HOURS_DEFAULT = 4
 
-/**
- * HIPAA enforcement profile applied to AWS runner pools when isHipaaMode().
- *
- * Returns the set of RunInstancesCommand overrides and extra tags required for
- * a HIPAA-compliant runner:
- * - KMS-CMK EBS encryption on root volume (ASTRO_KMS_KEY_ARN required).
- * - Private subnet, no public IP.
- * - IMDSv2-only.
- * - Explicit security group(s) — no 0.0.0.0/0 ingress (enforced by ops config).
- * - Hard-enforced tags for compliance inventory.
- *
- * Throws if ASTRO_KMS_KEY_ARN, subnetId, or securityGroupIds are missing — we
- * fail fast rather than silently fall back to a less-encrypted default.
- */
-function buildHipaaRunProfile(creds: AwsCredentials): {
-  kmsKeyArn: string
-  blockDeviceMappings: Array<{ DeviceName: string; Ebs: { Encrypted: true; KmsKeyId: string; DeleteOnTermination: true } }>
-  networkInterface: { DeviceIndex: 0; SubnetId: string; Groups: string[]; AssociatePublicIpAddress: false }
-  metadataOptions: { HttpTokens: 'required'; HttpEndpoint: 'enabled'; HttpPutResponseHopLimit: 2 }
-  extraTags: Array<{ Key: string; Value: string }>
-  autoTerminateHours: number
-} {
+function resolveHipaaConfig(): HipaaConfig {
   const kmsKeyArn = process.env.ASTRO_KMS_KEY_ARN
   if (!kmsKeyArn) {
     throw new Error('HIPAA mode requires ASTRO_KMS_KEY_ARN to be set (KMS CMK for EBS encryption).')
   }
-  if (!creds.subnetId) {
-    throw new Error('HIPAA mode requires the AWS connected account to specify a private subnetId.')
-  }
-  if (!creds.securityGroupIds || creds.securityGroupIds.length === 0) {
-    throw new Error('HIPAA mode requires the AWS connected account to specify at least one securityGroupId.')
-  }
-  const autoTerminateHours = Number(process.env.ASTRO_HIPAA_AUTO_TERMINATE_HOURS ?? HIPAA_AUTO_TERMINATE_HOURS_DEFAULT)
-  const customerId = process.env.ASTRO_CUSTOMER_ID ?? 'unknown'
   return {
     kmsKeyArn,
-    blockDeviceMappings: [{
-      DeviceName: '/dev/xvda',
-      Ebs: { Encrypted: true, KmsKeyId: kmsKeyArn, DeleteOnTermination: true },
-    }],
-    networkInterface: {
-      DeviceIndex: 0,
-      SubnetId: creds.subnetId,
-      Groups: creds.securityGroupIds,
-      AssociatePublicIpAddress: false,
-    },
-    metadataOptions: {
-      HttpTokens: 'required',
-      HttpEndpoint: 'enabled',
-      HttpPutResponseHopLimit: 2,
-    },
-    extraTags: [
-      { Key: 'HipaaCompliance', Value: 'true' },
-      { Key: 'Customer', Value: customerId },
-    ],
-    autoTerminateHours,
+    customerId: process.env.ASTRO_CUSTOMER_ID ?? 'unknown',
+    autoTerminateHours: Number(process.env.ASTRO_HIPAA_AUTO_TERMINATE_HOURS ?? HIPAA_AUTO_TERMINATE_HOURS_DEFAULT),
   }
 }
 
-async function getLatestAl2023Ami(ec2: EC2Client): Promise<string> {
-  const result = await ec2.send(new DescribeImagesCommand({
-    Owners: ['amazon'],
-    Filters: [
-      { Name: 'name', Values: ['al2023-ami-*-kernel-*-x86_64'] },
-      { Name: 'architecture', Values: ['x86_64'] },
-      { Name: 'state', Values: ['available'] },
-    ],
-  }))
-  const images = (result.Images ?? []).sort((a, b) =>
-    (b.CreationDate ?? '').localeCompare(a.CreationDate ?? ''),
+function relayEnv(): { serverUrl: string; relayUrl: string } {
+  return {
+    serverUrl: process.env.PUBLIC_API_URL ?? 'https://api.astroanywhere.com',
+    relayUrl: process.env.RELAY_WS_URL ?? 'wss://relay.astroanywhere.com:3002',
+  }
+}
+
+async function getAccountCredentials(userId: string, accountId: string | undefined, channel: CloudProvider) {
+  const rows = await db.select().from(connectedAccounts).where(
+    and(eq(connectedAccounts.userId, userId), eq(connectedAccounts.channel, channel), eq(connectedAccounts.enabled, true))
   )
-  const amiId = images[0]?.ImageId
-  if (!amiId) throw new Error('No Amazon Linux 2023 AMI found in the specified region')
-  return amiId
+  const row = accountId ? rows.find((r) => r.id === accountId) : rows[0]
+  if (!row) throw new Error(`No enabled ${channel} connected account found`)
+  return readCredentials(row.credentials)
 }
 
 class AwsProvisioner implements CloudProvisioner {
-  private async getEc2(userId: string, accountId: string | undefined): Promise<{ ec2: EC2Client; creds: AwsCredentials }> {
-    const raw = await getAccountCredentials(userId, accountId, 'aws')
-    const creds = raw as AwsCredentials
-    if (!creds.accessKeyId || !creds.secretAccessKey) throw new Error('AWS connected account is missing accessKeyId or secretAccessKey')
-    const ec2 = new EC2Client({
-      region: creds.region ?? 'us-east-1',
-      credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
-    })
-    return { ec2, creds }
-  }
-
   async createRunnerPool(request: CreateRunnerPoolRequest): Promise<ProvisionedRunnerPool> {
     const limits = applyLimits(request)
     const estimatedHourlyCostUsd = estimateHourlyCostUsd(request)
@@ -266,6 +118,7 @@ class AwsProvisioner implements CloudProvisioner {
       teamId: request.teamId,
       userId: request.userId,
       provider: request.provider,
+      provisionerType: 'server',
       projectId: request.projectId,
       status: 'provisioning',
       desiredRunners: request.desiredRunners,
@@ -276,50 +129,22 @@ class AwsProvisioner implements CloudProvisioner {
     }).returning()
 
     try {
-      const { ec2, creds } = await this.getEc2(request.userId, request.accountId)
-      const instanceType = pickAwsInstanceType(request.resourceProfile)
-      const amiId = await getLatestAl2023Ami(ec2)
-      const region = creds.region ?? 'us-east-1'
-      const hipaa = isHipaaMode() ? buildHipaaRunProfile(creds) : null
-      const userData = Buffer.from(buildUserData(pool.id, request.teamId, hipaa
-        ? { autoTerminateHours: hipaa.autoTerminateHours }
-        : undefined,
-      )).toString('base64')
+      const creds = (await getAccountCredentials(request.userId, request.accountId, 'aws')) as AwsCredentials
+      const ops = new AwsCloudOps(creds, isHipaaMode() ? resolveHipaaConfig() : undefined)
+      const env = relayEnv()
+      const result = await ops.createInstances({
+        poolId: pool.id,
+        teamId: request.teamId,
+        desiredRunners: request.desiredRunners,
+        resourceProfile: request.resourceProfile,
+        serverUrl: env.serverUrl,
+        relayUrl: env.relayUrl,
+      })
 
-      const baseTags = [
-        { Key: 'Name', Value: `astro-runner-${pool.id.slice(0, 8)}` },
-        { Key: 'astroPoolId', Value: pool.id },
-        { Key: 'astroTeamId', Value: request.teamId },
-      ]
-
-      const result = await ec2.send(new RunInstancesCommand({
-        ImageId: amiId,
-        InstanceType: instanceType,
-        MinCount: request.desiredRunners,
-        MaxCount: request.desiredRunners,
-        UserData: userData,
-        IamInstanceProfile: creds.iamInstanceProfileArn ? { Arn: creds.iamInstanceProfileArn } : undefined,
-        // In HIPAA mode, subnet + security groups are provided via NetworkInterfaces
-        // (so we can force AssociatePublicIpAddress=false). Outside HIPAA, we keep
-        // the historical flat SubnetId/SecurityGroupIds so non-HIPAA behavior is unchanged.
-        SubnetId: hipaa ? undefined : creds.subnetId,
-        SecurityGroupIds: hipaa ? undefined : creds.securityGroupIds,
-        NetworkInterfaces: hipaa ? [hipaa.networkInterface] : undefined,
-        BlockDeviceMappings: hipaa ? hipaa.blockDeviceMappings : undefined,
-        MetadataOptions: hipaa ? hipaa.metadataOptions : undefined,
-        InstanceInitiatedShutdownBehavior: 'terminate',
-        TagSpecifications: [{
-          ResourceType: 'instance',
-          Tags: hipaa ? [...baseTags, ...hipaa.extraTags] : baseTags,
-        }],
-      }))
-
-      const instanceIds = (result.Instances ?? []).map((i) => i.InstanceId).filter((id): id is string => Boolean(id))
-      const providerMetadata = { instanceIds, region, instanceType, amiId }
-
+      const providerMetadata = { ...result }
       await db.update(remoteComputePools).set({
         status: 'active',
-        activeRunners: instanceIds.length,
+        activeRunners: result.instanceIds.length,
         providerMetadata,
         updatedAt: new Date(),
       }).where(eq(remoteComputePools.id, pool.id))
@@ -337,66 +162,28 @@ class AwsProvisioner implements CloudProvisioner {
     if (!pool) throw new Error(`Pool ${poolId} not found`)
     const meta = pool.providerMetadata as { instanceIds?: string[]; instanceType?: string; amiId?: string; region?: string }
     const existing = meta.instanceIds ?? []
-    const current = existing.length
 
-    const { ec2, creds } = await this.getEc2(pool.userId, undefined)
+    const creds = (await getAccountCredentials(pool.userId, undefined, 'aws')) as AwsCredentials
+    const ops = new AwsCloudOps(creds, isHipaaMode() ? resolveHipaaConfig() : undefined)
+    const env = relayEnv()
+    const req: ProvisionRequest = {
+      poolId,
+      teamId: pool.teamId,
+      desiredRunners,
+      resourceProfile: pool.resourceProfile as ResourceProfile,
+      serverUrl: env.serverUrl,
+      relayUrl: env.relayUrl,
+    }
+    const scale = await ops.scaleInstances(existing, desiredRunners, req)
     const region = creds.region ?? meta.region ?? 'us-east-1'
 
-    if (desiredRunners > current) {
-      const toAdd = desiredRunners - current
-      const instanceType = (meta.instanceType ?? pickAwsInstanceType(pool.resourceProfile as RunnerResourceProfile)) as InstanceType
-      const amiId = meta.amiId ?? await getLatestAl2023Ami(ec2)
-      const hipaa = isHipaaMode() ? buildHipaaRunProfile(creds) : null
-      const userData = Buffer.from(buildUserData(poolId, pool.teamId, hipaa
-        ? { autoTerminateHours: hipaa.autoTerminateHours }
-        : undefined,
-      )).toString('base64')
-
-      const baseTags = [
-        { Key: 'Name', Value: `astro-runner-${poolId.slice(0, 8)}` },
-        { Key: 'astroPoolId', Value: poolId },
-        { Key: 'astroTeamId', Value: pool.teamId },
-      ]
-
-      const result = await ec2.send(new RunInstancesCommand({
-        ImageId: amiId,
-        InstanceType: instanceType,
-        MinCount: toAdd,
-        MaxCount: toAdd,
-        UserData: userData,
-        IamInstanceProfile: creds.iamInstanceProfileArn ? { Arn: creds.iamInstanceProfileArn } : undefined,
-        SubnetId: hipaa ? undefined : creds.subnetId,
-        SecurityGroupIds: hipaa ? undefined : creds.securityGroupIds,
-        NetworkInterfaces: hipaa ? [hipaa.networkInterface] : undefined,
-        BlockDeviceMappings: hipaa ? hipaa.blockDeviceMappings : undefined,
-        MetadataOptions: hipaa ? hipaa.metadataOptions : undefined,
-        InstanceInitiatedShutdownBehavior: 'terminate',
-        TagSpecifications: [{
-          ResourceType: 'instance',
-          Tags: hipaa ? [...baseTags, ...hipaa.extraTags] : baseTags,
-        }],
-      }))
-
-      const newIds = (result.Instances ?? []).map((i) => i.InstanceId).filter((id): id is string => Boolean(id))
-      const allIds = [...existing, ...newIds]
-      await db.update(remoteComputePools).set({
-        status: 'active',
-        desiredRunners,
-        activeRunners: allIds.length,
-        providerMetadata: { ...meta, instanceIds: allIds, region },
-        updatedAt: new Date(),
-      }).where(eq(remoteComputePools.id, poolId))
-    } else if (desiredRunners < current) {
-      const toRemove = existing.slice(desiredRunners)
-      const toKeep = existing.slice(0, desiredRunners)
-      await ec2.send(new TerminateInstancesCommand({ InstanceIds: toRemove }))
-      await db.update(remoteComputePools).set({
-        desiredRunners,
-        activeRunners: toKeep.length,
-        providerMetadata: { ...meta, instanceIds: toKeep, region },
-        updatedAt: new Date(),
-      }).where(eq(remoteComputePools.id, poolId))
-    }
+    await db.update(remoteComputePools).set({
+      status: 'active',
+      desiredRunners,
+      activeRunners: scale.instanceIds.length,
+      providerMetadata: { ...meta, instanceIds: scale.instanceIds, region },
+      updatedAt: new Date(),
+    }).where(eq(remoteComputePools.id, poolId))
   }
 
   async terminateRunnerPool(poolId: string): Promise<void> {
@@ -409,8 +196,9 @@ class AwsProvisioner implements CloudProvisioner {
       const meta = pool.providerMetadata as { instanceIds?: string[] }
       const instanceIds = meta.instanceIds ?? []
       if (instanceIds.length > 0) {
-        const { ec2 } = await this.getEc2(pool.userId, undefined)
-        await ec2.send(new TerminateInstancesCommand({ InstanceIds: instanceIds }))
+        const creds = (await getAccountCredentials(pool.userId, undefined, 'aws')) as AwsCredentials
+        const ops = new AwsCloudOps(creds, isHipaaMode() ? resolveHipaaConfig() : undefined)
+        await ops.terminateInstances(instanceIds)
       }
     } catch {
       // Best-effort: instances may already be terminated or credentials may be revoked.
@@ -420,13 +208,104 @@ class AwsProvisioner implements CloudProvisioner {
   }
 }
 
-async function getAccountCredentials(userId: string, accountId: string | undefined, channel: CloudProvider) {
-  const rows = await db.select().from(connectedAccounts).where(
-    and(eq(connectedAccounts.userId, userId), eq(connectedAccounts.channel, channel), eq(connectedAccounts.enabled, true))
-  )
-  const row = accountId ? rows.find((r) => r.id === accountId) : rows[0]
-  if (!row) throw new Error(`No enabled ${channel} connected account found`)
-  return readCredentials(row.credentials)
+class GcpProvisioner implements CloudProvisioner {
+  async createRunnerPool(request: CreateRunnerPoolRequest): Promise<ProvisionedRunnerPool> {
+    const limits = applyLimits(request)
+    const estimatedHourlyCostUsd = estimateHourlyCostUsd(request)
+    if (estimatedHourlyCostUsd > limits.maxEstimatedHourlyCostUsd) {
+      throw new Error(`Estimated hourly cost $${estimatedHourlyCostUsd.toFixed(2)} exceeds limit $${limits.maxEstimatedHourlyCostUsd.toFixed(2)}`)
+    }
+
+    const [pool] = await db.insert(remoteComputePools).values({
+      teamId: request.teamId,
+      userId: request.userId,
+      provider: request.provider,
+      provisionerType: 'server',
+      projectId: request.projectId,
+      status: 'provisioning',
+      desiredRunners: request.desiredRunners,
+      resourceProfile: request.resourceProfile,
+      limits,
+      costMetadata: { estimatedHourlyCostUsd },
+      expiresAt: new Date(Date.now() + (request.resourceProfile.ttlMinutes ?? 60) * 60_000),
+    }).returning()
+
+    try {
+      const creds = (await getAccountCredentials(request.userId, request.accountId, 'gcp')) as GcpCredentials
+      const ops = new GcpCloudOps(creds)
+      const env = relayEnv()
+      const result = await ops.createInstances({
+        poolId: pool.id,
+        teamId: request.teamId,
+        desiredRunners: request.desiredRunners,
+        resourceProfile: request.resourceProfile,
+        serverUrl: env.serverUrl,
+        relayUrl: env.relayUrl,
+      })
+
+      const providerMetadata = { ...result }
+      await db.update(remoteComputePools).set({
+        status: 'active',
+        activeRunners: result.instanceIds.length,
+        providerMetadata,
+        updatedAt: new Date(),
+      }).where(eq(remoteComputePools.id, pool.id))
+
+      return { id: pool.id, status: 'active', providerMetadata, costMetadata: { estimatedHourlyCostUsd } }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      await db.update(remoteComputePools).set({ status: 'failed', error, updatedAt: new Date() }).where(eq(remoteComputePools.id, pool.id))
+      return { id: pool.id, status: 'failed', providerMetadata: {}, costMetadata: { estimatedHourlyCostUsd }, error }
+    }
+  }
+
+  async scaleRunnerPool(poolId: string, desiredRunners: number): Promise<void> {
+    const [pool] = await db.select().from(remoteComputePools).where(eq(remoteComputePools.id, poolId)).limit(1)
+    if (!pool) throw new Error(`Pool ${poolId} not found`)
+    const meta = pool.providerMetadata as { instanceIds?: string[]; instanceType?: string; region?: string }
+    const existing = meta.instanceIds ?? []
+
+    const creds = (await getAccountCredentials(pool.userId, undefined, 'gcp')) as GcpCredentials
+    const ops = new GcpCloudOps(creds)
+    const env = relayEnv()
+    const scale = await ops.scaleInstances(existing, desiredRunners, {
+      poolId,
+      teamId: pool.teamId,
+      desiredRunners,
+      resourceProfile: pool.resourceProfile as ResourceProfile,
+      serverUrl: env.serverUrl,
+      relayUrl: env.relayUrl,
+    })
+
+    await db.update(remoteComputePools).set({
+      status: 'active',
+      desiredRunners,
+      activeRunners: scale.instanceIds.length,
+      providerMetadata: { ...meta, instanceIds: scale.instanceIds },
+      updatedAt: new Date(),
+    }).where(eq(remoteComputePools.id, poolId))
+  }
+
+  async terminateRunnerPool(poolId: string): Promise<void> {
+    const [pool] = await db.select().from(remoteComputePools).where(eq(remoteComputePools.id, poolId)).limit(1)
+    if (!pool) return
+
+    await db.update(remoteComputePools).set({ status: 'terminating', activeRunners: 0, updatedAt: new Date() }).where(eq(remoteComputePools.id, poolId))
+
+    try {
+      const meta = pool.providerMetadata as { instanceIds?: string[] }
+      const instanceIds = meta.instanceIds ?? []
+      if (instanceIds.length > 0) {
+        const creds = (await getAccountCredentials(pool.userId, undefined, 'gcp')) as GcpCredentials
+        const ops = new GcpCloudOps(creds)
+        await ops.terminateInstances(instanceIds)
+      }
+    } catch {
+      // Best-effort.
+    }
+
+    await db.update(remoteComputePools).set({ status: 'terminated', updatedAt: new Date() }).where(eq(remoteComputePools.id, poolId))
+  }
 }
 
 class DaytonaProvisioner implements CloudProvisioner {
@@ -441,6 +320,7 @@ class DaytonaProvisioner implements CloudProvisioner {
       teamId: request.teamId,
       userId: request.userId,
       provider: request.provider,
+      provisionerType: 'server',
       projectId: request.projectId,
       status: 'provisioning',
       desiredRunners: request.desiredRunners,
@@ -510,8 +390,6 @@ class DaytonaProvisioner implements CloudProvisioner {
       activeRunners: 0,
       updatedAt: new Date(),
     }).where(eq(remoteComputePools.id, poolId))
-    // Provider-side deletion is intentionally best-effort in v1 because
-    // provider response shapes vary; TTL/auto-stop is still configured at create.
     await db.update(remoteComputePools).set({
       status: 'terminated',
       updatedAt: new Date(),
@@ -540,5 +418,6 @@ export function getCloudProvisioner(provider: CloudProvider): CloudProvisioner {
   }
   if (provider === 'daytona') return new DaytonaProvisioner()
   if (provider === 'aws' || provider === 'astro-cloud') return new AwsProvisioner()
+  if (provider === 'gcp') return new GcpProvisioner()
   return new UnsupportedProvisioner(provider)
 }

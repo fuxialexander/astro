@@ -1,0 +1,1 @@
+ALTER TABLE "remote_compute_pools" ADD COLUMN "provisioner_type" text DEFAULT 'server' NOT NULL;

@@ -292,6 +292,70 @@ export const desktopBridge = {
       bridge().invoke<{ ok: boolean }>('apple-calendar:delete-event', { eventId, calendarId }),
   },
 
+  cloudCreds: {
+    detect: () =>
+      bridge().invoke<{
+        aws: {
+          detected: boolean
+          profiles?: string[]
+          defaultRegion?: string | null
+          source: 'env' | 'credentials-file' | 'config-file' | 'adc-file' | 'none'
+        }
+        gcp: {
+          detected: boolean
+          project?: string | null
+          account?: string | null
+          source: 'env' | 'credentials-file' | 'config-file' | 'adc-file' | 'none'
+        }
+      }>('cloud-creds:detect', {}),
+  },
+
+  cloudPool: {
+    create: (req: {
+      provider: 'aws' | 'gcp'
+      config: { profile?: string; region?: string; project?: string; adcPath?: string; zone?: string }
+      poolId: string
+      teamId: string
+      desiredRunners: number
+      resourceProfile: { cpu?: number; memoryGb?: number; gpu?: number; ttlMinutes?: number }
+      serverUrl: string
+      relayUrl: string
+    }) =>
+      bridge().invoke<{
+        ok: boolean
+        instanceIds?: string[]
+        region?: string
+        instanceType?: string
+        amiId?: string
+        costMetadata?: { estimatedHourlyCostUsd?: number }
+        error?: string
+      }>('cloud-pool:create', req),
+    scale: (req: {
+      provider: 'aws' | 'gcp'
+      config: { profile?: string; region?: string; project?: string; adcPath?: string; zone?: string }
+      currentInstanceIds: string[]
+      desiredRunners: number
+      poolId: string
+      teamId: string
+      resourceProfile: { cpu?: number; memoryGb?: number; gpu?: number; ttlMinutes?: number }
+      serverUrl: string
+      relayUrl: string
+    }) =>
+      bridge().invoke<{
+        ok: boolean
+        instanceIds?: string[]
+        added?: string[]
+        removed?: string[]
+        error?: string
+      }>('cloud-pool:scale', req),
+    terminate: (req: {
+      provider: 'aws' | 'gcp'
+      config: { profile?: string; region?: string; project?: string; adcPath?: string; zone?: string }
+      instanceIds: string[]
+    }) =>
+      bridge().invoke<{ ok: boolean; error?: string }>('cloud-pool:terminate', req),
+  },
+
   /** Generic invoke — use typed helpers above whenever possible */
   invoke: <T = unknown>(channel: string, payload: unknown): Promise<T> =>
     bridge().invoke<T>(channel, payload),

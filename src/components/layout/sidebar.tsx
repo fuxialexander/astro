@@ -481,7 +481,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         "group/sidebar flex flex-col overflow-hidden h-full w-full",
         desktopMode
           ? cn(
-              "rounded-xl text-sidebar-foreground",
+              // Concentric with the macOS window chrome at ~8px inset.
+              "rounded-[14px] text-sidebar-foreground",
               // Liquid glass: translucent fill + heavy blur + saturate boost
               "bg-white/55 dark:bg-white/[0.04]",
               "backdrop-blur-2xl backdrop-saturate-150",

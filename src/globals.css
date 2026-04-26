@@ -1036,13 +1036,13 @@ html[lang="zh-CN"] h3 {
 }
 
 /* Full-fill color variants — Mac Calendar uses solid tinted fills */
-.cal-chip-blue   { background: color-mix(in srgb, var(--primary) 28%, transparent);          color: color-mix(in srgb, var(--primary) 100%, black 30%); }
-.cal-chip-green  { background: color-mix(in srgb, var(--success) 28%, transparent);          color: color-mix(in srgb, var(--success) 100%, black 30%); }
-.cal-chip-amber  { background: color-mix(in srgb, var(--warning) 28%, transparent);          color: color-mix(in srgb, var(--warning) 100%, black 35%); }
-.cal-chip-red    { background: color-mix(in srgb, var(--destructive) 24%, transparent);      color: color-mix(in srgb, var(--destructive) 100%, black 25%); }
-.cal-chip-purple { background: color-mix(in srgb, #A898C0 28%, transparent);                 color: color-mix(in srgb, #A898C0 100%, black 30%); }
-.cal-chip-gray   { background: color-mix(in srgb, var(--muted-foreground) 18%, transparent); color: var(--muted-foreground); }
-.cal-chip-external { background: color-mix(in srgb, var(--muted-foreground) 14%, transparent); color: var(--foreground); }
+.cal-chip-blue   { background: color-mix(in srgb, var(--primary) 28%, var(--card));          color: color-mix(in srgb, var(--primary) 55%, white); }
+.cal-chip-green  { background: color-mix(in srgb, var(--success) 28%, var(--card));          color: color-mix(in srgb, var(--success) 55%, white); }
+.cal-chip-amber  { background: color-mix(in srgb, var(--warning) 28%, var(--card));          color: color-mix(in srgb, var(--warning) 60%, white); }
+.cal-chip-red    { background: color-mix(in srgb, var(--destructive) 24%, var(--card));      color: color-mix(in srgb, var(--destructive) 50%, white); }
+.cal-chip-purple { background: color-mix(in srgb, #A898C0 28%, var(--card));                 color: color-mix(in srgb, #A898C0 55%, white); }
+.cal-chip-gray   { background: color-mix(in srgb, var(--muted-foreground) 18%, var(--card)); color: var(--foreground); }
+.cal-chip-external { background: color-mix(in srgb, var(--muted-foreground) 14%, var(--card)); color: var(--foreground); }
 
 /* Light mode: richer fills */
 :root:not(.dark) .cal-chip-blue   { background: color-mix(in srgb, var(--primary) 22%, white);          color: color-mix(in srgb, var(--primary) 90%, black 40%); }
@@ -1081,6 +1081,7 @@ html[lang="zh-CN"] h3 {
   min-height: 96px;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
   transition: background 60ms;
   cursor: crosshair;
 }
@@ -1144,6 +1145,7 @@ html[lang="zh-CN"] h3 {
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
+  z-index: -1;
   transition: background 300ms;
 }
 

@@ -68,6 +68,15 @@ function bundle() {
     'pg-native',
     'bufferutil',
     'utf-8-validate',
+    // Cloud SDKs: large CJS trees (google-gax uses __dirname, AWS SDK has dynamic
+    // requires) that don't survive ESM bundling. Resolved at runtime — also copied
+    // into server/dist/node_modules below.
+    '@google-cloud/compute',
+    '@aws-sdk/*',
+    '@smithy/*',
+    'google-gax',
+    'google-auth-library',
+    'google-logging-utils',
   ];
   const externalFlags = externals.map((e) => `--external:${e}`).join(' ');
 
