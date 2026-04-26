@@ -24,11 +24,11 @@ function claudeCredentialsPath(): string {
 }
 
 export function registerProviderChannels(): void {
-  defineHandler('providers:detect', schema.providersDetect, () => {
-    return { providers: detectAllProviders() }
+  defineHandler('providers:detect', schema.providersDetect, async () => {
+    return { providers: await detectAllProviders() }
   })
 
-  defineHandler('providers:verify', schema.providersVerify, (req) => {
+  defineHandler('providers:verify', schema.providersVerify, async (req) => {
     return detectProvider(req.id as ProviderId)
   })
 
