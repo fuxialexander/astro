@@ -25,6 +25,17 @@ export const deviceAuthCancel = {
   res: z.object({ ok: z.literal(true) }),
 }
 
+export const deviceAuthVerify = {
+  req: z.object({}),
+  res: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('no-session') }),
+    z.object({ kind: z.literal('pending') }),
+    z.object({ kind: z.literal('slow-down') }),
+    z.object({ kind: z.literal('terminal') }),
+    z.object({ kind: z.literal('network-error'), message: z.string() }),
+  ]),
+}
+
 export const startLocal = {
   req: z.object({}),
   res: z.object({
@@ -132,6 +143,7 @@ export const sshInstallAndRegister = {
 export const channels = {
   'agent:device-auth-start': deviceAuthStart,
   'agent:device-auth-cancel': deviceAuthCancel,
+  'agent:device-auth-verify': deviceAuthVerify,
   'agent:start-local': startLocal,
   'agent:local-status': localStatus,
   'providers:detect': providersDetect,
