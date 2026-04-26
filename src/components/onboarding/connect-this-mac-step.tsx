@@ -171,10 +171,7 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
       <div>
         <div style={ebrowStyle}>Step 1 of 3 · Sign in</div>
         <h2 style={headingStyle}>Connect this Mac.</h2>
-        <p style={subtitleStyle}>
-          Sign in once and Astro will register this machine as a runner. Your
-          terminal CLI inherits the same session — no extra steps.
-        </p>
+        <p style={subtitleStyle}>Sign in to connect this Mac.</p>
       </div>
 
       {state.kind === "idle" && (

@@ -52,6 +52,7 @@ export function SshHostPickerStep({ onComplete, onSkip }: Props) {
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [rows, setRows] = useState<Record<string, RowMeta>>({})
   const [registering, setRegistering] = useState(false)
+  const [kickedOff, setKickedOff] = useState(false)
   const unsubRef = useRef<(() => void) | null>(null)
 
   const updateRow = useCallback((alias: string, patch: Partial<RowMeta>) => {
@@ -234,6 +235,10 @@ export function SshHostPickerStep({ onComplete, onSkip }: Props) {
 
     try {
       await desktopBridge.ssh.installAndRegister(reachable)
+      // Install runs fire-and-forget on the main process. The user can leave
+      // the wizard now — progress continues to land in the registered_machines
+      // table and shows up in the Environments view later.
+      setKickedOff(true)
     } catch (err) {
       for (const alias of reachable) {
         updateRow(alias, {
@@ -251,10 +256,7 @@ export function SshHostPickerStep({ onComplete, onSkip }: Props) {
       <div>
         <div style={ebrowStyle}>Step 3 of 3 · Remote machines</div>
         <h2 style={headingStyle}>Connect remote machines.</h2>
-        <p style={subtitleStyle}>
-          We found these in your ~/.ssh/config. Pick the ones you'd like Astro
-          to use.
-        </p>
+        <p style={subtitleStyle}>Pick remote machines to connect.</p>
       </div>
 
       {load.kind === "loading" && (
@@ -431,17 +433,19 @@ export function SshHostPickerStep({ onComplete, onSkip }: Props) {
         <button onClick={onSkip} className="as-btn-ghost" style={skipBtnStyle}>
           Skip
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
-          {load.kind === "ready" && (
-            <button
-              onClick={() => void connectSelected()}
-              className="as-btn-ghost"
-              disabled={registering}
-              style={secondaryBtnStyle}
-            >
-              {registering ? "Connecting…" : "Connect selected"}
-            </button>
-          )}
+        {load.kind === "ready" &&
+        !kickedOff &&
+        Object.values(selected).some(Boolean) ? (
+          <button
+            onClick={() => void connectSelected()}
+            className="as-btn-primary"
+            disabled={registering}
+            style={primaryBtnStyle}
+          >
+            {registering ? "Connecting…" : "Connect selected"}
+            {!registering && <ArrowRight size={13} />}
+          </button>
+        ) : (
           <button
             onClick={onComplete}
             className="as-btn-primary"
@@ -450,7 +454,7 @@ export function SshHostPickerStep({ onComplete, onSkip }: Props) {
             Done
             <ArrowRight size={13} />
           </button>
-        </div>
+        )}
       </div>
     </div>
   )
