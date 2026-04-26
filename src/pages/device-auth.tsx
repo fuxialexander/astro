@@ -186,7 +186,33 @@ export function DeviceAuth() {
 
       setStatus("success")
 
-      // Redirect to welcome page after a short delay with refresh flag
+      // Deep-link the desktop app so it knows to poll *now* instead of
+      // waiting up to ~5s for the next background tick. The Astro Electron
+      // app registers `astro://` and routes this URL through its
+      // open-url handler, which fires a one-shot poll on the active
+      // device-auth session. Setting it on a hidden iframe avoids the
+      // browser navigating away from this page; if the protocol isn't
+      // registered (user is on an unrelated machine), nothing happens.
+      try {
+        const frame = document.createElement("iframe")
+        frame.style.display = "none"
+        frame.src = "astro://device-auth/approved"
+        document.body.appendChild(frame)
+        // Cleanup after 3s — the OS will already have taken the URL by then.
+        setTimeout(() => {
+          try {
+            frame.remove()
+          } catch {
+            // already gone
+          }
+        }, 3000)
+      } catch {
+        // Non-fatal — falls back to background polling.
+      }
+
+      // Then redirect to /environments so the user has a clear destination
+      // in their browser. The desktop app advances independently via the
+      // deep-link above (or the next poll if the deep-link didn't fire).
       setTimeout(() => navigate("/environments"), 2000)
     } catch (err) {
       console.error('[device-auth] Authorization error:', err)

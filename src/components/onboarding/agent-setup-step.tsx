@@ -118,6 +118,7 @@ export function AgentSetupStep() {
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap');
         @keyframes agent-setup-fade { from { opacity: 0 } to { opacity: 1 } }
         @keyframes agent-setup-up   { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: none } }
+        @keyframes as-pulse         { 0%, 100% { opacity: 0.3 } 50% { opacity: 1 } }
         .as-btn-ghost:hover { background: var(--muted) !important; }
         .as-btn-primary:hover { opacity: 0.82 !important; }
         .as-btn-primary:disabled, .as-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }

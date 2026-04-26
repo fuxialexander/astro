@@ -313,7 +313,7 @@ async function processPollResult(
   // success — register machine
   try {
     const machineId = getOrCreateMachineId()
-    const providers = detectAllProviders().filter((p) => p.installed).map((p) => p.id)
+    const providers = (await detectAllProviders()).filter((p) => p.installed).map((p) => p.id)
     const info: MachineInfoForRegister = {
       machineId,
       hostname: hostname(),
@@ -493,4 +493,24 @@ function registerOnboardingAgentChannels(): void {
     const s = getLocalStatus()
     return { running: s.running, pid: s.pid, lastError: s.lastError }
   })
+}
+
+/**
+ * Programmatic one-shot poll, triggered by the deep-link handler in
+ * electron/main/index.ts when the browser navigates to
+ * `astro://device-auth/approved` after the user clicks Approve.
+ *
+ * Funnels through the same processPollResult as the background loop and the
+ * Verify-now IPC, so a success here publishes 'authorized' on the broker
+ * and the renderer advances immediately.
+ */
+export async function triggerImmediateDeviceAuthPoll(): Promise<void> {
+  if (!activeUserCode) return
+  try {
+    const result = await pollDeviceToken(activeUserCode)
+    await processPollResult(activeUserCode, result)
+  } catch (err) {
+    const message = (err as Error).message ?? String(err)
+    publishAuthState({ state: 'network-error', message })
+  }
 }

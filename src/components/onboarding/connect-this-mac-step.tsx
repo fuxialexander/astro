@@ -231,18 +231,36 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
               Confirm this code in your browser to authorize this Mac.
             </div>
           </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.625rem",
+              fontSize: "0.75rem",
+              color: "var(--muted-foreground)",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#e6a447",
+                animation: "as-pulse 1.4s ease-in-out infinite",
+              }}
+            />
+            <span>Waiting for browser approval…</span>
+          </div>
           <div style={{ display: "flex", gap: "0.625rem", alignItems: "center" }}>
             <button
               onClick={verifyNow}
-              className="as-btn-primary"
-              style={{
-                ...primaryBtnStyle,
-                paddingLeft: "0.875rem",
-                paddingRight: "0.875rem",
-              }}
+              className="as-btn-ghost"
+              style={ghostLinkStyle}
             >
-              <Check size={13} />
-              I clicked Approve — verify now
+              <Check size={12} />
+              I clicked Approve
             </button>
             <button
               onClick={reopenBrowser}

@@ -58,20 +58,49 @@ app.on('open-url', (event, url) => {
 })
 
 function handleDeepLink(url: string): void {
-  if (!url.startsWith('astro://auth/callback')) return
-  try {
-    const parsed = new URL(url)
-    const accessToken = parsed.searchParams.get('access_token')
-    const refreshToken = parsed.searchParams.get('refresh_token')
-    if (!accessToken || !refreshToken) return
+  // Login callback: account-level auth via Supabase tokens. Used by the web
+  // login page after the user signs in via WebAuthn/passkey.
+  if (url.startsWith('astro://auth/callback')) {
+    try {
+      const parsed = new URL(url)
+      const accessToken = parsed.searchParams.get('access_token')
+      const refreshToken = parsed.searchParams.get('refresh_token')
+      if (!accessToken || !refreshToken) return
+      const win = windowRegistry.get('main')
+      win?.webContents.send('auth:callback', { accessToken, refreshToken })
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.focus()
+      }
+    } catch {
+      // malformed URL — ignore
+    }
+    return
+  }
+
+  // Device-auth approval signal: the browser-side /device page redirects to
+  // this URL immediately after the user clicks Approve so the app doesn't
+  // have to wait up to 5s for the next background poll. The handler kicks
+  // off a one-shot verify (same path as the "Verify now" button), which
+  // funnels through processPollResult and publishes 'authorized' on the
+  // broker. The renderer advances within ~200ms instead of ~5s.
+  if (url.startsWith('astro://device-auth/approved')) {
     const win = windowRegistry.get('main')
-    win?.webContents.send('auth:callback', { accessToken, refreshToken })
     if (win) {
       if (win.isMinimized()) win.restore()
       win.focus()
     }
-  } catch {
-    // malformed URL — ignore
+    void (async () => {
+      try {
+        const { triggerImmediateDeviceAuthPoll } = await import(
+          './ipc/channels/agent.js'
+        )
+        await triggerImmediateDeviceAuthPoll()
+      } catch (err) {
+        console.warn('[deep-link] device-auth approved poll failed:', err)
+      }
+    })()
+    return
   }
 }
 
@@ -84,6 +113,15 @@ app.whenReady().then(async () => {
   buildApplicationMenu()
   installCSP()
   registerPluginProtocol()
+
+  // Patch process.env.PATH from the user's interactive shell BEFORE any
+  // channel registration so spawn() calls (provider detection, ssh, etc.)
+  // inherit the user's tools (Homebrew, nvm, asdf, ~/.local/bin, etc.).
+  // Without this, an Electron app launched from Finder has only the
+  // minimal /usr/bin:/bin PATH and `which claude` will return false even
+  // though the user has Claude Code installed.
+  const { patchProcessPathFromShell } = await import('./lib/user-shell-path.js')
+  patchProcessPathFromShell()
 
   // Register every typed IPC channel before any window can call `invoke`.
   // Safe to do before the supervisor — handlers that depend on it
