@@ -420,6 +420,11 @@ export const desktopBridge = {
         | { kind: 'terminal' }
         | { kind: 'network-error'; message: string }
       >('agent:device-auth-verify', {}),
+    authState: () =>
+      bridge().invoke<{ authed: boolean; machineId: string | null }>(
+        'agent:auth-state',
+        {},
+      ),
     onDeviceAuth: (handler: (s: DeviceAuthState) => void) =>
       bridge().streams.subscribe('onboarding:device-auth', (p) =>
         handler(p as DeviceAuthState)

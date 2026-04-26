@@ -429,6 +429,30 @@ function registerOnboardingAgentChannels(): void {
     return { ok: true as const }
   })
 
+  // Lightweight check: does ~/.astro/config.json already contain a complete
+  // token bundle? Used by the renderer to detect a previously-successful
+  // sign-in (e.g., from a prior session, or a race where the broker
+  // publish was lost) so we can skip the connect step instead of
+  // re-running it.
+  defineHandler('agent:auth-state', onboardingSchema.authState, () => {
+    if (!existsSync(configPath())) {
+      return { authed: false, machineId: null }
+    }
+    try {
+      const raw = readFileSync(configPath(), 'utf8')
+      const cfg = JSON.parse(raw) as AstroConfigShape
+      const authed = Boolean(
+        cfg.accessToken && cfg.refreshToken && cfg.machineId && cfg.setupCompleted,
+      )
+      return {
+        authed,
+        machineId: authed ? (cfg.machineId as string) : null,
+      }
+    } catch {
+      return { authed: false, machineId: null }
+    }
+  })
+
   // One-shot poll: the renderer calls this when the user clicks
   // "I clicked Approve — verify now". Useful when the background timer-based
   // poll seems stuck (e.g., a sleep wedge or an event delivery race). Idempotent

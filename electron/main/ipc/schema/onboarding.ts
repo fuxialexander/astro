@@ -36,6 +36,14 @@ export const deviceAuthVerify = {
   ]),
 }
 
+export const authState = {
+  req: z.object({}),
+  res: z.object({
+    authed: z.boolean(),
+    machineId: z.string().nullable(),
+  }),
+}
+
 export const startLocal = {
   req: z.object({}),
   res: z.object({
@@ -144,6 +152,7 @@ export const channels = {
   'agent:device-auth-start': deviceAuthStart,
   'agent:device-auth-cancel': deviceAuthCancel,
   'agent:device-auth-verify': deviceAuthVerify,
+  'agent:auth-state': authState,
   'agent:start-local': startLocal,
   'agent:local-status': localStatus,
   'providers:detect': providersDetect,
