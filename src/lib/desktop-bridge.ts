@@ -64,6 +64,35 @@ function bridge(): RawBridge {
   return (window as unknown as { astro: RawBridge }).astro
 }
 
+// ─── Onboarding / providers / ssh types ────────────────────────────────────
+
+export type DeviceAuthState =
+  | { state: 'pending' }
+  | { state: 'authorized'; machineId: string }
+  | { state: 'expired' }
+  | { state: 'denied' }
+  | { state: 'error'; message: string }
+  | { state: 'network-error'; message: string }
+
+export type ProviderId = 'claude' | 'codex' | 'pi' | 'openclaw'
+
+export type ProviderInfo = {
+  id: ProviderId
+  label: string
+  installed: boolean
+  authed: boolean
+  version: string | null
+  signInUrl: string | null
+}
+
+export type SSHHost = {
+  alias: string
+  hostname: string
+  user: string | null
+  port: number
+  identityFile: string | null
+}
+
 // ─── Typed surface ─────────────────────────────────────────────────────────
 
 export const desktopBridge = {
@@ -371,6 +400,104 @@ export const desktopBridge = {
     onReady: (handler: (info: { version: string }) => void) =>
       bridge().onUpdateReady(handler),
     install: () => bridge().invoke<{ ok: true }>('updater:install', {}),
+  },
+
+  onboarding: {
+    deviceAuthStart: () =>
+      bridge().invoke<{
+        deviceCode: string
+        userCode: string
+        verificationUriComplete: string
+        expiresIn: number
+      }>('agent:device-auth-start', {}),
+    deviceAuthCancel: () =>
+      bridge().invoke<{ ok: true }>('agent:device-auth-cancel', {}),
+    onDeviceAuth: (handler: (s: DeviceAuthState) => void) =>
+      bridge().streams.subscribe('onboarding:device-auth', (p) =>
+        handler(p as DeviceAuthState)
+      ),
+    onHostProgress: (
+      handler: (e: {
+        alias: string
+        state:
+          | 'testing'
+          | 'installing'
+          | 'registering'
+          | 'starting'
+          | 'connected'
+          | 'failed'
+          | 'needs-manual'
+        message?: string
+      }) => void,
+    ) =>
+      bridge().streams.subscribe('onboarding:host-progress', (p) =>
+        handler(
+          p as {
+            alias: string
+            state:
+              | 'testing'
+              | 'installing'
+              | 'registering'
+              | 'starting'
+              | 'connected'
+              | 'failed'
+              | 'needs-manual'
+            message?: string
+          },
+        ),
+      ),
+  },
+
+  localAgent: {
+    start: () =>
+      bridge().invoke<{ ok: boolean; pid: number | null; error: string | null }>(
+        'agent:start-local',
+        {},
+      ),
+    status: () =>
+      bridge().invoke<{ running: boolean; pid: number | null; lastError: string | null }>(
+        'agent:local-status',
+        {},
+      ),
+  },
+
+  providers: {
+    detect: () =>
+      bridge().invoke<{ providers: ProviderInfo[] }>('providers:detect', {}),
+    verify: (id: ProviderId) =>
+      bridge().invoke<ProviderInfo>('providers:verify', { id }),
+    writeClaudeKey: (apiKey: string) =>
+      bridge().invoke<{ ok: true }>('providers:write-claude-key', { apiKey }),
+    openSignIn: (id: ProviderId) =>
+      bridge().invoke<{ ok: true }>('providers:open-signin', { id }),
+  },
+
+  ssh: {
+    discoverHosts: () =>
+      bridge().invoke<{
+        hosts: SSHHost[]
+        hasIdentityKey: boolean
+        defaultIdentityPath: string
+      }>('ssh:discover-hosts', {}),
+    testHost: (alias: string) =>
+      bridge().invoke<{ reachable: boolean; needsAuth: boolean; error: string | null }>(
+        'ssh:test-host',
+        { alias },
+      ),
+    generateKey: () =>
+      bridge().invoke<{ publicKeyPath: string; publicKey: string }>(
+        'ssh:generate-key',
+        {},
+      ),
+    copyKey: (alias: string) =>
+      bridge().invoke<{
+        ok: boolean
+        method: 'ssh-copy-id' | 'manual'
+        error: string | null
+        instructions: string | null
+      }>('ssh:copy-key', { alias }),
+    installAndRegister: (aliases: string[]) =>
+      bridge().invoke<{ ok: true }>('ssh:install-and-register', { aliases }),
   },
 
   agent: {

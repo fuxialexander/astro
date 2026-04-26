@@ -26,6 +26,8 @@ import { registerAppleCalendarChannels } from './apple-calendar.js'
 import { registerAgentChannels } from './agent.js'
 import { registerCloudCredsChannels } from './cloud-creds.js'
 import { registerCloudPoolChannels } from './cloud-pool.js'
+import { registerProviderChannels } from './providers.js'
+import { registerSshChannels } from './ssh.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -51,4 +53,8 @@ export function registerAllChannels(): void {
   registerAgentChannels()
   registerCloudCredsChannels()
   registerCloudPoolChannels()
+
+  // Onboarding (provider detection + SSH discovery)
+  registerProviderChannels()
+  registerSshChannels()
 }

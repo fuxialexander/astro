@@ -97,7 +97,25 @@ async function bundleAgent(entry: string) {
     logLevel: debug ? 'info' : 'warning',
   })
 
+  stripDuplicateShebang(out)
   ok(`  astro-agent.mjs written (${Math.round(statSync(out).size / 1024)}KB)`)
+}
+
+/**
+ * esbuild preserves the entry-point's shebang in the output even when the
+ * `banner.js` option already injects one. The result is two `#!` lines, and
+ * the second one is a hard syntax error in ESM mode (regardless of how the
+ * file is invoked). Drop it.
+ */
+function stripDuplicateShebang(file: string): void {
+  const text = readFileSync(file, 'utf8')
+  if (!text.startsWith('#!')) return
+  const nl = text.indexOf('\n')
+  const rest = text.slice(nl + 1)
+  if (!rest.startsWith('#!')) return
+  const nl2 = rest.indexOf('\n')
+  const cleaned = text.slice(0, nl + 1) + rest.slice(nl2 + 1)
+  writeFileSync(file, cleaned, 'utf8')
 }
 
 async function bundleCli(entry: string) {
@@ -122,6 +140,7 @@ async function bundleCli(entry: string) {
     logLevel: debug ? 'info' : 'warning',
   })
 
+  stripDuplicateShebang(out)
   ok(`  astro-cli.mjs written (${Math.round(statSync(out).size / 1024)}KB)`)
 }
 
