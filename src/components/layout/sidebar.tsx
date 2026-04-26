@@ -89,7 +89,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare, GitBranch, Github, Terminal, Radio, Target, Cpu,
   BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench,
   Code, Sparkles, FlaskConical, LayoutTemplate, Inbox, Activity,
-  Folder, Server, Plus, Minus, Calendar, CalendarDays,
+  Folder, Server, Plus, Minus, Calendar, CalendarDays, Settings,
 }
 
 const EMPTY_FLAGS: Record<string, boolean> = {}
@@ -627,7 +627,18 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   ),
                 )}
               >
-                {visibleItems.map((item, index) => {
+                {(() => {
+                  const baseHasActive = visibleItems.some((it) =>
+                    location.pathname === it.to
+                    || (it.id === "projects" && location.pathname.startsWith("/project/"))
+                  )
+                  const itemsToRender: typeof visibleItems = !baseHasActive && location.pathname.startsWith("/settings")
+                    ? [...visibleItems, {
+                        id: "settings", to: "/settings", icon: "Settings",
+                        label: "Settings", visible: true, protected: true,
+                      }]
+                    : visibleItems
+                  return itemsToRender.map((item, index) => {
                   const Icon = iconMap[item.icon] || CheckSquare
                   const badge = getBadge(item.id)
                   const isItemActive = location.pathname === item.to
@@ -714,7 +725,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       </NavLink>
                     </div>
                   )
-                })}
+                  })
+                })()}
 
                 {/* Customize button lives inside the nav when in overlay mode */}
                 {shouldCollapseNav && !collapsed && (
