@@ -112,6 +112,36 @@ app.whenReady().then(async () => {
 
   await createMainWindow({ preloadDir: app.isPackaged ? __dirname : path.join(__dirname, '../preload') })
 
+  // If the user has already completed device-auth in a previous session
+  // (~/.astro/config.json has tokens + setupCompleted), bring the local
+  // astro-agent runner up automatically so the dispatcher has somewhere
+  // to send tasks. Idempotent — start() is a no-op if already running.
+  // Fire-and-forget; failures are logged by the orchestrator but don't
+  // block boot.
+  void (async () => {
+    try {
+      const { existsSync, readFileSync } = await import('node:fs')
+      const { homedir } = await import('node:os')
+      const { join } = await import('node:path')
+      const cfgPath = join(homedir(), '.astro', 'config.json')
+      if (!existsSync(cfgPath)) return
+      const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
+        accessToken?: string
+        refreshToken?: string
+        machineId?: string
+        setupCompleted?: boolean
+      }
+      const authed = Boolean(
+        cfg.accessToken && cfg.refreshToken && cfg.machineId && cfg.setupCompleted,
+      )
+      if (!authed) return
+      const { start } = await import('./lib/agent-orchestrator.js')
+      await start()
+    } catch (err) {
+      console.warn('[electron-main] auto-start of local agent failed:', err)
+    }
+  })()
+
   // Auto-updater — no-op in dev, polls every hour in packaged builds.
   setupAutoUpdater()
 
@@ -138,7 +168,7 @@ app.on('will-quit', (event) => {
     pluginLoader.shutdownAllPlugins(),
   ]).finally(() => {
     cleanedUp = true
-    app.quit()
+    app.exit(0)
   })
 })
 
