@@ -13,7 +13,6 @@ const TITLEBAR_BTN =
 import { Sidebar } from "./sidebar"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
-import { OnboardingFlow } from "@/components/onboarding/onboarding-flow"
 import { AgentSetupStep } from "@/components/onboarding/agent-setup-step"
 import { PasskeyNudgeBanner } from "@/components/passkey-nudge-banner"
 import { SseDisconnectBanner } from "@/components/sse-disconnect-banner"
@@ -352,7 +351,6 @@ export function AppLayout() {
       <SafetyPromptDialog />
       <WelcomeProfileDialog />
       <AgentSetupStep />
-      <OnboardingFlow />
       <ToastContainer />
 
       {/* Update banner — appears at the bottom when electron-updater has

@@ -26,11 +26,6 @@ import { ProviderSetupStep } from "./provider-setup-step"
 import { SshHostPickerStep } from "./ssh-host-picker-step"
 
 const STORAGE_KEY = "astro-agent-setup-v1"
-// Welcome-tour flag (kept in sync with onboarding-flow.tsx). The agent setup
-// wizard must wait for the welcome tour to dismiss — otherwise both modals
-// stack at the same z-index and the user sees two glass cards on top of each
-// other on first launch.
-const TOUR_DONE_KEY = "astro-onboarding-v3"
 
 type Step =
   | { type: "preparing" }
@@ -42,33 +37,9 @@ type Step =
 
 export function AgentSetupStep() {
   const [step, setStep] = useState<Step>({ type: "preparing" })
-  // Visibility is dynamic: we don't render until the welcome tour has been
-  // dismissed (`astro-onboarding-v3 === 'true'`). OnboardingFlow.dismiss
-  // dispatches a custom `astro-onboarding-dismissed` event so we re-evaluate
-  // immediately; we also gate the initial mount so a returning user who's
-  // already past the tour sees this wizard right away.
-  const [tourDone, setTourDone] = useState(
-    () => isDesktop() && localStorage.getItem(TOUR_DONE_KEY) === "true",
+  const [visible] = useState(
+    () => isDesktop() && localStorage.getItem(STORAGE_KEY) !== "true",
   )
-  const [setupSeen] = useState(
-    () => isDesktop() && localStorage.getItem(STORAGE_KEY) === "true",
-  )
-  const visible = isDesktop() && tourDone && !setupSeen
-
-  useEffect(() => {
-    if (!isDesktop() || tourDone) return
-    const refresh = () => {
-      if (localStorage.getItem(TOUR_DONE_KEY) === "true") setTourDone(true)
-    }
-    // Custom event fired by OnboardingFlow.dismiss in the same window.
-    window.addEventListener("astro-onboarding-dismissed", refresh)
-    // Cross-window storage events as a fallback (rare but possible).
-    window.addEventListener("storage", refresh)
-    return () => {
-      window.removeEventListener("astro-onboarding-dismissed", refresh)
-      window.removeEventListener("storage", refresh)
-    }
-  }, [tourDone])
 
   const dismiss = useCallback(() => {
     localStorage.setItem(STORAGE_KEY, "true")

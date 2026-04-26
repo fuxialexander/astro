@@ -124,11 +124,8 @@ export function ProviderSetupStep({ onComplete, onSkip }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <div>
         <div style={ebrowStyle}>Step 2 of 3 · Providers</div>
-        <h2 style={headingStyle}>Set up your AI providers.</h2>
-        <p style={subtitleStyle}>
-          Astro routes tasks to whichever AI tools you have. Set them up here,
-          or skip and configure later.
-        </p>
+        <h2 style={headingStyle}>Connect your AI tools.</h2>
+        <p style={subtitleStyle}>Sign in to the ones you use, or skip.</p>
       </div>
 
       {load.kind === "loading" && (
@@ -177,11 +174,39 @@ export function ProviderSetupStep({ onComplete, onSkip }: Props) {
         </div>
       )}
 
-      {load.kind === "ready" && (
+      {load.kind === "ready" && load.providers.every((p) => !p.installed) && (
+        <div
+          style={{
+            padding: "1.25rem",
+            borderRadius: 12,
+            background: "var(--muted)",
+            border: "1px solid var(--border)",
+            fontSize: "0.8125rem",
+            color: "var(--muted-foreground)",
+            lineHeight: 1.55,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.875rem",
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            None detected. Install Claude Code, Codex, OpenClaw, or Pi to use this Mac as a runner.
+          </div>
+          <button
+            onClick={detect}
+            className="as-btn-ghost"
+            style={ghostLinkStyle}
+          >
+            Refresh
+          </button>
+        </div>
+      )}
+
+      {load.kind === "ready" && load.providers.some((p) => p.installed) && (
         <div
           style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}
         >
-          {load.providers.map((p) => {
+          {load.providers.filter((p) => p.installed).map((p) => {
             const status = !p.installed
               ? "not-installed"
               : p.authed
