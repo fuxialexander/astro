@@ -189,8 +189,16 @@ export function registerSshChannels(): void {
     // to during the SSH step. We return synchronously so the orchestrator
     // can move on; failures surface as per-host events, not as a rejected
     // IPC call.
-    void installAndRegisterHosts(req.aliases).catch((err) => {
-      console.error('[ssh:install-and-register] runner crashed:', err)
+    //
+    // Defer the runner one tick so the renderer's MessagePort 'subscribe'
+    // message has time to land at the broker before we publish the first
+    // 'registering' event. Without this, even though the renderer subscribes
+    // syntactically before this IPC call, the subscribe message and this
+    // handler race in main's event loop and early events can be missed.
+    setImmediate(() => {
+      void installAndRegisterHosts(req.aliases).catch((err) => {
+        console.error('[ssh:install-and-register] runner crashed:', err)
+      })
     })
     return { ok: true as const }
   })

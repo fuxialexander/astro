@@ -86,6 +86,7 @@ interface LocalConfig {
   accessToken?: string
   apiUrl?: string
   relayUrl?: string
+  machineId?: string
 }
 
 function readLocalConfig(): LocalConfig {
@@ -107,10 +108,13 @@ interface RemoteTokenBundle {
   relayUrl: string
 }
 
-function deriveRemoteMachineId(alias: string): string {
-  // Stable per-(local-machine, remote-alias) so re-registration is idempotent.
-  // sha256 keeps it consistent with the local machine-id derivation.
-  const seed = `${hostname()}|remote|${alias}`
+function deriveRemoteMachineId(alias: string, localMachineId: string): string {
+  // Seed includes the local machineId so two teammates registering the same
+  // alias (e.g. shared "my-cluster") produce different remote IDs. Without
+  // this, /api/device/register would upsert one over the other and silently
+  // disconnect whichever user registered first. `hostname()` alone is not
+  // enough — laptops have generic names ("MacBook-Pro") that collide.
+  const seed = `${localMachineId}|${hostname()}|remote|${alias}`
   const hash = createHash('sha256').update(seed).digest('hex').slice(0, 32)
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`
 }
@@ -120,7 +124,10 @@ async function registerRemoteOnBehalf(alias: string): Promise<RemoteTokenBundle>
   if (!local.accessToken) {
     throw new Error('Local agent is not authenticated yet. Complete "Connect this Mac" first.')
   }
-  const machineId = deriveRemoteMachineId(alias)
+  if (!local.machineId) {
+    throw new Error('Local machineId missing from ~/.astro/config.json — re-run "Connect this Mac" to repair.')
+  }
+  const machineId = deriveRemoteMachineId(alias, local.machineId)
   const info: MachineInfoForRegister = {
     machineId,
     hostname: alias,
@@ -132,13 +139,22 @@ async function registerRemoteOnBehalf(alias: string): Promise<RemoteTokenBundle>
   const reg = await registerMachine(local.accessToken, info)
   if (!reg.accessToken || !reg.refreshToken) {
     throw new Error(
-      'Server did not return remote-scoped tokens. Update the server or use the local accessToken (less safe).',
+      'Server did not return remote-scoped tokens. The /api/device/register endpoint must return accessToken + refreshToken for register-on-behalf to work.',
+    )
+  }
+  // Fail loud if the relay token is missing — without it the remote agent
+  // cannot connect to the relay and the user would see a brief "connected"
+  // state followed by an inert machine. Surface the failure so the SSH
+  // step's row goes to `failed` instead.
+  if (!reg.wsToken) {
+    throw new Error(
+      'Server did not return a wsToken — relay token issuance failed; check server logs for /api/device/register.',
     )
   }
   return {
     accessToken: reg.accessToken,
     refreshToken: reg.refreshToken,
-    wsToken: reg.wsToken ?? '',
+    wsToken: reg.wsToken,
     machineId: reg.machineId,
     apiUrl: reg.apiUrl ?? local.apiUrl ?? '',
     relayUrl: reg.relayUrl ?? local.relayUrl ?? '',
@@ -163,6 +179,47 @@ function classifyStep(name: string): HostState {
 
 function isAuthRequiredError(e: NdjsonError): boolean {
   return e.code === 'auth-required'
+}
+
+/**
+ * Strip token-shaped values from any text we publish on the broker. The child
+ * process never logs tokens deliberately, but uncaught exceptions in
+ * agent-runner can stringify their context and a token bundle could leak into
+ * stderr. Anything we surface to the renderer must be scrubbed first.
+ *
+ * Patterns covered:
+ *   - JSON: `"accessToken":"…"` (quoted key, optional whitespace)
+ *   - YAML/env: `accessToken: foo`, `ACCESS_TOKEN=foo`
+ *   - Bare token-looking strings near a token keyword on the same line
+ */
+function scrubTokens(s: string): string {
+  if (!s) return s
+  return s.replace(
+    /(["']?(?:access[_-]?token|refresh[_-]?token|ws[_-]?token|bearer)["']?\s*[:=]\s*["']?)([A-Za-z0-9._\-+/=]+)(["']?)/gi,
+    '$1<redacted>$3',
+  )
+}
+
+// ─── Process registry (cleanup on app quit) ────────────────────────────────
+
+const activeChildren = new Set<ReturnType<typeof spawn>>()
+let quitHookRegistered = false
+
+function registerQuitHook(): void {
+  if (quitHookRegistered) return
+  quitHookRegistered = true
+  // Kill any in-flight ssh-install children so we don't leave half-installed
+  // remote agents when the user force-quits the desktop app. SIGTERM gives
+  // each child a chance to clean up its scp/ssh subprocesses.
+  app.on('before-quit', () => {
+    for (const c of activeChildren) {
+      try {
+        c.kill('SIGTERM')
+      } catch {
+        // already exited
+      }
+    }
+  })
 }
 
 // ─── Spawn + parse loop ────────────────────────────────────────────────────
@@ -201,6 +258,7 @@ async function runOneHost(alias: string): Promise<void> {
   const child = spawn(bin, ['ssh-install', '--host', trimmed], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+  activeChildren.add(child)
 
   child.stdin.write(JSON.stringify(tokens))
   child.stdin.end()
@@ -231,7 +289,7 @@ async function runOneHost(alias: string): Promise<void> {
         publishProgress({
           alias,
           state: classifyStep(ev.name),
-          message: ev.message,
+          message: scrubTokens(ev.message),
         })
       } else if (ev.event === 'done') {
         saw = 'done'
@@ -242,7 +300,7 @@ async function runOneHost(alias: string): Promise<void> {
         publishProgress({
           alias,
           state: isAuthRequiredError(ev) ? 'needs-manual' : 'failed',
-          message: ev.message,
+          message: scrubTokens(ev.message),
         })
       }
     }
@@ -257,14 +315,16 @@ async function runOneHost(alias: string): Promise<void> {
 
   await new Promise<void>((resolve) => {
     child.on('close', (code) => {
+      activeChildren.delete(child)
       if (saw === null) {
         // No terminal event reached us — treat as failure with whatever
-        // stderr we captured.
+        // stderr we captured (scrubbed of any token-shaped values that may
+        // have leaked into a stack trace or diagnostic dump).
         publishProgress({
           alias,
           state: 'failed',
           message:
-            stderrTail.trim() ||
+            scrubTokens(stderrTail.trim()) ||
             `ssh-install exited ${code ?? '?'} without emitting a result event`,
         })
       } else if (saw === 'error' && lastErrorMessage === null) {
@@ -274,7 +334,8 @@ async function runOneHost(alias: string): Promise<void> {
       resolve()
     })
     child.on('error', (err) => {
-      publishProgress({ alias, state: 'failed', message: err.message })
+      activeChildren.delete(child)
+      publishProgress({ alias, state: 'failed', message: scrubTokens(err.message) })
       resolve()
     })
   })
@@ -283,6 +344,7 @@ async function runOneHost(alias: string): Promise<void> {
 // ─── Concurrency-limited fan-out ───────────────────────────────────────────
 
 export async function installAndRegisterHosts(aliases: string[]): Promise<void> {
+  registerQuitHook()
   const queue = aliases.slice()
   const workers: Promise<void>[] = []
   const next = async (): Promise<void> => {

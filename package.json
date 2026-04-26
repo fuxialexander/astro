@@ -55,7 +55,7 @@
     "flags": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts",
     "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
     "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
-    "postinstall": "([ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true) && (electron-rebuild -f -w node-pty || echo '[postinstall] electron-rebuild skipped or failed — terminal will use NOT_REBUILT fallback until you run: npx electron-rebuild -f -w node-pty')",
+    "postinstall": "node scripts/postinstall.mjs",
     "electron:build:main": "tsx scripts/build-electron-main.ts",
     "electron:build:server": "tsx scripts/build-server.ts",
     "build:binaries": "tsx scripts/build-binaries.ts",

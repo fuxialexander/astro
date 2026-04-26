@@ -342,10 +342,16 @@ async function runDeviceAuthPollLoop(opts: {
         resources: getMachineResources(),
       }
       const reg = await registerMachine(result.accessToken, info)
+      // Prefer the machine-scoped tokens returned by /api/device/register —
+      // those are bound to the machineId in refresh_tokens, so future calls
+      // to /api/device/refresh will succeed. The pre-register `result.*`
+      // tokens are scoped to a transient "cli" machineId and have no
+      // matching refresh_tokens row, so falling back to them silently
+      // breaks token rotation later.
       writeAstroConfig({
         machineId: reg.machineId,
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
+        accessToken: reg.accessToken ?? result.accessToken,
+        refreshToken: reg.refreshToken ?? result.refreshToken,
         wsToken: reg.wsToken ?? result.wsToken,
         apiUrl: reg.apiUrl,
         relayUrl: reg.relayUrl,
