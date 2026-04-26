@@ -97,9 +97,39 @@ const config: ForgeConfig = {
     // to app.asar.unpacked so Electron can dlopen them at runtime.
     afterCopy: [
       (buildPath, _electronVersion, _platform, _arch, callback) => {
+        // Native modules — auto-unpack-natives picks up their .node binaries.
         const natives = ['node-pty', 'ssh2', 'cpu-features', '@vscode/ripgrep']
+        // Cloud SDK roots — externalized in vite.main.config.ts because their
+        // CJS trees don't survive ESM bundling. Must be physically present in
+        // the packaged node_modules so Node's runtime resolver can find them.
+        // We walk the dependency closure from each root because google-gax /
+        // @google-cloud/compute pull in many loose packages (grpc, gaxios,
+        // protobufjs, ...) that won't be there otherwise.
+        const cloudRoots = [
+          '@aws-sdk/client-ec2',
+          '@aws-sdk/client-s3',
+          '@aws-sdk/credential-provider-ini',
+          '@aws-sdk/credential-provider-env',
+          '@google-cloud/compute',
+        ]
+        const collectDeps = (pkgName: string, seen: Set<string>) => {
+          if (seen.has(pkgName)) return
+          const pkgPath = path.join(repoRoot, 'node_modules', pkgName, 'package.json')
+          if (!fs.existsSync(pkgPath)) return
+          seen.add(pkgName)
+          try {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+            for (const dep of Object.keys(pkg.dependencies ?? {})) {
+              collectDeps(dep, seen)
+            }
+          } catch {
+            // ignore malformed package.json
+          }
+        }
         try {
-          for (const name of natives) {
+          const cloudClosure = new Set<string>()
+          for (const root of cloudRoots) collectDeps(root, cloudClosure)
+          for (const name of [...natives, ...cloudClosure]) {
             const src = path.join(repoRoot, 'node_modules', name)
             if (!fs.existsSync(src)) continue
             const dest = path.join(buildPath, 'node_modules', name)
