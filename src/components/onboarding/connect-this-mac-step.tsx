@@ -21,7 +21,12 @@ type LocalState =
   | { kind: "starting" }
   | {
       kind: "pending"
-      userCode: string
+      // The XXXX-XXXX user-friendly code that's also shown on the browser
+      // verification page. This is what the user reads / confirms — NOT the
+      // long opaque `userCode` field, which is only the internal poll key.
+      // (The server's `token-manager.ts` names these in the inverse of RFC
+      // 8628 conventions; we display whatever the browser shows.)
+      displayCode: string
       verificationUrl: string
     }
   | { kind: "authorized" }
@@ -112,7 +117,7 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
       }
       setState({
         kind: "pending",
-        userCode: res.userCode,
+        displayCode: res.deviceCode,
         verificationUrl: res.verificationUriComplete,
       })
     } catch (err) {
@@ -129,6 +134,35 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
       await desktopBridge.editor.openExternal(state.verificationUrl)
     } catch {
       // ignore
+    }
+  }, [state])
+
+  // "Verify now" — explicit one-shot poll for users whose background timer
+  // appears stuck. The handler triggers exactly the same processing as the
+  // background loop (success path publishes 'authorized' state, which our
+  // handleAuthEvent receives). If still pending, surfaces a short hint
+  // without disturbing the existing pending UI.
+  const [verifyHint, setVerifyHint] = useState<string | null>(null)
+  const verifyNow = useCallback(async () => {
+    if (state.kind !== "pending") return
+    setVerifyHint("Checking…")
+    try {
+      const r = await desktopBridge.onboarding.deviceAuthVerify()
+      if (r.kind === "pending") {
+        setVerifyHint("Still waiting on browser approval. Click Approve, then try again.")
+      } else if (r.kind === "no-session") {
+        setVerifyHint("Session expired. Click Open browser to start a new sign-in.")
+      } else if (r.kind === "slow-down") {
+        setVerifyHint("Polling too quickly — try again in a few seconds.")
+      } else if (r.kind === "network-error") {
+        setVerifyHint(`Network error: ${r.message}`)
+      } else {
+        // 'terminal' — handleAuthEvent will receive the authorized/error event
+        // via the broker subscription and advance the UI.
+        setVerifyHint(null)
+      }
+    } catch (err) {
+      setVerifyHint(err instanceof Error ? err.message : String(err))
     }
   }, [state])
 
@@ -166,7 +200,7 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div style={pendingCardStyle}>
             <div style={smallLabelStyle}>Your sign-in code</div>
-            <div style={codePillStyle}>{state.userCode}</div>
+            <div style={codePillStyle}>{state.displayCode}</div>
             <div
               style={{
                 fontSize: "0.75rem",
@@ -179,14 +213,39 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
               Confirm this code in your browser to authorize this Mac.
             </div>
           </div>
-          <button
-            onClick={reopenBrowser}
-            className="as-btn-ghost"
-            style={ghostLinkStyle}
-          >
-            <ExternalLink size={12} />
-            Reopen browser
-          </button>
+          <div style={{ display: "flex", gap: "0.625rem", alignItems: "center" }}>
+            <button
+              onClick={verifyNow}
+              className="as-btn-primary"
+              style={{
+                ...primaryBtnStyle,
+                paddingLeft: "0.875rem",
+                paddingRight: "0.875rem",
+              }}
+            >
+              <Check size={13} />
+              I clicked Approve — verify now
+            </button>
+            <button
+              onClick={reopenBrowser}
+              className="as-btn-ghost"
+              style={ghostLinkStyle}
+            >
+              <ExternalLink size={12} />
+              Reopen browser
+            </button>
+          </div>
+          {verifyHint && (
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--muted-foreground)",
+                fontWeight: 300,
+              }}
+            >
+              {verifyHint}
+            </div>
+          )}
         </div>
       )}
 

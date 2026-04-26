@@ -1003,6 +1003,10 @@ export function OnboardingFlow() {
     setVisible(false)
     localStorage.setItem(ONBOARDING_KEY, "true")
     LEGACY_KEYS.forEach((k) => localStorage.setItem(k, "true"))
+    // Notify same-window listeners (storage events don't fire in the window
+    // that wrote the value). AgentSetupStep waits for this so the two
+    // modals don't stack on first launch.
+    window.dispatchEvent(new Event("astro-onboarding-dismissed"))
   }, [])
 
   const goTo = useCallback(

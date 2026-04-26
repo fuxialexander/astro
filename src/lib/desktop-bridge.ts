@@ -412,6 +412,14 @@ export const desktopBridge = {
       }>('agent:device-auth-start', {}),
     deviceAuthCancel: () =>
       bridge().invoke<{ ok: true }>('agent:device-auth-cancel', {}),
+    deviceAuthVerify: () =>
+      bridge().invoke<
+        | { kind: 'no-session' }
+        | { kind: 'pending' }
+        | { kind: 'slow-down' }
+        | { kind: 'terminal' }
+        | { kind: 'network-error'; message: string }
+      >('agent:device-auth-verify', {}),
     onDeviceAuth: (handler: (s: DeviceAuthState) => void) =>
       bridge().streams.subscribe('onboarding:device-auth', (p) =>
         handler(p as DeviceAuthState)

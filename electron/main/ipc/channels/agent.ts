@@ -207,6 +207,10 @@ const ONBOARDING_BROKER_CHANNEL = 'onboarding:device-auth'
 
 /** Tracks the in-flight device-auth poll loop so we can cancel it. */
 let activePollAbort: { cancelled: boolean } | null = null
+/** Tracks the userCode of the in-flight device-auth session so the renderer
+ * can trigger an explicit one-shot poll ("Verify now") if the timer-based
+ * loop appears stuck. */
+let activeUserCode: string | null = null
 
 function astroDir(): string {
   return join(homedir(), '.astro')
@@ -286,6 +290,57 @@ function publishAuthState(payload: Record<string, unknown>): void {
   streamBroker.publish(ONBOARDING_BROKER_CHANNEL, payload)
 }
 
+/** Process one poll result + register-on-success. Shared by the background
+ * loop and the explicit "verify now" IPC. Returns the kind so the caller
+ * can decide whether to continue polling. */
+async function processPollResult(
+  userCode: string,
+  result: Awaited<ReturnType<typeof pollDeviceToken>>,
+): Promise<'pending' | 'slow-down' | 'terminal'> {
+  if (result.kind === 'pending') return 'pending'
+  if (result.kind === 'slow-down') return 'slow-down'
+  if (result.kind === 'error') {
+    if (result.error === 'access_denied') publishAuthState({ state: 'denied' })
+    else if (result.error === 'expired_token') publishAuthState({ state: 'expired' })
+    else publishAuthState({ state: 'error', message: result.message })
+    return 'terminal'
+  }
+  // success — register machine
+  try {
+    const machineId = getOrCreateMachineId()
+    const providers = detectAllProviders().filter((p) => p.installed).map((p) => p.id)
+    const info: MachineInfoForRegister = {
+      machineId,
+      hostname: hostname(),
+      name: hostname(),
+      platform: platform(),
+      providers,
+      resources: getMachineResources(),
+    }
+    const reg = await registerMachine(result.accessToken, info)
+    writeAstroConfig({
+      machineId: reg.machineId,
+      accessToken: reg.accessToken ?? result.accessToken,
+      refreshToken: reg.refreshToken ?? result.refreshToken,
+      wsToken: reg.wsToken ?? result.wsToken,
+      apiUrl: reg.apiUrl,
+      relayUrl: reg.relayUrl,
+      setupCompleted: true,
+    })
+    publishAuthState({ state: 'authorized', machineId: reg.machineId })
+  } catch (err) {
+    publishAuthState({
+      state: 'error',
+      message: `register failed: ${(err as Error).message ?? String(err)}`,
+    })
+  }
+  // Whether register succeeded or failed, the poll itself reached a terminal
+  // outcome — stop the background loop. The renderer's state machine handles
+  // both outcomes via `authorized` / `error` events.
+  void userCode
+  return 'terminal'
+}
+
 async function runDeviceAuthPollLoop(opts: {
   userCode: string
   intervalSec: number
@@ -316,55 +371,13 @@ async function runDeviceAuthPollLoop(opts: {
       continue
     }
 
-    if (result.kind === 'pending') continue
-    if (result.kind === 'slow-down') {
+    const outcome = await processPollResult(userCode, result)
+    if (outcome === 'pending') continue
+    if (outcome === 'slow-down') {
       interval = interval + 5
       continue
     }
-    if (result.kind === 'error') {
-      if (result.error === 'access_denied') publishAuthState({ state: 'denied' })
-      else if (result.error === 'expired_token') publishAuthState({ state: 'expired' })
-      else publishAuthState({ state: 'error', message: result.message })
-      return
-    }
-    // success — register machine
-    try {
-      const machineId = getOrCreateMachineId()
-      const providers = detectAllProviders()
-        .filter((p) => p.installed)
-        .map((p) => p.id)
-      const info: MachineInfoForRegister = {
-        machineId,
-        hostname: hostname(),
-        name: hostname(),
-        platform: platform(),
-        providers,
-        resources: getMachineResources(),
-      }
-      const reg = await registerMachine(result.accessToken, info)
-      // Prefer the machine-scoped tokens returned by /api/device/register —
-      // those are bound to the machineId in refresh_tokens, so future calls
-      // to /api/device/refresh will succeed. The pre-register `result.*`
-      // tokens are scoped to a transient "cli" machineId and have no
-      // matching refresh_tokens row, so falling back to them silently
-      // breaks token rotation later.
-      writeAstroConfig({
-        machineId: reg.machineId,
-        accessToken: reg.accessToken ?? result.accessToken,
-        refreshToken: reg.refreshToken ?? result.refreshToken,
-        wsToken: reg.wsToken ?? result.wsToken,
-        apiUrl: reg.apiUrl,
-        relayUrl: reg.relayUrl,
-        setupCompleted: true,
-      })
-      publishAuthState({ state: 'authorized', machineId: reg.machineId })
-    } catch (err) {
-      publishAuthState({
-        state: 'error',
-        message: `register failed: ${(err as Error).message ?? String(err)}`,
-      })
-    }
-    return
+    return // terminal — authorized, denied, expired, error, or registered
   }
 }
 
@@ -374,8 +387,10 @@ function registerOnboardingAgentChannels(): void {
     if (activePollAbort) activePollAbort.cancelled = true
     const abortRef = { cancelled: false }
     activePollAbort = abortRef
+    activeUserCode = null
 
     const auth = await startDeviceAuth({ hostname: hostname(), platform: platform() })
+    activeUserCode = auth.userCode
 
     // Open the verification URL in the user's default browser.
     try {
@@ -410,7 +425,30 @@ function registerOnboardingAgentChannels(): void {
       activePollAbort.cancelled = true
       activePollAbort = null
     }
+    activeUserCode = null
     return { ok: true as const }
+  })
+
+  // One-shot poll: the renderer calls this when the user clicks
+  // "I clicked Approve — verify now". Useful when the background timer-based
+  // poll seems stuck (e.g., a sleep wedge or an event delivery race). Idempotent
+  // with the background loop — both paths funnel through processPollResult,
+  // which publishes the canonical 'authorized' / 'error' state on success.
+  defineHandler('agent:device-auth-verify', onboardingSchema.deviceAuthVerify, async () => {
+    if (!activeUserCode) {
+      return { kind: 'no-session' as const }
+    }
+    try {
+      const result = await pollDeviceToken(activeUserCode)
+      const outcome = await processPollResult(activeUserCode, result)
+      if (outcome === 'pending') return { kind: 'pending' as const }
+      if (outcome === 'slow-down') return { kind: 'slow-down' as const }
+      return { kind: 'terminal' as const }
+    } catch (err) {
+      const message = (err as Error).message ?? String(err)
+      publishAuthState({ state: 'network-error', message })
+      return { kind: 'network-error' as const, message }
+    }
   })
 
   defineHandler('agent:start-local', onboardingSchema.startLocal, async () => {
