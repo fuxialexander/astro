@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n/config"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
@@ -49,6 +49,7 @@ export function Login() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const session = useAuthStore((s) => s.session)
+  const authInitialized = useAuthStore((s) => s.initialized)
 
   // Support both ?redirect=/device and location.state.from for redirect
   const redirectParam = searchParams.get('redirect')
@@ -504,17 +505,22 @@ export function Login() {
   // name step (which calls handleRegister on Continue). For sign-in we
   // submit the email and let handleEmailSubmit decide between authenticate
   // (passkey exists) and showing the name step (no credentials yet).
-  // Runs once on mount; ignored if already past the email step.
+  // Gated on authInitialized so a returning user with a still-valid session
+  // is redirected by the session-redirect effect (line 480) before we kick
+  // off an unwanted WebAuthn ceremony. Runs once authInitialized flips true.
+  const autoAdvancedRef = useRef(false)
   useEffect(() => {
+    if (autoAdvancedRef.current) return
+    if (!authInitialized) return
     if (!fromElectron || !prefilledEmail) return
     if (session) return
+    autoAdvancedRef.current = true
     if (prefilledRegister && prefilledName) {
       setStep("name")
     } else {
       void handleEmailSubmit()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authInitialized, fromElectron, prefilledEmail, prefilledRegister, prefilledName, session, handleEmailSubmit])
 
   const handleDevModeSkip = useCallback(() => {
     navigate(from, { replace: true })

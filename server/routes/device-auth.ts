@@ -725,6 +725,29 @@ deviceAuthRoute.post('/pair-init', async (c) => {
       return c.json({ error: 'Missing hostname or platform' }, 400)
     }
 
+    // Reject obviously oversized inputs from anonymous callers — the body
+    // is stored verbatim in machineInfo and shown on the /pair approval
+    // page. Without bounds an attacker could pad the providers array to
+    // bloat the device_codes table.
+    if (typeof body.hostname !== 'string' || body.hostname.length > 255) {
+      return c.json({ error: 'Invalid hostname' }, 400)
+    }
+    if (typeof body.platform !== 'string' || body.platform.length > 64) {
+      return c.json({ error: 'Invalid platform' }, 400)
+    }
+    let providers: string[] | undefined
+    if (body.providers !== undefined) {
+      if (!Array.isArray(body.providers) || body.providers.length > 20) {
+        return c.json({ error: 'Invalid providers list' }, 400)
+      }
+      for (const p of body.providers) {
+        if (typeof p !== 'string' || p.length === 0 || p.length > 64) {
+          return c.json({ error: 'Invalid provider entry' }, 400)
+        }
+      }
+      providers = body.providers
+    }
+
     // 32 bytes = 64 hex chars: not user-typeable, but only used in URL.
     const pairToken = randomBytes(32).toString('hex')
     // Internal primary key — kept distinct from pairToken so the token in
@@ -740,7 +763,7 @@ deviceAuthRoute.post('/pair-init', async (c) => {
       machineInfo: {
         hostname: body.hostname,
         platform: body.platform,
-        ...(body.providers && { providers: body.providers }),
+        ...(providers && { providers }),
       },
       status: 'pending',
       expiresAt,
@@ -855,70 +878,102 @@ deviceAuthRoute.post('/pair/:token/complete', requireAuth, async (c) => {
       }
     }
 
-    // Register the machine.
-    const machine = await registerMachine({
-      name: machineInfo.hostname,
-      hostname: machineInfo.hostname,
-      platform: machineInfo.platform,
-      providers: (machineInfo.providers ?? []) as ProviderType[],
-      userId: user.id,
-      refreshTokenHash: '',
-    })
-
+    // Register + mint in a single failure domain. If anything between
+    // registerMachine and the wsToken issuance throws or returns null, the
+    // machine row would otherwise be left orphaned (no refreshTokenHash, no
+    // tokens issued) AND the pair token is already consumed by the CAS
+    // above so the client can't retry. Revoke the machine on failure so
+    // it can't be used and so the user's machine list isn't polluted.
     const scopes = DEFAULT_MACHINE_SCOPES
+    let machine: Awaited<ReturnType<typeof registerMachine>> | undefined
+    let accessToken = ''
+    let refreshToken = ''
+    let wsToken = ''
+    try {
+      machine = await registerMachine({
+        name: machineInfo.hostname,
+        hostname: machineInfo.hostname,
+        platform: machineInfo.platform,
+        providers: (machineInfo.providers ?? []) as ProviderType[],
+        userId: user.id,
+        refreshTokenHash: '',
+      })
 
-    const accessToken = createAccessToken({
-      machineId: machine.id,
-      userId: user.id,
-      scopes,
-      expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
-    })
-    const { token: refreshToken, entry: refreshEntry } = await createRefreshToken({
-      machineId: machine.id,
-      userId: user.id,
-      scopes,
-      expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
-    })
-    machine.refreshTokenHash = refreshEntry.tokenHash
+      const at = createAccessToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes,
+        expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+      })
+      const refreshResult = await createRefreshToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes,
+        expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
+      })
+      machine.refreshTokenHash = refreshResult.entry.tokenHash
 
-    if (dispatchPublicKey) {
-      await db.update(registeredMachines)
-        .set({ dispatchPublicKey })
-        .where(eq(registeredMachines.id, machine.id))
-    }
+      if (dispatchPublicKey) {
+        await db.update(registeredMachines)
+          .set({ dispatchPublicKey })
+          .where(eq(registeredMachines.id, machine.id))
+      }
 
-    const wsToken = createWebSocketToken({
-      machineId: machine.id,
-      userId: user.id,
-      scopes: ['machine:connect', 'machine:execute'],
-      expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
-    })
+      const ws = createWebSocketToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes: ['machine:connect', 'machine:execute'],
+        expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+      })
 
-    if (!accessToken || !refreshToken || !wsToken) {
-      console.error('[device-auth] pair-complete: failed to create tokens')
+      if (!at || !refreshResult.token || !ws) {
+        throw new Error('Token mint returned empty value')
+      }
+      accessToken = at
+      refreshToken = refreshResult.token
+      wsToken = ws
+    } catch (err) {
+      console.error('[device-auth] pair-complete: register/mint failed:', err)
+      if (machine?.id) {
+        // Best-effort cleanup so the user doesn't see a dead machine entry.
+        // Failure here is logged but not surfaced — there's nothing the
+        // client can do about it.
+        await revokeMachine(machine.id).catch((cleanupErr) => {
+          console.warn('[device-auth] pair-complete: revoke after failure failed:', cleanupErr)
+        })
+      }
       return c.json({
         error: 'server_error',
-        error_description: 'Failed to create authentication tokens',
+        error_description: 'Failed to register machine or create tokens',
       }, 500)
     }
 
-    // Mark token as 'used' so it can't be replayed.
+    // Mark token as 'used' so it can't be replayed. Past this point the
+    // pair is committed — every remaining step must be safe to fail
+    // without poisoning the user's deep-link delivery.
     await markDeviceCodeUsed(entry.userCode)
 
-    await logAuditEvent({
-      userId: user.id,
-      action: AuditActions.MACHINE_REGISTER,
-      resourceType: ResourceTypes.MACHINE,
-      resourceId: machine.id,
-      details: {
-        machineName: machine.name,
-        hostname: machine.hostname,
-        platform: machine.platform,
-        flow: 'pair',
-      },
-      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
-      userAgent: c.req.header('user-agent'),
-    })
+    // Audit logging is best-effort. A logging failure must not 500 the
+    // response: by this point the user's machine is registered and tokens
+    // are minted; the browser needs the JSON back to fire astro://pair/callback.
+    try {
+      await logAuditEvent({
+        userId: user.id,
+        action: AuditActions.MACHINE_REGISTER,
+        resourceType: ResourceTypes.MACHINE,
+        resourceId: machine.id,
+        details: {
+          machineName: machine.name,
+          hostname: machine.hostname,
+          platform: machine.platform,
+          flow: 'pair',
+        },
+        ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+        userAgent: c.req.header('user-agent'),
+      })
+    } catch (err) {
+      console.warn('[device-auth] pair-complete: audit log failed:', err)
+    }
 
     return c.json({
       accessToken,
