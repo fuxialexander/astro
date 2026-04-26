@@ -184,7 +184,7 @@
     "@electron-forge/plugin-vite": "^7.5.0",
     "@electron-forge/publisher-github": "^7.5.0",
     "@electron-forge/shared-types": "^7.5.0",
-    "@electron/rebuild": "^3.7.0",
+    "@electron/rebuild": "^4.0.4",
     "@eslint/js": "^9.39.1",
     "@opencode-ai/sdk": "^1.2.22",
     "@playwright/test": "^1.58.2",
