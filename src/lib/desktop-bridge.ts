@@ -45,6 +45,7 @@ interface RawBridge {
   invoke<T = unknown>(channel: string, payload: unknown): Promise<T>
   streams: {
     subscribe(channel: string, handler: (payload: unknown) => void): () => void
+    getSticky(channel: string): Promise<unknown>
   }
   platform: {
     isElectron: true
@@ -425,10 +426,24 @@ export const desktopBridge = {
         'agent:auth-state',
         {},
       ),
-    onDeviceAuth: (handler: (s: DeviceAuthState) => void) =>
-      bridge().streams.subscribe('onboarding:device-auth', (p) =>
-        handler(p as DeviceAuthState)
-      ),
+    onDeviceAuth: (handler: (s: DeviceAuthState) => void) => {
+      // Subscribe first, then immediately replay the channel's last sticky
+      // value if any. This catches the case where the renderer remounted
+      // (e.g. astro://auth/callback re-rendered the auth tree) and missed
+      // a state event published while there was no live subscriber.
+      const unsub = bridge().streams.subscribe('onboarding:device-auth', (p) =>
+        handler(p as DeviceAuthState),
+      )
+      void bridge()
+        .streams.getSticky('onboarding:device-auth')
+        .then((last) => {
+          if (last) handler(last as DeviceAuthState)
+        })
+        .catch(() => {
+          // getSticky failure is non-fatal — live events still flow.
+        })
+      return unsub
+    },
     onHostProgress: (
       handler: (e: {
         alias: string

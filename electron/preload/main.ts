@@ -103,10 +103,21 @@ const platform = {
   },
 }
 
+/** One-shot read of a channel's last sticky value. Used by the renderer to
+ * recover state on (re-)subscribe — the broker retains sticky payloads
+ * indefinitely, so this resolves with whatever the most recent producer
+ * value was, regardless of how long ago it was published. */
+async function getSticky(channel: string): Promise<unknown> {
+  const res = (await ipcRenderer.invoke('streams:get-sticky', { channel })) as {
+    payload: unknown
+  }
+  return res.payload
+}
+
 contextBridge.exposeInMainWorld('astro', {
   platform,
   invoke: (channel: string, payload: unknown) => ipcRenderer.invoke(channel, payload),
-  streams: { subscribe },
+  streams: { subscribe, getSticky },
   onAuthCallback: (handler: (tokens: { accessToken: string; refreshToken: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, tokens: { accessToken: string; refreshToken: string }) => handler(tokens)
     ipcRenderer.on('auth:callback', listener)
@@ -126,7 +137,7 @@ declare global {
     astro: {
       platform: typeof platform
       invoke: (channel: string, payload: unknown) => Promise<unknown>
-      streams: { subscribe: typeof subscribe }
+      streams: { subscribe: typeof subscribe; getSticky: typeof getSticky }
       onAuthCallback: (
         handler: (tokens: { accessToken: string; refreshToken: string }) => void,
       ) => () => void

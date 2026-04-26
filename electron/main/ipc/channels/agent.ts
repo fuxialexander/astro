@@ -287,7 +287,12 @@ function writeAstroConfig(patch: AstroConfigShape): void {
 }
 
 function publishAuthState(payload: Record<string, unknown>): void {
-  streamBroker.publish(ONBOARDING_BROKER_CHANNEL, payload)
+  // Sticky: the renderer's ConnectThisMacStep can unmount mid-flow (the
+  // astro://auth/callback deep-link triggers a re-render of app-layout),
+  // which tears down the broker subscription. By the time it remounts,
+  // the early-buffer's 5s TTL may have expired. Sticky retains the last
+  // value indefinitely so the new mount can recover via streams.getSticky.
+  streamBroker.publish(ONBOARDING_BROKER_CHANNEL, payload, { sticky: true })
 }
 
 /** Process one poll result + register-on-success. Shared by the background
@@ -388,6 +393,9 @@ function registerOnboardingAgentChannels(): void {
     const abortRef = { cancelled: false }
     activePollAbort = abortRef
     activeUserCode = null
+    // Don't let a terminal value from a previous session (e.g. 'authorized')
+    // pre-resolve the new flow when the renderer probes via getSticky.
+    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
 
     const auth = await startDeviceAuth({ hostname: hostname(), platform: platform() })
     activeUserCode = auth.userCode
@@ -426,6 +434,7 @@ function registerOnboardingAgentChannels(): void {
       activePollAbort = null
     }
     activeUserCode = null
+    streamBroker.clearSticky(ONBOARDING_BROKER_CHANNEL)
     return { ok: true as const }
   })
 

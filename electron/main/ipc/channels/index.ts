@@ -28,6 +28,7 @@ import { registerCloudCredsChannels } from './cloud-creds.js'
 import { registerCloudPoolChannels } from './cloud-pool.js'
 import { registerProviderChannels } from './providers.js'
 import { registerSshChannels } from './ssh.js'
+import { registerStreamChannels } from './streams.js'
 
 export function registerAllChannels(): void {
   // Filesystem & native services
@@ -57,4 +58,7 @@ export function registerAllChannels(): void {
   // Onboarding (provider detection + SSH discovery)
   registerProviderChannels()
   registerSshChannels()
+
+  // Generic stream control (sticky-channel last-value reads)
+  registerStreamChannels()
 }

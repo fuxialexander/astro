@@ -47,6 +47,15 @@ class StreamBroker {
   private subscriptions = new Map<string, Set<RendererSubscription>>()
   /** channel → buffered payloads published before any subscriber existed. */
   private earlyBuffers = new Map<string, EarlyBuffer>()
+  /**
+   * channel → last sticky payload. Unlike earlyBuffers, this never expires —
+   * it's retained until explicitly cleared via clearSticky(). Used for
+   * "control plane" channels where the renderer needs the canonical current
+   * state on (re-)subscribe regardless of timing (e.g. device-auth flow,
+   * which can publish 'authorized' while the React tree is mid-remount and
+   * has no live subscriber).
+   */
+  private stickyByChannel = new Map<string, unknown>()
 
   /**
    * Establish a fresh MessagePort pair with the given renderer and send
@@ -91,8 +100,18 @@ class StreamBroker {
    * Producer-side: broadcast a payload to every subscriber of this channel.
    * Workers and services use this to push events to the renderer without
    * round-tripping through main's ipcMain queue.
+   *
+   * `opts.sticky`: also store this payload as the channel's last value so
+   * future subscribers can read it via getSticky() / on (re-)subscribe.
+   * Use for state-change events that must be observed at least once even
+   * across renderer remounts (e.g. device-auth `authorized`); do NOT use
+   * for high-frequency streams (terminal data, watcher events) — those
+   * stay event-only.
    */
-  publish(channel: string, payload: unknown): void {
+  publish(channel: string, payload: unknown, opts: { sticky?: boolean } = {}): void {
+    if (opts.sticky) {
+      this.stickyByChannel.set(channel, payload)
+    }
     const subs = this.subscriptions.get(channel)
     if (!subs || subs.size === 0) {
       // No subscribers yet — buffer early messages so they can be replayed
@@ -108,6 +127,24 @@ class StreamBroker {
         subs.delete(sub)
       }
     }
+  }
+
+  /**
+   * Read the most recent sticky payload for a channel. Returns undefined if
+   * no sticky publish has happened or if the channel was cleared. Used by
+   * the renderer at subscribe-time to recover state after a remount.
+   */
+  getSticky(channel: string): unknown {
+    return this.stickyByChannel.get(channel)
+  }
+
+  /**
+   * Forget a channel's sticky value. Producers call this when starting a
+   * new logical session (e.g. a new device-auth flow) so a stale terminal
+   * value from a previous session doesn't immediately resolve the new one.
+   */
+  clearSticky(channel: string): void {
+    this.stickyByChannel.delete(channel)
   }
 
   private addSubscription(channel: string, sub: RendererSubscription): void {
