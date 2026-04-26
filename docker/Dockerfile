@@ -16,6 +16,10 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 # Copy workspace config and core package.json so pnpm resolves workspace links
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json ./packages/core/
+# postinstall script must exist before `pnpm install` runs, since the
+# postinstall hook references it. The script self-skips the node-pty rebuild
+# in non-Electron contexts, so this is harmless on the server.
+COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
 RUN pnpm install --frozen-lockfile
 
 # Copy source
