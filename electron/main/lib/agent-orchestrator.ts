@@ -189,11 +189,16 @@ export async function start(): Promise<StartResult> {
     attachLifecycle(child)
 
     // Brief wait window: if the process dies within 5s, surface the error.
+    // Append the most recent stderr line (captured by the data handler at
+    // line 119) so the renderer's error card shows what actually went wrong
+    // — not just "code=1 signal=-" which leaves users (and us) blind.
     const earlyError = await new Promise<string | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), 5000)
       child.once('exit', (code, signal) => {
         clearTimeout(timer)
-        resolve(`agent exited within 5s: code=${code ?? '?'} signal=${signal ?? '-'}`)
+        const head = `agent exited within 5s: code=${code ?? '?'} signal=${signal ?? '-'}`
+        const tail = state.lastError ? ` — ${state.lastError}` : ''
+        resolve(head + tail)
       })
       child.once('error', (err) => {
         clearTimeout(timer)
