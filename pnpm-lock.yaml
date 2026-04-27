@@ -367,8 +367,8 @@ importers:
         specifier: 0.12.0-beta.197
         version: 0.12.0-beta.197(@xterm/xterm@6.1.0-beta.197)
       '@xterm/addon-webgl':
-        specifier: 0.20.0-beta.196
-        version: 0.20.0-beta.196(@xterm/xterm@6.1.0-beta.197)
+        specifier: 0.20.0-beta.203
+        version: 0.20.0-beta.203(@xterm/xterm@6.1.0-beta.197)
       '@xterm/xterm':
         specifier: 6.1.0-beta.197
         version: 6.1.0-beta.197
@@ -991,8 +991,8 @@ packages:
     resolution: {integrity: sha512-F+nKc0xW+kVbBRhFzaMgPy3KwmuNTYX1fx6+FxxoSnNgwYX6LD7AKBTWkU0MQ6IBoe7dz069CNkR673sPAgkCQ==}
     engines: {node: '>=14'}
 
-  '@electron/node-gyp@https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2':
-    resolution: {tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
+  '@electron/node-gyp@git+https://git@github.com:electron/node-gyp.git#06b29aafb7708acef8b3669835c8a7857ebc92d2':
+    resolution: {commit: 06b29aafb7708acef8b3669835c8a7857ebc92d2, repo: git@github.com:electron/node-gyp.git, type: git}
     version: 10.2.0-electron.1
     engines: {node: '>=12.13.0'}
     hasBin: true
@@ -3697,16 +3697,17 @@ packages:
   '@xmldom/xmldom@0.8.12':
     resolution: {integrity: sha512-9k/gHF6n/pAi/9tqr3m3aqkuiNosYTurLLUtc7xQ9sxB/wm7WPygCv8GYa6mS0fLJEHhqMC1ATYhz++U/lRHqg==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xterm/addon-fit@0.12.0-beta.197':
     resolution: {integrity: sha512-EoYQVIWp90XmNXBfrEocz5tk44JLMdHL9+Asd57Bj9DuERLLszA8pkF3wbuR5C7555g3sRTMTHlzYQ3gv9xbOw==}
     peerDependencies:
       '@xterm/xterm': ^6.1.0-beta.197
 
-  '@xterm/addon-webgl@0.20.0-beta.196':
-    resolution: {integrity: sha512-5nYgVRwHFVihNNFAARbePZyxi3yAd4VAnF44FaGIjYWCIkA/N27Nl7NwSEX5nHedEbRY/ZfVq/zGFKQBetZlEw==}
+  '@xterm/addon-webgl@0.20.0-beta.203':
+    resolution: {integrity: sha512-hTdqbpRFPHY21rc7apR0mLAyufiNJdqYU91fV95pNoxh/jKsgGQyebSljH8vY5JMf3TjioFw08Cfwte8qBr6gA==}
     peerDependencies:
-      '@xterm/xterm': ^6.1.0-beta.197
+      '@xterm/xterm': ^6.1.0-beta.204
 
   '@xterm/xterm@6.1.0-beta.197':
     resolution: {integrity: sha512-vzoc8sBcsvFpziSgeVGKZQDT1T/9MmEUKfUDpVqc3slDv7o0SiQCjvPeOF8y1++5vx2xmUn8lfcLnbfdtigtSQ==}
@@ -9328,7 +9329,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@electron/node-gyp@https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2':
+  '@electron/node-gyp@git+https://git@github.com:electron/node-gyp.git#06b29aafb7708acef8b3669835c8a7857ebc92d2':
     dependencies:
       env-paths: 2.2.1
       exponential-backoff: 3.1.3
@@ -9391,7 +9392,7 @@ snapshots:
 
   '@electron/rebuild@3.7.2':
     dependencies:
-      '@electron/node-gyp': https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2
+      '@electron/node-gyp': git+https://git@github.com:electron/node-gyp.git#06b29aafb7708acef8b3669835c8a7857ebc92d2
       '@malept/cross-spawn-promise': 2.0.0
       chalk: 4.1.2
       debug: 4.4.3
@@ -12195,7 +12196,7 @@ snapshots:
     dependencies:
       '@xterm/xterm': 6.1.0-beta.197
 
-  '@xterm/addon-webgl@0.20.0-beta.196(@xterm/xterm@6.1.0-beta.197)':
+  '@xterm/addon-webgl@0.20.0-beta.203(@xterm/xterm@6.1.0-beta.197)':
     dependencies:
       '@xterm/xterm': 6.1.0-beta.197
 
