@@ -51,6 +51,9 @@ import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
 import { StatsPage } from "@/pages/stats"
 import { DeviceAuth } from "@/pages/device-auth"
+import { Pair } from "@/pages/pair"
+import { SignIn } from "@/pages/signin"
+import { isDesktop } from "@/lib/desktop-detect"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
 
@@ -334,18 +337,34 @@ function RootRedirect() {
   const session = useAuthStore((s) => s.session)
   const initialized = useAuthStore((s) => s.initialized)
   const local = isLocalMode()
+  const desktop = isDesktop()
 
   useEffect(() => {
-    if (!local && initialized && !session) {
+    if (local || desktop) return
+    // Browser-only: send unauthenticated users to the marketing landing page.
+    // The Electron app routes to <Navigate to="/signin"> below instead — its
+    // users have already chosen the product, no need for a marketing pitch.
+    if (initialized && !session) {
       window.location.href = '/landing/'
     }
-  }, [local, initialized, session])
+  }, [local, desktop, initialized, session])
 
   if (local) {
     return <Navigate to="/dashboard" replace />
   }
 
-  if (!initialized || !session) {
+  if (!initialized) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!session) {
+    if (desktop) return <Navigate to="/signin" replace />
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         <div className="flex flex-col items-center gap-3">
@@ -379,6 +398,8 @@ export default function App() {
           <Routes>
             <Route path="login" element={<Login />} />
             <Route path="device" element={<DeviceAuth />} />
+            <Route path="pair" element={<Pair />} />
+            <Route path="signin" element={<SignIn />} />
             <Route path="invite/:token" element={<TeamInvite />} />
             <Route path="*" element={
           <DataLoader>

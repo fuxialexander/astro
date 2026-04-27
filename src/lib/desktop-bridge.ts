@@ -404,23 +404,14 @@ export const desktopBridge = {
   },
 
   onboarding: {
-    deviceAuthStart: () =>
+    pairStart: () =>
       bridge().invoke<{
-        deviceCode: string
-        userCode: string
-        verificationUriComplete: string
+        pairToken: string
+        pairUrl: string
         expiresIn: number
-      }>('agent:device-auth-start', {}),
-    deviceAuthCancel: () =>
-      bridge().invoke<{ ok: true }>('agent:device-auth-cancel', {}),
-    deviceAuthVerify: () =>
-      bridge().invoke<
-        | { kind: 'no-session' }
-        | { kind: 'pending' }
-        | { kind: 'slow-down' }
-        | { kind: 'terminal' }
-        | { kind: 'network-error'; message: string }
-      >('agent:device-auth-verify', {}),
+      }>('agent:pair-start', {}),
+    pairCancel: () =>
+      bridge().invoke<{ ok: true }>('agent:pair-cancel', {}),
     authState: () =>
       bridge().invoke<{ authed: boolean; machineId: string | null }>(
         'agent:auth-state',

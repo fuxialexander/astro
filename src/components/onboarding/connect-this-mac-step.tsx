@@ -1,10 +1,11 @@
 /**
  * ConnectThisMacStep — onboarding step 1 (after binary install).
  *
- * Starts the OAuth2 device-auth flow against the Astro server, opens the
- * verification URL in the user's default browser, and listens for state
- * transitions on the broker channel `onboarding:device-auth`. On success,
- * starts the local agent runner and notifies the parent.
+ * Uses the callback-style pair flow: we open the browser at the server-
+ * issued pair URL, the user clicks Approve, the browser hands tokens to
+ * us via astro://pair/callback (handled in electron/main/index.ts +
+ * handlePairCallback in agent.ts), and the broker publishes 'authorized'.
+ * No polling, no slow-down errors, no race between background loops.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -21,13 +22,7 @@ type LocalState =
   | { kind: "starting" }
   | {
       kind: "pending"
-      // The XXXX-XXXX user-friendly code that's also shown on the browser
-      // verification page. This is what the user reads / confirms — NOT the
-      // long opaque `userCode` field, which is only the internal poll key.
-      // (The server's `token-manager.ts` names these in the inverse of RFC
-      // 8628 conventions; we display whatever the browser shows.)
-      displayCode: string
-      verificationUrl: string
+      pairUrl: string
     }
   | { kind: "authorized" }
   | { kind: "starting-agent" }
@@ -129,19 +124,17 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
     cleanupSubscription()
     setState({ kind: "starting" })
     try {
-      const res = await desktopBridge.onboarding.deviceAuthStart()
+      // Subscribe BEFORE starting the pair flow so we don't miss the
+      // 'authorized' event if the user is already signed in and clicks
+      // Approve almost instantly.
       unsubRef.current = desktopBridge.onboarding.onDeviceAuth(handleAuthEvent)
-      try {
-        await desktopBridge.editor.openExternal(res.verificationUriComplete)
-      } catch {
-        // openExternal failure is non-fatal; the user can click "Reopen browser"
-      }
+      const res = await desktopBridge.onboarding.pairStart()
       setState({
         kind: "pending",
-        displayCode: res.deviceCode,
-        verificationUrl: res.verificationUriComplete,
+        pairUrl: res.pairUrl,
       })
     } catch (err) {
+      cleanupSubscription()
       setState({
         kind: "error",
         message: err instanceof Error ? err.message : String(err),
@@ -152,38 +145,9 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
   const reopenBrowser = useCallback(async () => {
     if (state.kind !== "pending") return
     try {
-      await desktopBridge.editor.openExternal(state.verificationUrl)
+      await desktopBridge.editor.openExternal(state.pairUrl)
     } catch {
       // ignore
-    }
-  }, [state])
-
-  // "Verify now" — explicit one-shot poll for users whose background timer
-  // appears stuck. The handler triggers exactly the same processing as the
-  // background loop (success path publishes 'authorized' state, which our
-  // handleAuthEvent receives). If still pending, surfaces a short hint
-  // without disturbing the existing pending UI.
-  const [verifyHint, setVerifyHint] = useState<string | null>(null)
-  const verifyNow = useCallback(async () => {
-    if (state.kind !== "pending") return
-    setVerifyHint("Checking…")
-    try {
-      const r = await desktopBridge.onboarding.deviceAuthVerify()
-      if (r.kind === "pending") {
-        setVerifyHint("Still waiting on browser approval. Click Approve, then try again.")
-      } else if (r.kind === "no-session") {
-        setVerifyHint("Session expired. Click Open browser to start a new sign-in.")
-      } else if (r.kind === "slow-down") {
-        setVerifyHint("Polling too quickly — try again in a few seconds.")
-      } else if (r.kind === "network-error") {
-        setVerifyHint(`Network error: ${r.message}`)
-      } else {
-        // 'terminal' — handleAuthEvent will receive the authorized/error event
-        // via the broker subscription and advance the UI.
-        setVerifyHint(null)
-      }
-    } catch (err) {
-      setVerifyHint(err instanceof Error ? err.message : String(err))
     }
   }, [state])
 
@@ -217,18 +181,18 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
       {state.kind === "pending" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div style={pendingCardStyle}>
-            <div style={smallLabelStyle}>Your sign-in code</div>
-            <div style={codePillStyle}>{state.displayCode}</div>
+            <div style={smallLabelStyle}>Approve in your browser</div>
             <div
               style={{
-                fontSize: "0.75rem",
-                color: "var(--muted-foreground)",
-                fontWeight: 300,
+                fontSize: "0.8125rem",
+                color: "var(--foreground)",
+                fontWeight: 400,
                 lineHeight: 1.55,
-                marginTop: "0.5rem",
               }}
             >
-              Confirm this code in your browser to authorize this Mac.
+              We opened a browser tab to authorize this Mac. Sign in if asked,
+              then click <strong>Approve</strong>. The desktop app will pick it
+              up automatically — no codes to copy.
             </div>
           </div>
           <div
@@ -255,14 +219,6 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
           </div>
           <div style={{ display: "flex", gap: "0.625rem", alignItems: "center" }}>
             <button
-              onClick={verifyNow}
-              className="as-btn-ghost"
-              style={ghostLinkStyle}
-            >
-              <Check size={12} />
-              I clicked Approve
-            </button>
-            <button
               onClick={reopenBrowser}
               className="as-btn-ghost"
               style={ghostLinkStyle}
@@ -271,17 +227,6 @@ export function ConnectThisMacStep({ onComplete, onSkip: _onSkip }: Props) {
               Reopen browser
             </button>
           </div>
-          {verifyHint && (
-            <div
-              style={{
-                fontSize: "0.75rem",
-                color: "var(--muted-foreground)",
-                fontWeight: 300,
-              }}
-            >
-              {verifyHint}
-            </div>
-          )}
         </div>
       )}
 
@@ -427,20 +372,6 @@ const smallLabelStyle: React.CSSProperties = {
   letterSpacing: "0.18em",
   textTransform: "uppercase",
   color: "var(--muted-foreground)",
-}
-
-const codePillStyle: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
-  fontSize: "1.5rem",
-  letterSpacing: "0.4em",
-  fontWeight: 500,
-  color: "var(--foreground)",
-  padding: "0.625rem 1rem",
-  borderRadius: 8,
-  background: "var(--card)",
-  border: "1px solid var(--border)",
-  width: "fit-content",
-  userSelect: "all",
 }
 
 const successRowStyle: React.CSSProperties = {

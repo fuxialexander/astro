@@ -15,6 +15,7 @@
  */
 
 import { Hono } from 'hono';
+import { randomBytes } from 'node:crypto';
 import type {
   DeviceAuthRequest,
   DeviceAuthResponse,
@@ -66,7 +67,7 @@ import { encryptJsonb } from '../lib/encryption.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
 import { db } from '../lib/db/index.js';
-import { registeredMachines, machineTeamShares } from '../lib/db/schema.js';
+import { registeredMachines, machineTeamShares, deviceCodes } from '../lib/db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { getServiceClient } from '../lib/supabase.js'
 import { isServerMode } from '../lib/app-mode.js';
@@ -689,6 +690,314 @@ deviceAuthRoute.post('/code/:code/deny', requireAuth, async (c) => {
     message: 'Device authorization denied.',
   });
 });
+
+// ============================================================================
+// Pair Flow (Electron-style: callback over deep-link, no polling)
+// ============================================================================
+// Unlike RFC 8628 device flow (designed for devices that can't receive a
+// callback — CLIs, smart TVs), the pair flow assumes the desktop app
+// can receive a custom-protocol deep-link from the browser. The browser
+// completes auth + machine registration in one call, and the resulting
+// tokens ride directly in the astro://pair/callback URL — same pattern
+// as astro://auth/callback for Supabase login. No polling, no slow_down,
+// no race between background loops and one-shot verifies.
+//
+// Endpoints:
+//   POST /device/pair-init        — open: app requests a pair token
+//   GET  /device/pair/:token      — open: page shows machine info
+//   POST /device/pair/:token/complete — auth-required: register + issue tokens
+
+/**
+ * POST /device/pair-init
+ * App-side entry point. Generates a secret pair token and stores the
+ * supplied machineInfo + dispatchPublicKey in the device_codes table.
+ * Returns the token + a `pairUrl` the app should open in the browser.
+ */
+deviceAuthRoute.post('/pair-init', async (c) => {
+  try {
+    const body = await c.req.json() as {
+      hostname?: string
+      platform?: string
+      providers?: string[]
+      dispatchPublicKey?: JsonWebKey
+    }
+    if (!body.hostname || !body.platform) {
+      return c.json({ error: 'Missing hostname or platform' }, 400)
+    }
+
+    // Reject obviously oversized inputs from anonymous callers — the body
+    // is stored verbatim in machineInfo and shown on the /pair approval
+    // page. Without bounds an attacker could pad the providers array to
+    // bloat the device_codes table.
+    if (typeof body.hostname !== 'string' || body.hostname.length > 255) {
+      return c.json({ error: 'Invalid hostname' }, 400)
+    }
+    if (typeof body.platform !== 'string' || body.platform.length > 64) {
+      return c.json({ error: 'Invalid platform' }, 400)
+    }
+    let providers: string[] | undefined
+    if (body.providers !== undefined) {
+      if (!Array.isArray(body.providers) || body.providers.length > 20) {
+        return c.json({ error: 'Invalid providers list' }, 400)
+      }
+      for (const p of body.providers) {
+        if (typeof p !== 'string' || p.length === 0 || p.length > 64) {
+          return c.json({ error: 'Invalid provider entry' }, 400)
+        }
+      }
+      providers = body.providers
+    }
+
+    // 32 bytes = 64 hex chars: not user-typeable, but only used in URL.
+    const pairToken = randomBytes(32).toString('hex')
+    // Internal primary key — kept distinct from pairToken so the token in
+    // the URL is the only secret that grants access to this row.
+    const userCodeKey = `pair-${randomBytes(12).toString('hex')}`
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + TOKEN_EXPIRY.DEVICE_CODE * 1000)
+
+    await db.insert(deviceCodes).values({
+      userCode: userCodeKey,
+      deviceCode: pairToken,
+      scopes: DEFAULT_MACHINE_SCOPES,
+      machineInfo: {
+        hostname: body.hostname,
+        platform: body.platform,
+        ...(providers && { providers }),
+      },
+      status: 'pending',
+      expiresAt,
+      createdAt: now,
+      ...(body.dispatchPublicKey && { dispatchPublicKey: body.dispatchPublicKey }),
+    })
+
+    return c.json({
+      pairToken,
+      pairUrl: `${BASE_URL}/pair?token=${pairToken}`,
+      expiresIn: TOKEN_EXPIRY.DEVICE_CODE,
+    })
+  } catch (err) {
+    console.error('[device-auth] pair-init error:', err)
+    return c.json({
+      error: 'server_error',
+      error_description: 'Failed to create pair token',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+})
+
+/**
+ * GET /device/pair/:token
+ * Browser-side: returns machineInfo + status so the /pair page can show
+ * "Authorize this Mac (hostname / platform)?" before the user clicks.
+ * No auth required — knowing the token is the only credential needed
+ * (and the token is a 256-bit secret, never enumerable).
+ */
+deviceAuthRoute.get('/pair/:token', async (c) => {
+  const token = c.req.param('token')
+  const entry = await getDeviceCodeByDeviceCode(token)
+  if (!entry) {
+    return c.json({ error: 'Invalid or expired pair token' }, 404)
+  }
+  if (entry.status === 'expired') {
+    return c.json({ error: 'Pair token expired', status: 'expired' }, 410)
+  }
+  if (entry.status === 'used' || entry.status === 'authorized') {
+    return c.json({ error: 'Pair token already used', status: entry.status }, 410)
+  }
+  if (entry.status === 'denied') {
+    return c.json({ error: 'Pair was denied', status: 'denied' }, 410)
+  }
+  return c.json({
+    machineInfo: entry.machineInfo,
+    status: entry.status,
+    expiresAt: entry.expiresAt,
+  })
+})
+
+/**
+ * POST /device/pair/:token/complete
+ * Browser-side: the user has clicked Approve. Authenticates as the
+ * current Supabase user, registers the machine, issues access/refresh
+ * tokens, and returns everything in one shot. The browser then puts
+ * these in an astro://pair/callback?... deep-link and the desktop app
+ * receives them directly — no polling.
+ */
+deviceAuthRoute.post('/pair/:token/complete', requireAuth, async (c) => {
+  const token = c.req.param('token')
+  const user = c.get('user') as { id: string; teamIds: string[] }
+
+  try {
+    const entry = await getDeviceCodeByDeviceCode(token)
+    if (!entry) {
+      return c.json({ error: 'Invalid pair token' }, 404)
+    }
+    if (entry.status === 'expired' || entry.expiresAt < new Date()) {
+      return c.json({ error: 'Pair token expired' }, 410)
+    }
+    if (entry.status === 'used' || entry.status === 'authorized') {
+      return c.json({ error: 'Pair token already used' }, 410)
+    }
+
+    // Validate user exists in auth.users to prevent FK violation downstream.
+    if (isServerMode()) {
+      const isDev = process.env.NODE_ENV !== 'production'
+      const isDevUser = user.id === '00000000-0000-0000-0000-000000000000'
+      if (!(isDev && isDevUser)) {
+        const supabase = getServiceClient()
+        const { data, error: userError } = await supabase.auth.admin.getUserById(user.id)
+        if (userError || !data?.user) {
+          console.error('[device-auth] pair-complete: user not found', user.id, userError)
+          return c.json({
+            error: 'User not found. Try logging out and back in.',
+          }, 400)
+        }
+      }
+    }
+
+    const machineInfo = entry.machineInfo as
+      | { hostname?: string; platform?: string; providers?: string[] }
+      | null
+    if (!machineInfo?.hostname || !machineInfo.platform) {
+      return c.json({ error: 'Pair token missing machine info' }, 400)
+    }
+
+    // Atomic CAS via authorizeDeviceCode (WHERE status='pending'). If two
+    // requests race on the same token, only one succeeds.
+    const dispatchPublicKey = entry.dispatchPublicKey
+    const claimed = await authorizeDeviceCode(token, user.id, dispatchPublicKey)
+    if (!claimed) {
+      return c.json({ error: 'Pair token already used or expired' }, 410)
+    }
+
+    if (dispatchPublicKey) {
+      try {
+        await storeUserDispatchPublicKey(user.id, dispatchPublicKey)
+      } catch (err) {
+        console.warn('[device-auth] pair-complete: failed to persist dispatch key', err)
+      }
+    }
+
+    // Register + mint in a single failure domain. If anything between
+    // registerMachine and the wsToken issuance throws or returns null, the
+    // machine row would otherwise be left orphaned (no refreshTokenHash, no
+    // tokens issued) AND the pair token is already consumed by the CAS
+    // above so the client can't retry. Revoke the machine on failure so
+    // it can't be used and so the user's machine list isn't polluted.
+    const scopes = DEFAULT_MACHINE_SCOPES
+    let machine: Awaited<ReturnType<typeof registerMachine>> | undefined
+    let accessToken = ''
+    let refreshToken = ''
+    let wsToken = ''
+    try {
+      machine = await registerMachine({
+        name: machineInfo.hostname,
+        hostname: machineInfo.hostname,
+        platform: machineInfo.platform,
+        providers: (machineInfo.providers ?? []) as ProviderType[],
+        userId: user.id,
+        refreshTokenHash: '',
+      })
+
+      const at = createAccessToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes,
+        expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+      })
+      const refreshResult = await createRefreshToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes,
+        expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
+      })
+      machine.refreshTokenHash = refreshResult.entry.tokenHash
+
+      if (dispatchPublicKey) {
+        await db.update(registeredMachines)
+          .set({ dispatchPublicKey })
+          .where(eq(registeredMachines.id, machine.id))
+      }
+
+      const ws = createWebSocketToken({
+        machineId: machine.id,
+        userId: user.id,
+        scopes: ['machine:connect', 'machine:execute'],
+        expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+      })
+
+      if (!at || !refreshResult.token || !ws) {
+        throw new Error('Token mint returned empty value')
+      }
+      accessToken = at
+      refreshToken = refreshResult.token
+      wsToken = ws
+    } catch (err) {
+      console.error('[device-auth] pair-complete: register/mint failed:', err)
+      if (machine?.id) {
+        // Best-effort cleanup so the user doesn't see a dead machine entry.
+        // Failure here is logged but not surfaced — there's nothing the
+        // client can do about it.
+        await revokeMachine(machine.id).catch((cleanupErr) => {
+          console.warn('[device-auth] pair-complete: revoke after failure failed:', cleanupErr)
+        })
+      }
+      return c.json({
+        error: 'server_error',
+        error_description: 'Failed to register machine or create tokens',
+      }, 500)
+    }
+
+    // Mark token as 'used' so it can't be replayed. Past this point the
+    // pair is committed — every remaining step must be safe to fail
+    // without poisoning the user's deep-link delivery.
+    await markDeviceCodeUsed(entry.userCode)
+
+    // Audit logging is best-effort. A logging failure must not 500 the
+    // response: by this point the user's machine is registered and tokens
+    // are minted; the browser needs the JSON back to fire astro://pair/callback.
+    try {
+      await logAuditEvent({
+        userId: user.id,
+        action: AuditActions.MACHINE_REGISTER,
+        resourceType: ResourceTypes.MACHINE,
+        resourceId: machine.id,
+        details: {
+          machineName: machine.name,
+          hostname: machine.hostname,
+          platform: machine.platform,
+          flow: 'pair',
+        },
+        ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+        userAgent: c.req.header('user-agent'),
+      })
+    } catch (err) {
+      console.warn('[device-auth] pair-complete: audit log failed:', err)
+    }
+
+    return c.json({
+      accessToken,
+      refreshToken,
+      wsToken,
+      machineId: machine.id,
+      machineName: machine.name,
+      apiUrl: BASE_URL,
+      relayUrl: RELAY_URL,
+      expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+      ...(dispatchPublicKey && { dispatchPublicKey }),
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[device-auth] pair-complete error:', message)
+    if (err instanceof Error && err.stack) {
+      console.error('[device-auth] Stack:', err.stack)
+    }
+    return c.json({
+      error: 'Failed to complete pairing',
+      error_description: message,
+    }, 500)
+  }
+})
 
 // ============================================================================
 // Machine Management

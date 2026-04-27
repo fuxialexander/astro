@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n/config"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
@@ -12,7 +12,7 @@ import { desktopBridge } from "@/lib/desktop-bridge"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail, Github, ExternalLink } from "lucide-react"
+import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail, Github } from "lucide-react"
 
 type AuthStep = "email" | "name" | "authenticating" | "registering" | "magic_link_sent"
 
@@ -49,6 +49,7 @@ export function Login() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const session = useAuthStore((s) => s.session)
+  const authInitialized = useAuthStore((s) => s.initialized)
 
   // Support both ?redirect=/device and location.state.from for redirect
   const redirectParam = searchParams.get('redirect')
@@ -59,16 +60,21 @@ export function Login() {
   // back to the app via astro:// deep link instead of navigating within React.
   const fromElectron = searchParams.get('from') === 'electron'
 
+  // The Electron /signin screen pre-fills these so the browser tab can
+  // jump straight to the WebAuthn ceremony without re-asking for email/name.
+  const prefilledEmail = searchParams.get('email') ?? ''
+  const prefilledName = searchParams.get('name') ?? ''
+  const prefilledRegister = searchParams.get('register') === '1'
+
   const devMode = isLocalMode()
 
   const [step, setStep] = useState<AuthStep>("email")
-  const [email, setEmail] = useState("")
-  const [name, setName] = useState("")
+  const [email, setEmail] = useState(prefilledEmail)
+  const [name, setName] = useState(prefilledName)
   const [isReturningUser, setIsReturningUser] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
-  const [waitingForBrowser, setWaitingForBrowser] = useState(false)
 
   // Authenticate existing user (called from handleEmailSubmit)
   // NOTE: Does NOT manage loading state - caller manages it
@@ -494,6 +500,28 @@ export function Login() {
     }
   }, [devMode])
 
+  // Auto-advance when params are pre-filled by the Electron /signin screen.
+  // For sign-up (?register=1) we have email + name and jump straight to the
+  // name step (which calls handleRegister on Continue). For sign-in we
+  // submit the email and let handleEmailSubmit decide between authenticate
+  // (passkey exists) and showing the name step (no credentials yet).
+  // Gated on authInitialized so a returning user with a still-valid session
+  // is redirected by the session-redirect effect (line 480) before we kick
+  // off an unwanted WebAuthn ceremony. Runs once authInitialized flips true.
+  const autoAdvancedRef = useRef(false)
+  useEffect(() => {
+    if (autoAdvancedRef.current) return
+    if (!authInitialized) return
+    if (!fromElectron || !prefilledEmail) return
+    if (session) return
+    autoAdvancedRef.current = true
+    if (prefilledRegister && prefilledName) {
+      setStep("name")
+    } else {
+      void handleEmailSubmit()
+    }
+  }, [authInitialized, fromElectron, prefilledEmail, prefilledRegister, prefilledName, session, handleEmailSubmit])
+
   const handleDevModeSkip = useCallback(() => {
     navigate(from, { replace: true })
   }, [from, navigate])
@@ -514,9 +542,7 @@ export function Login() {
           <img src="/icon-192.png" alt="Astro" className="mx-auto mb-4 h-12 w-12 rounded-xl" />
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {step === "email" && (isElectron
-              ? (waitingForBrowser ? "Complete sign-in in your browser" : "Sign in to continue")
-              : t('enterEmailToContinue'))}
+            {step === "email" && (isElectron ? "Redirecting…" : t('enterEmailToContinue'))}
             {step === "name" && (isReturningUser ? t('welcomeBackRegisterPasskey') : t('welcomeCreateAccount'))}
             {step === "authenticating" && t('authenticating')}
             {step === "registering" && t('creatingAccount')}
@@ -563,40 +589,10 @@ export function Login() {
         {step === "email" && (
           <div className="space-y-4">
             {isElectron ? (
-              // In Electron the embedded Chromium doesn't support Touch ID.
-              // Open the system browser (Safari/Chrome) where it works natively;
-              // tokens come back via astro:// deep link.
-              waitingForBrowser ? (
-                <div className="space-y-4 text-center">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                    <Loader2 className="h-8 w-8 text-primary animate-spin" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Waiting for sign-in to complete in your browser…
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setWaitingForBrowser(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  className="w-full"
-                  size="lg"
-                  onClick={() => {
-                    setWaitingForBrowser(true)
-                    desktopBridge.editor.openExternal('https://astroanywhere.com/login?from=electron')
-                  }}
-                  disabled={loading}
-                >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Sign in with browser
-                </Button>
-              )
+              // /login should never render inside Electron — AuthGuard +
+              // RootRedirect route desktop users to /signin. If we got
+              // here anyway (deep link, hard navigation), bounce them.
+              <ElectronBounce />
             ) : (
               <>
                 <div>
@@ -852,6 +848,24 @@ export function Login() {
         )}
 
       </div>
+    </div>
+  )
+}
+
+/**
+ * Stub shown if /login somehow renders inside Electron (it shouldn't —
+ * AuthGuard + RootRedirect both target /signin for desktop). Bounces to
+ * /signin on mount; renders a minimal placeholder in case the navigation
+ * is delayed by a tick.
+ */
+function ElectronBounce() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    navigate("/signin", { replace: true })
+  }, [navigate])
+  return (
+    <div className="flex justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
     </div>
   )
 }

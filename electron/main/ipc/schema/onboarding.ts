@@ -8,32 +8,24 @@
 
 import { z } from 'zod'
 
-// ─── Device auth (extends agent.ts) ─────────────────────────────────────────
+// ─── Pair / auth-state (extends agent.ts) ───────────────────────────────────
 
-export const deviceAuthStart = {
+// Callback-style pair: app opens browser at pairUrl and waits for the
+// astro://pair/callback deep-link. The success state is published on the
+// shared 'onboarding:device-auth' broker channel as { state: 'authorized' }
+// — same shape ConnectThisMacStep already handles. No polling.
+export const pairStart = {
   req: z.object({}),
   res: z.object({
-    deviceCode: z.string(),
-    userCode: z.string(),
-    verificationUriComplete: z.string(),
+    pairToken: z.string(),
+    pairUrl: z.string(),
     expiresIn: z.number(),
   }),
 }
 
-export const deviceAuthCancel = {
+export const pairCancel = {
   req: z.object({}),
   res: z.object({ ok: z.literal(true) }),
-}
-
-export const deviceAuthVerify = {
-  req: z.object({}),
-  res: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('no-session') }),
-    z.object({ kind: z.literal('pending') }),
-    z.object({ kind: z.literal('slow-down') }),
-    z.object({ kind: z.literal('terminal') }),
-    z.object({ kind: z.literal('network-error'), message: z.string() }),
-  ]),
 }
 
 export const authState = {
@@ -149,9 +141,8 @@ export const sshInstallAndRegister = {
 // ─── Channel registry ───────────────────────────────────────────────────────
 
 export const channels = {
-  'agent:device-auth-start': deviceAuthStart,
-  'agent:device-auth-cancel': deviceAuthCancel,
-  'agent:device-auth-verify': deviceAuthVerify,
+  'agent:pair-start': pairStart,
+  'agent:pair-cancel': pairCancel,
   'agent:auth-state': authState,
   'agent:start-local': startLocal,
   'agent:local-status': localStatus,

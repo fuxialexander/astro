@@ -78,13 +78,14 @@ function handleDeepLink(url: string): void {
     return
   }
 
-  // Device-auth approval signal: the browser-side /device page redirects to
-  // this URL immediately after the user clicks Approve so the app doesn't
-  // have to wait up to 5s for the next background poll. The handler kicks
-  // off a one-shot verify (same path as the "Verify now" button), which
-  // funnels through processPollResult and publishes 'authorized' on the
-  // broker. The renderer advances within ~200ms instead of ~5s.
-  if (url.startsWith('astro://device-auth/approved')) {
+  // Pair callback: the browser /pair page completes registration server-side
+  // and hands the resulting tokens directly through this deep-link. Mirrors
+  // astro://auth/callback for Supabase login. No polling, no broker race —
+  // the URL itself carries every credential the desktop app needs to be
+  // ready for tasks. The IPC handler writes ~/.astro/config.json, publishes
+  // 'authorized' on the broker so any active onboarding UI advances, and
+  // starts the local agent.
+  if (url.startsWith('astro://pair/callback')) {
     const win = windowRegistry.get('main')
     if (win) {
       if (win.isMinimized()) win.restore()
@@ -92,12 +93,25 @@ function handleDeepLink(url: string): void {
     }
     void (async () => {
       try {
-        const { triggerImmediateDeviceAuthPoll } = await import(
-          './ipc/channels/agent.js'
-        )
-        await triggerImmediateDeviceAuthPoll()
+        const parsed = new URL(url)
+        const params = parsed.searchParams
+        const tokens = {
+          accessToken: params.get('access_token') ?? '',
+          refreshToken: params.get('refresh_token') ?? '',
+          wsToken: params.get('ws_token') ?? '',
+          machineId: params.get('machine_id') ?? '',
+          machineName: params.get('machine_name') ?? '',
+          apiUrl: params.get('api_url') ?? '',
+          relayUrl: params.get('relay_url') ?? '',
+        }
+        if (!tokens.accessToken || !tokens.refreshToken || !tokens.machineId) {
+          console.warn('[deep-link] pair callback missing required params')
+          return
+        }
+        const { handlePairCallback } = await import('./ipc/channels/agent.js')
+        await handlePairCallback(tokens)
       } catch (err) {
-        console.warn('[deep-link] device-auth approved poll failed:', err)
+        console.warn('[deep-link] pair callback failed:', err)
       }
     })()
     return

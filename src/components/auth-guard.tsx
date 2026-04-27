@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { Navigate, useLocation } from "react-router"
 import { useAuthStore } from "@/stores/auth-store"
 import { isLocalMode } from "@/lib/app-mode"
+import { isDesktop } from "@/lib/desktop-detect"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -39,7 +40,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
 
   if (!session) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+    // In Electron, /signin is the in-app entry point. /login is the
+    // browser-side WebAuthn ceremony, not meant to be loaded inside the
+    // desktop window — it would just show "Sign in with browser" again.
+    const target = isDesktop() ? "/signin" : "/login"
+    return <Navigate to={target} state={{ from: location }} replace />
   }
 
   return <>{children}</>
