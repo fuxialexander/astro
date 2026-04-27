@@ -64,7 +64,7 @@
     "electron:dev": "concurrently -n vite,electron -c blue,cyan \"vite\" \"wait-on http://localhost:5173 && npm run electron:build:server && npm run electron:build:main && electron electron/dist/main/index.js\"",
     "electron:package": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:binaries && electron-forge package'",
     "electron:make": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:binaries && electron-forge make'",
-    "electron:publish": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:calendar-helper && GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth token)} electron-forge publish'",
+    "electron:publish": "bash -c 'set -a; [ -f .env.prod ] && . .env.prod; set +a; npm run build:binaries && npm run build:calendar-helper && GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth token)} electron-forge publish'",
     "desktop": "bash scripts/switch-env.sh local && concurrently -k -n desktop,agent -c blue,yellow \"npm run electron:dev\" \"sleep 6 && npm run dev:agent\"",
     "desktop:dev": "npm run desktop",
     "desktop:package": "npm run electron:package",
