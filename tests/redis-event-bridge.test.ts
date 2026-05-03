@@ -546,7 +546,7 @@ describe('relay-server Redis publish integration', () => {
     const wrapperStart = relaySource.indexOf('private async publishToRedis(')
     expect(wrapperStart).toBeGreaterThan(-1)
     // Extract a generous chunk after the method signature
-    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 400)
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 1200)
     // Uses async fallback — first checks local cache, then queries Redis for cross-instance tasks
     expect(wrapperChunk).toContain('getUserIdForTaskWithFallback(event.taskId)')
     expect(wrapperChunk).toContain('publishStreamingEvent')
@@ -563,6 +563,26 @@ describe('relay-server Redis publish integration', () => {
     )
     expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'text'")
+  })
+
+  it('does not persist empty text heartbeats as durable streaming text', () => {
+    const handler = relaySource.slice(
+      relaySource.indexOf('private async handleAgentRunnerTaskText('),
+      relaySource.indexOf('private async handleAgentRunnerTaskToolUse(')
+    )
+    expect(handler).toContain('if (payload.text.length > 0)')
+    expect(handler).toContain('streamingEventLog.appendText(payload.taskId, payload.text)')
+  })
+
+  it('batches Redis text fanout and sends empty text as activity', () => {
+    const wrapperStart = relaySource.indexOf('private async publishToRedis(')
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 1600)
+    expect(wrapperChunk).toContain('this.queueRedisText(event.taskId, text)')
+    expect(wrapperChunk).toContain("eventType: 'activity'")
+    expect(wrapperChunk).toContain("source: 'task_text_heartbeat'")
+    expect(relaySource).toContain('private async flushRedisText(taskId: string)')
+    expect(relaySource).toContain("eventType: 'text'")
+    expect(relaySource).toContain('data: { text }')
   })
 
   it('publishes tool_use events with dbSeq via publishToRedis', () => {
@@ -654,6 +674,35 @@ describe('relay-server Redis publish integration', () => {
   })
 })
 
+describe('Redis cost controls', () => {
+  const RELAY_SERVER_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const relaySource = readFileSync(RELAY_SERVER_PATH, 'utf-8')
+  const SERVER_INDEX_PATH = join(process.cwd(), 'server/index.ts')
+  const indexSource = readFileSync(SERVER_INDEX_PATH, 'utf-8')
+
+  it('throttles machine heartbeat writes to Redis until routing state changes', () => {
+    expect(relaySource).toContain('private shouldPublishMachineHeartbeat(machineId: string, activeTasks: string[])')
+    expect(relaySource).toContain("parseEnvMs('REDIS_MACHINE_UPDATE_INTERVAL_MS', 300_000, 60_000)")
+    expect(relaySource).toContain('previous.activeTaskSignature !== activeTaskSignature')
+    expect(relaySource).toContain('now - previous.publishedAt >= this.redisMachineUpdateIntervalMs')
+    const heartbeat = relaySource.slice(
+      relaySource.indexOf('private handleAgentRunnerHeartbeat('),
+      relaySource.indexOf('/**', relaySource.indexOf('private handleAgentRunnerHeartbeat(') + 50)
+    )
+    expect(heartbeat).toContain('this.shouldPublishMachineHeartbeat(machine.machineId, activeTasks)')
+    expect(heartbeat).toContain('redisPubSub.updateMachine(machine.machineId, updatedEntry)')
+  })
+
+  it('targets WebSocket proxy responses instead of broadcasting every response', () => {
+    expect(indexSource).toContain('const proxyResponseTargets = new Map')
+    expect(indexSource).toContain('rememberProxyResponseTarget(correlationId, event.instanceId)')
+    expect(indexSource).toContain('if (event.targetInstanceId && event.targetInstanceId !== redisPubSub.getInstanceId()) return')
+    expect(indexSource).toContain('const targetInstanceId = consumeProxyResponseTarget(correlationId)')
+    expect(indexSource).toContain('if (!targetInstanceId) return // local request/response; Redis is not needed')
+    expect(indexSource).toContain('targetInstanceId,')
+  })
+})
+
 // =============================================================================
 // 7. events.ts subscribes to and cleans up Redis streaming events
 // =============================================================================
@@ -701,6 +750,7 @@ describe('RedisPubSub channel constants and types', () => {
 
   it('exports StreamingEventType union with all event types', () => {
     expect(source).toContain('export type StreamingEventType')
+    expect(source).toContain("'activity'")
     expect(source).toContain("'text'")
     expect(source).toContain("'tool_use'")
     expect(source).toContain("'tool_result'")
@@ -936,7 +986,7 @@ describe('relay-server publishToRedis error handling', () => {
 
   it('publishToRedis logs errors with console.error', () => {
     const wrapperStart = relaySource.indexOf('private async publishToRedis(')
-    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 400)
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 1200)
     expect(wrapperChunk).toContain('console.error')
   })
 

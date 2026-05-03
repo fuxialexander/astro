@@ -122,7 +122,7 @@ export interface RedisExecutionContext {
 
 /** Streaming event types bridged via Redis */
 export type StreamingEventType =
-  | 'text' | 'operational' | 'tool_use' | 'tool_result' | 'file_change'
+  | 'activity' | 'text' | 'operational' | 'tool_use' | 'tool_result' | 'file_change'
   | 'session_init' | 'progress' | 'result' | 'error'
   | 'node_status_changed' | 'task_init' | 'task_ready'
   | 'plan_result' | 'approval_request' | 'safety_prompt';

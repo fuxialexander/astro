@@ -70,6 +70,13 @@ function computeLineCounts(diff: string): { added: number; removed: number } {
   return { added, removed };
 }
 
+function parseEnvMs(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, min) : fallback;
+}
+
 /** Key file contents returned from remote repo setup */
 export interface RepoKeyFiles {
   claudeMd?: string;
@@ -695,6 +702,11 @@ export class RelayServer extends EventEmitter {
   // Dispatch ACK: timers that fire if the agent runner doesn't acknowledge a dispatch within 30s.
   // Detects lost WS messages much faster than the 5-minute dead job checker.
   private dispatchAckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private redisTextBuffers: Map<string, string> = new Map();
+  private redisTextFlushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private readonly redisTextFlushIntervalMs = parseEnvMs('REDIS_TEXT_FLUSH_INTERVAL_MS', 1000, 100);
+  private lastPublishedMachineHeartbeatState: Map<string, { activeTaskSignature: string; publishedAt: number }> = new Map();
+  private readonly redisMachineUpdateIntervalMs = parseEnvMs('REDIS_MACHINE_UPDATE_INTERVAL_MS', 300_000, 60_000);
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -783,6 +795,13 @@ export class RelayServer extends EventEmitter {
         clearTimeout(timer);
       }
       this.dispatchAckTimers.clear();
+
+      for (const timer of this.redisTextFlushTimers.values()) {
+        clearTimeout(timer);
+      }
+      this.redisTextFlushTimers.clear();
+      this.redisTextBuffers.clear();
+      this.lastPublishedMachineHeartbeatState.clear();
 
       machineRegistry.shutdown();
 
@@ -1337,6 +1356,7 @@ export class RelayServer extends EventEmitter {
 
       const entry = machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
 
       // Set up heartbeat timeout
       this.resetHeartbeatTimer(machineId);
@@ -1374,6 +1394,7 @@ export class RelayServer extends EventEmitter {
     const { machineId, reason } = message;
     // Explicit unregister — cancel any grace period and disconnect immediately
     this.cancelDisconnectGracePeriod(machineId);
+    this.lastPublishedMachineHeartbeatState.delete(machineId);
     machineRegistry.disconnect(machineId, reason || 'client_unregister');
     this.emit('machine:disconnected', machineId, reason);
   }
@@ -1415,10 +1436,62 @@ export class RelayServer extends EventEmitter {
    */
   private async publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): Promise<void> {
     try {
+      if (event.eventType === 'text') {
+        const text = typeof event.data.text === 'string' ? event.data.text : '';
+        if (text.length === 0) {
+          const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
+          await redisPubSub.publishStreamingEvent({
+            eventType: 'activity',
+            taskId: event.taskId,
+            userId,
+            data: { source: 'task_text_heartbeat' },
+          });
+          return;
+        }
+        this.queueRedisText(event.taskId, text);
+        return;
+      }
+
+      await this.flushRedisText(event.taskId);
       const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
       await redisPubSub.publishStreamingEvent({ ...event, userId });
     } catch (err) {
       console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
+    }
+  }
+
+  private queueRedisText(taskId: string, text: string): void {
+    this.redisTextBuffers.set(taskId, (this.redisTextBuffers.get(taskId) ?? '') + text);
+    if (this.redisTextFlushTimers.has(taskId)) return;
+
+    const timer = setTimeout(() => {
+      this.redisTextFlushTimers.delete(taskId);
+      this.flushRedisText(taskId).catch((err) => {
+        console.error(`[relay] Failed to flush Redis text batch for ${taskId}:`, err);
+      });
+    }, this.redisTextFlushIntervalMs);
+    this.redisTextFlushTimers.set(taskId, timer);
+  }
+
+  private async flushRedisText(taskId: string): Promise<void> {
+    const timer = this.redisTextFlushTimers.get(taskId);
+    if (timer) clearTimeout(timer);
+    this.redisTextFlushTimers.delete(taskId);
+
+    const text = this.redisTextBuffers.get(taskId);
+    this.redisTextBuffers.delete(taskId);
+    if (!text) return;
+
+    try {
+      const userId = await executionContextStore.getUserIdForTaskWithFallback(taskId);
+      await redisPubSub.publishStreamingEvent({
+        eventType: 'text',
+        taskId,
+        userId,
+        data: { text },
+      });
+    } catch (err) {
+      console.error(`[relay] Failed to publish Redis text batch for ${taskId}:`, err);
     }
   }
 
@@ -1495,6 +1568,7 @@ export class RelayServer extends EventEmitter {
       await this.recoverLateResult(message.result.taskId, message.result.status, resultData);
     }
 
+    await this.flushRedisText(message.result.taskId);
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
@@ -1969,8 +2043,23 @@ export class RelayServer extends EventEmitter {
     redisPubSub.on('task:streaming', (msg) => {
       if (msg.instanceId === redisPubSub.getInstanceId()) return; // skip own — already emitted locally
       switch (msg.eventType) {
+        case 'activity':
+          this.emit('task:text', {
+            type: 'task.text',
+            timestamp: new Date(),
+            taskId: msg.taskId,
+            text: '',
+            sequence: 0,
+          });
+          break;
         case 'text':
-          this.emit('task:text', { taskId: msg.taskId, text: msg.data.text as string });
+          this.emit('task:text', {
+            type: 'task.text',
+            timestamp: new Date(),
+            taskId: msg.taskId,
+            text: msg.data.text as string,
+            sequence: 0,
+          });
           break;
         case 'operational':
           this.emit('task:operational', {
@@ -2637,6 +2726,7 @@ export class RelayServer extends EventEmitter {
 
       machineRegistry.disconnect(machineId, reason);
       this.rateLimitState.delete(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
       this.emit('machine:disconnected', machineId, reason);
     }, gracePeriodMs);
 
@@ -2817,6 +2907,7 @@ export class RelayServer extends EventEmitter {
 
       machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
 
       // Log execution strategies for debugging
       const strategies = machineInfo.executionStrategies;
@@ -2863,6 +2954,22 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle agent runner's heartbeat message format
    */
+  private shouldPublishMachineHeartbeat(machineId: string, activeTasks: string[]): boolean {
+    const activeTaskSignature = [...new Set(activeTasks)].sort().join('\0');
+    const now = Date.now();
+    const previous = this.lastPublishedMachineHeartbeatState.get(machineId);
+    if (!previous
+      || previous.activeTaskSignature !== activeTaskSignature
+      || now - previous.publishedAt >= this.redisMachineUpdateIntervalMs) {
+      this.lastPublishedMachineHeartbeatState.set(machineId, {
+        activeTaskSignature,
+        publishedAt: now,
+      });
+      return true;
+    }
+    return false;
+  }
+
   private handleAgentRunnerHeartbeat(
     socket: WebSocket,
     message: AgentRunnerHeartbeatMessage
@@ -2889,12 +2996,12 @@ export class RelayServer extends EventEmitter {
       // Store actual task IDs for dead job cross-reference detection (P2)
       machineRegistry.updateActiveTaskIds(machine.machineId, activeTasks);
 
-      // Propagate activeTaskIds cross-instance so the dead job checker on other
-      // instances can cross-reference heartbeat data even when they don't own the WS.
-      // machine.updated publishes the full registry entry; receiving instances call
-      // registerRemote() which updates their in-memory entry (including activeTaskIds).
+      // Propagate activeTaskIds cross-instance when routing-relevant state changes.
+      // The relay heartbeat loop refreshes MACHINE_INSTANCE TTLs separately; publishing
+      // every agent heartbeat would turn idle machines into a steady Redis bill.
       const updatedEntry = machineRegistry.get(machine.machineId);
-      if (updatedEntry && redisPubSub.isConnected()) {
+      if (updatedEntry && redisPubSub.isConnected()
+        && this.shouldPublishMachineHeartbeat(machine.machineId, activeTasks)) {
         redisPubSub.updateMachine(machine.machineId, updatedEntry).catch(() => {});
         redisPubSub.publishMachineState({
           event: 'machine.updated',
@@ -3020,7 +3127,9 @@ export class RelayServer extends EventEmitter {
     // relay-server is the single persistence authority for relay-originated events.
     // Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but
     // do not write to streaming_events for relay-originated events.
-    streamingEventLog.appendText(payload.taskId, payload.text);
+    if (payload.text.length > 0) {
+      streamingEventLog.appendText(payload.taskId, payload.text);
+    }
     this.emit('task:text', textMsg);
     this.publishToRedis({
       eventType: 'text', taskId: payload.taskId,
@@ -3351,6 +3460,7 @@ export class RelayServer extends EventEmitter {
       summary,
     };
     const seq = await streamingEventLog.appendTerminalIfAbsent(taskId, 'result', resultData);
+    await this.flushRedisText(taskId);
     this.emit('task:result', resultMsg);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId, userId,
