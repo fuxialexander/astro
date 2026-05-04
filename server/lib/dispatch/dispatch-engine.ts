@@ -1181,12 +1181,20 @@ export class DispatchEngine extends EventEmitter {
       60
     ) // 2× poll interval or 60s minimum
 
+    // Leader election uses local caching: each instance only hits Redis once per
+    // 30s instead of every poll tick. With a 2s poll interval this drops Redis
+    // commands by ~15× per scheduler. The lock TTL must exceed the cache window.
+    const POLL_LEADER_CHECK_INTERVAL_MS = 30_000
+    if (POLL_LEADER_TTL_SECONDS * 1000 <= POLL_LEADER_CHECK_INTERVAL_MS) {
+      throw new Error(`POLL_LEADER_TTL_SECONDS=${POLL_LEADER_TTL_SECONDS} must exceed cache interval`)
+    }
+
     this.pollInterval = setInterval(async () => {
       try {
-        // Leader election: only one instance polls for ready tasks
-        const acquired = await redisPubSub.tryAcquireLeader(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
-        const renewed = !acquired && await redisPubSub.renewLeadership(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
-        if (!acquired && !renewed) return // another instance is the leader
+        const isLeader = await redisPubSub.checkLeadership(
+          POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS, POLL_LEADER_CHECK_INTERVAL_MS,
+        )
+        if (!isLeader) return // another instance is the leader
 
         await this.pollReadyTasks()
         this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking

@@ -70,6 +70,13 @@ function computeLineCounts(diff: string): { added: number; removed: number } {
   return { added, removed };
 }
 
+function parseEnvMs(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, min) : fallback;
+}
+
 /** Key file contents returned from remote repo setup */
 export interface RepoKeyFiles {
   claudeMd?: string;
@@ -695,6 +702,17 @@ export class RelayServer extends EventEmitter {
   // Dispatch ACK: timers that fire if the agent runner doesn't acknowledge a dispatch within 30s.
   // Detects lost WS messages much faster than the 5-minute dead job checker.
   private dispatchAckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  // Periodic flush timer per task. Forces streamingEventLog to write any
+  // buffered text to Postgres so the wake-up listener can publish a tiny
+  // {taskId, dbSeq} notification over Redis. Without this timer, text-only
+  // streams (no structural events) would sit in memory until completion.
+  private redisTextFlushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private readonly redisTextFlushIntervalMs = parseEnvMs('REDIS_TEXT_FLUSH_INTERVAL_MS', 1000, 100);
+  // Listener handle for streamingEventLog 'text-flushed' events — kept so we can
+  // detach on shutdown without affecting other subscribers.
+  private textFlushedListener: ((event: { executionId: string; seq: number }) => void) | null = null;
+  private lastPublishedMachineHeartbeatState: Map<string, { activeTaskSignature: string; publishedAt: number }> = new Map();
+  private readonly redisMachineUpdateIntervalMs = parseEnvMs('REDIS_MACHINE_UPDATE_INTERVAL_MS', 300_000, 60_000);
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -702,6 +720,26 @@ export class RelayServer extends EventEmitter {
     // Support multiple concurrent SSE connections (default 10 is too low)
     // Each SSE client registers ~14 event listeners, so allow 50 concurrent connections
     this.setMaxListeners(700);
+  }
+
+  /**
+   * Attach the singleton text-flushed → Redis wake-up bridge. Safe to call
+   * multiple times — guarded so a stop()/start() cycle re-attaches exactly
+   * one listener instead of leaking.
+   */
+  private attachTextFlushedListener(): void {
+    if (this.textFlushedListener) return;
+    this.textFlushedListener = ({ executionId, seq }) => {
+      redisPubSub.publishStreamingEvent({
+        eventType: 'text',
+        taskId: executionId,
+        dbSeq: seq,
+        data: {},
+      }).catch((err) => {
+        console.error(`[relay] Failed to publish text wake-up for ${executionId}:`, err);
+      });
+    };
+    streamingEventLog.on('text-flushed', this.textFlushedListener);
   }
 
   /**
@@ -732,6 +770,9 @@ export class RelayServer extends EventEmitter {
 
         // Cross-instance routing: handle approval/steer/cancel from other instances
         this.registerRedisRouting();
+
+        // Bridge durable text writes to tiny Redis wake-ups.
+        this.attachTextFlushedListener();
 
         console.log(`[relay] WebSocket server listening on port ${serverPort}`);
         resolve();
@@ -783,6 +824,16 @@ export class RelayServer extends EventEmitter {
         clearTimeout(timer);
       }
       this.dispatchAckTimers.clear();
+
+      for (const timer of this.redisTextFlushTimers.values()) {
+        clearTimeout(timer);
+      }
+      this.redisTextFlushTimers.clear();
+      if (this.textFlushedListener) {
+        streamingEventLog.off('text-flushed', this.textFlushedListener);
+        this.textFlushedListener = null;
+      }
+      this.lastPublishedMachineHeartbeatState.clear();
 
       machineRegistry.shutdown();
 
@@ -1337,6 +1388,7 @@ export class RelayServer extends EventEmitter {
 
       const entry = machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
 
       // Set up heartbeat timeout
       this.resetHeartbeatTimer(machineId);
@@ -1374,6 +1426,7 @@ export class RelayServer extends EventEmitter {
     const { machineId, reason } = message;
     // Explicit unregister — cancel any grace period and disconnect immediately
     this.cancelDisconnectGracePeriod(machineId);
+    this.lastPublishedMachineHeartbeatState.delete(machineId);
     machineRegistry.disconnect(machineId, reason || 'client_unregister');
     this.emit('machine:disconnected', machineId, reason);
   }
@@ -1415,11 +1468,90 @@ export class RelayServer extends EventEmitter {
    */
   private async publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): Promise<void> {
     try {
+      if (event.eventType === 'text') {
+        const text = typeof event.data.text === 'string' ? event.data.text : '';
+        if (text.length === 0) {
+          // Empty heartbeat: tiny activity ping, no DB row, no payload.
+          const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
+          await redisPubSub.publishStreamingEvent({
+            eventType: 'activity',
+            taskId: event.taskId,
+            userId,
+            data: { source: 'task_text_heartbeat' },
+          });
+          return;
+        }
+        // Text was already buffered into streamingEventLog by handleAgentRunnerTaskText.
+        // Schedule a periodic DB flush so the wake-up listener publishes promptly
+        // even when the stream contains no structural events. The actual Redis
+        // publish happens via the 'text-flushed' subscriber in the constructor.
+        this.scheduleTextFlush(event.taskId);
+        return;
+      }
+
+      // Non-text events: streamingEventLog.append() already auto-flushed pending
+      // text and emitted its wake-up before we got here. Do NOT cancel the
+      // periodic flush timer — text chunks that arrived during the structural
+      // event's await window are still buffered and need the timer to flush
+      // them. flushText() is a safe no-op if the buffer is empty.
       const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
       await redisPubSub.publishStreamingEvent({ ...event, userId });
     } catch (err) {
       console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
     }
+  }
+
+  /**
+   * Ensure streamingEventLog flushes any buffered text within the configured
+   * interval. The wake-up Redis publish is driven by the 'text-flushed' event
+   * the log emits after the durable insert completes.
+   */
+  private scheduleTextFlush(taskId: string): void {
+    if (this.redisTextFlushTimers.has(taskId)) return;
+    const timer = setTimeout(() => {
+      this.redisTextFlushTimers.delete(taskId);
+      streamingEventLog.flushText(taskId).catch((err) => {
+        console.error(`[relay] flushText(${taskId}) failed:`, err);
+      });
+    }, this.redisTextFlushIntervalMs);
+    this.redisTextFlushTimers.set(taskId, timer);
+  }
+
+  private cancelTextFlush(taskId: string): void {
+    const timer = this.redisTextFlushTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.redisTextFlushTimers.delete(taskId);
+    }
+  }
+
+  /**
+   * Cross-instance text wake-up handler. Fetches the durable text row from
+   * Postgres by (taskId, seq) and emits a local task:text event so existing
+   * SSE listeners (events.ts, dispatch.ts, agent.ts, channel-router) deliver
+   * it identically to a locally-originated event.
+   *
+   * `taskId` here is the same identifier the dispatch layer uses as the
+   * `executionId` foreign key on `streaming_events` — they are interchangeable
+   * everywhere in the relay/dispatch path. Keep them aligned in any new code.
+   *
+   * Fire-and-forget: we never await this from the Redis subscriber so the
+   * dispatch loop isn't gated on a Postgres round-trip.
+   */
+  private fetchAndEmitText(taskId: string, seq: number): void {
+    streamingEventLog.getOne(taskId, seq).then((event) => {
+      if (!event || event.eventType !== 'text') return;
+      const text = (event.data as { text?: string })?.text ?? '';
+      this.emit('task:text', {
+        type: 'task.text',
+        timestamp: event.createdAt,
+        taskId,
+        text,
+        sequence: 0,
+      });
+    }).catch((err) => {
+      console.error(`[relay] fetchAndEmitText(${taskId}, ${seq}) failed:`, err);
+    });
   }
 
   private async emitSyntheticTaskError(
@@ -1495,6 +1627,9 @@ export class RelayServer extends EventEmitter {
       await this.recoverLateResult(message.result.taskId, message.result.status, resultData);
     }
 
+    // appendTerminalIfAbsent above already flushed pending text and emitted
+    // the text-flushed wake-up. Just cancel any pending periodic flush timer.
+    this.cancelTextFlush(message.result.taskId);
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
@@ -1969,8 +2104,30 @@ export class RelayServer extends EventEmitter {
     redisPubSub.on('task:streaming', (msg) => {
       if (msg.instanceId === redisPubSub.getInstanceId()) return; // skip own — already emitted locally
       switch (msg.eventType) {
+        case 'activity':
+          this.emit('task:text', {
+            type: 'task.text',
+            timestamp: new Date(),
+            taskId: msg.taskId,
+            text: '',
+            sequence: 0,
+          });
+          break;
         case 'text':
-          this.emit('task:text', { taskId: msg.taskId, text: msg.data.text as string });
+          // Wake-up only — Redis carries {taskId, dbSeq}. Fetch the durable
+          // payload from Postgres and emit locally. Falls back to the inline
+          // payload if dbSeq is missing (older publishers, or future variants).
+          if (typeof msg.dbSeq === 'number') {
+            this.fetchAndEmitText(msg.taskId, msg.dbSeq);
+          } else if (typeof msg.data.text === 'string') {
+            this.emit('task:text', {
+              type: 'task.text',
+              timestamp: new Date(),
+              taskId: msg.taskId,
+              text: msg.data.text,
+              sequence: 0,
+            });
+          }
           break;
         case 'operational':
           this.emit('task:operational', {
@@ -2637,6 +2794,7 @@ export class RelayServer extends EventEmitter {
 
       machineRegistry.disconnect(machineId, reason);
       this.rateLimitState.delete(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
       this.emit('machine:disconnected', machineId, reason);
     }, gracePeriodMs);
 
@@ -2817,6 +2975,7 @@ export class RelayServer extends EventEmitter {
 
       machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
+      this.lastPublishedMachineHeartbeatState.delete(machineId);
 
       // Log execution strategies for debugging
       const strategies = machineInfo.executionStrategies;
@@ -2863,6 +3022,22 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle agent runner's heartbeat message format
    */
+  private shouldPublishMachineHeartbeat(machineId: string, activeTasks: string[]): boolean {
+    const activeTaskSignature = [...new Set(activeTasks)].sort().join('\0');
+    const now = Date.now();
+    const previous = this.lastPublishedMachineHeartbeatState.get(machineId);
+    if (!previous
+      || previous.activeTaskSignature !== activeTaskSignature
+      || now - previous.publishedAt >= this.redisMachineUpdateIntervalMs) {
+      this.lastPublishedMachineHeartbeatState.set(machineId, {
+        activeTaskSignature,
+        publishedAt: now,
+      });
+      return true;
+    }
+    return false;
+  }
+
   private handleAgentRunnerHeartbeat(
     socket: WebSocket,
     message: AgentRunnerHeartbeatMessage
@@ -2889,12 +3064,12 @@ export class RelayServer extends EventEmitter {
       // Store actual task IDs for dead job cross-reference detection (P2)
       machineRegistry.updateActiveTaskIds(machine.machineId, activeTasks);
 
-      // Propagate activeTaskIds cross-instance so the dead job checker on other
-      // instances can cross-reference heartbeat data even when they don't own the WS.
-      // machine.updated publishes the full registry entry; receiving instances call
-      // registerRemote() which updates their in-memory entry (including activeTaskIds).
+      // Propagate activeTaskIds cross-instance when routing-relevant state changes.
+      // The relay heartbeat loop refreshes MACHINE_INSTANCE TTLs separately; publishing
+      // every agent heartbeat would turn idle machines into a steady Redis bill.
       const updatedEntry = machineRegistry.get(machine.machineId);
-      if (updatedEntry && redisPubSub.isConnected()) {
+      if (updatedEntry && redisPubSub.isConnected()
+        && this.shouldPublishMachineHeartbeat(machine.machineId, activeTasks)) {
         redisPubSub.updateMachine(machine.machineId, updatedEntry).catch(() => {});
         redisPubSub.publishMachineState({
           event: 'machine.updated',
@@ -3020,7 +3195,9 @@ export class RelayServer extends EventEmitter {
     // relay-server is the single persistence authority for relay-originated events.
     // Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but
     // do not write to streaming_events for relay-originated events.
-    streamingEventLog.appendText(payload.taskId, payload.text);
+    if (payload.text.length > 0) {
+      streamingEventLog.appendText(payload.taskId, payload.text);
+    }
     this.emit('task:text', textMsg);
     this.publishToRedis({
       eventType: 'text', taskId: payload.taskId,
@@ -3351,6 +3528,9 @@ export class RelayServer extends EventEmitter {
       summary,
     };
     const seq = await streamingEventLog.appendTerminalIfAbsent(taskId, 'result', resultData);
+    // appendTerminalIfAbsent above already flushed pending text and emitted
+    // the text-flushed wake-up. Just cancel any pending periodic flush timer.
+    this.cancelTextFlush(taskId);
     this.emit('task:result', resultMsg);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId, userId,

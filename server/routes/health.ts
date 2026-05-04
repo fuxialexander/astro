@@ -6,6 +6,7 @@ import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { getSSEConnectionCounts } from '../lib/sse-connection-tracker.js'
+import { redisPubSub } from '../lib/redis-pubsub.js'
 
 const healthRoute = new Hono()
 
@@ -36,6 +37,35 @@ healthRoute.get('/health', async (c) => {
   } catch (e: unknown) {
     const message = errorMessage(e)
     return c.json({ status: 'error', authenticated: false, error: message }, 500)
+  }
+})
+
+/**
+ * Redis command observability — per-method counts since process start.
+ * Used to identify hot paths driving Upstash command volume.
+ *
+ * Returns top-level totals plus a sorted breakdown so the most expensive
+ * channel/method is obvious without parsing the whole map.
+ */
+healthRoute.get('/redis-metrics', requireAuth, async (c) => {
+  try {
+    const metrics = redisPubSub.getCommandMetrics()
+    const sorted = Object.entries(metrics.counts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([method, count]) => ({
+        method,
+        count,
+        perSecond: metrics.sinceMs > 0 ? +(count / (metrics.sinceMs / 1000)).toFixed(3) : 0,
+      }))
+    return c.json({
+      instanceId: metrics.instanceId,
+      sinceMs: metrics.sinceMs,
+      total: metrics.total,
+      perSecond: metrics.sinceMs > 0 ? +(metrics.total / (metrics.sinceMs / 1000)).toFixed(3) : 0,
+      methods: sorted,
+    })
+  } catch (e: unknown) {
+    return c.json({ error: errorMessage(e) }, 500)
   }
 })
 

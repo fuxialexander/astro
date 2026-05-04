@@ -10,6 +10,7 @@
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
 import { eq, gt, and, inArray, lt, sql, desc, isNull } from 'drizzle-orm'
+import { EventEmitter } from 'events'
 import {
   maybeEncryptStreamingEventData,
   maybeDecryptStreamingEventData,
@@ -24,8 +25,27 @@ export interface StreamingEvent {
   createdAt: Date
 }
 
-class StreamingEventLog {
+/**
+ * Emitted whenever a text row is durably written. Subscribers (relay-server)
+ * use this to publish a tiny `{taskId, dbSeq}` wake-up over Redis instead of
+ * shipping the text payload through Redis. Receivers fetch the row from
+ * Postgres on wake-up — Redis carries routing only, never durable content.
+ */
+export interface TextFlushedEvent {
+  executionId: string
+  seq: number
+}
+
+class StreamingEventLog extends EventEmitter {
   private textBuffers = new Map<string, string[]>()
+
+  constructor() {
+    super()
+    // Generous bound: a single relay-server adds one listener, but vitest
+    // creates many StreamingEventLog instances when re-importing. The wake-up
+    // listener is the only consumer in production, so this is a safety margin.
+    this.setMaxListeners(50)
+  }
 
   /**
    * Flush accumulated text for an execution, writing it as a single 'text' row.
@@ -47,6 +67,7 @@ class StreamingEventLog {
         eventType: 'text',
         data: maybeEncryptStreamingEventData({ text }) as Record<string, unknown>,
       }).returning({ seq: streamingEvents.seq })
+      this.emit('text-flushed', { executionId, seq: row.seq } satisfies TextFlushedEvent)
       return row.seq
     } catch (err) {
       console.error('[streaming-event-log] Failed to flush text for', executionId, ':', (err as Error).message)
@@ -401,6 +422,39 @@ class StreamingEventLog {
       existing.push(text)
     } else {
       this.textBuffers.set(executionId, [text])
+    }
+  }
+
+  /**
+   * Wake-up query: fetch a single durable row by (executionId, seq).
+   * Used by the cross-instance bridge when a Redis wake-up arrives carrying
+   * only `{taskId, dbSeq}` — the receiver pulls the actual payload from
+   * Postgres rather than receiving it through Redis.
+   */
+  async getOne(executionId: string, seq: number): Promise<StreamingEvent | null> {
+    try {
+      const rows = await db.select()
+        .from(streamingEvents)
+        .where(
+          and(
+            eq(streamingEvents.executionId, executionId),
+            eq(streamingEvents.seq, seq),
+            isNull(streamingEvents.deletedAt),
+          ),
+        )
+        .limit(1)
+      const row = rows[0]
+      if (!row) return null
+      return {
+        seq: row.seq,
+        executionId: row.executionId,
+        eventType: row.eventType,
+        data: maybeDecryptStreamingEventData(row.data),
+        createdAt: row.createdAt,
+      }
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to getOne:', (err as Error).message)
+      return null
     }
   }
 

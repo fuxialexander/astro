@@ -646,13 +646,9 @@ async function runCronTick(): Promise<void> {
  * Run cron tick only if this instance is the leader.
  */
 async function runCronTickIfLeader(): Promise<void> {
-  const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
-  const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS)
-
-  if (!acquired && !renewed) {
-    return // Another instance is the cron leader
-  }
-
+  // 30s cache window — well below the 180s lock TTL.
+  const isLeader = await redisPubSub.checkLeadership(LEADER_NAME, LEADER_TTL_SECONDS, 30_000)
+  if (!isLeader) return // Another instance is the cron leader
   await runCronTick()
 }
 

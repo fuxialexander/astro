@@ -458,21 +458,40 @@ async function start() {
         }
       })
 
+      const proxyResponseTargets = new Map<string, { targetInstanceId: string; timer: ReturnType<typeof setTimeout> }>()
+      const rememberProxyResponseTarget = (correlationId: string, targetInstanceId: string) => {
+        const existing = proxyResponseTargets.get(correlationId)
+        if (existing) clearTimeout(existing.timer)
+        const timer = setTimeout(() => {
+          proxyResponseTargets.delete(correlationId)
+        }, 120_000)
+        proxyResponseTargets.set(correlationId, { targetInstanceId, timer })
+      }
+      const consumeProxyResponseTarget = (correlationId: string): string | undefined => {
+        const target = proxyResponseTargets.get(correlationId)
+        if (!target) return undefined
+        clearTimeout(target.timer)
+        proxyResponseTargets.delete(correlationId)
+        return target.targetInstanceId
+      }
+
       // WebSocket proxy: forward requests to locally-connected machines.
       // If forwarding fails (socket dead), send an error response back via Redis
       // so the requesting instance fails fast instead of waiting for the 10s timeout.
       redisPubSub.on('ws:proxy:request', (event) => {
         // Only handle if this instance owns the machine's WebSocket
         if (!machineRegistry.isLocal(event.machineId)) return
+        const correlationId = (event.payload as { correlationId?: string }).correlationId || event.correlationId
+        if (correlationId) rememberProxyResponseTarget(correlationId, event.instanceId)
         const sent = relayServer.handleWsProxyRequest(event.machineId, event.messageType, event.payload)
         if (!sent) {
           console.warn(`[relay] WS proxy: failed to forward ${event.messageType} to machine ${event.machineId}`)
           // Publish error response so the requester doesn't wait for timeout
           const responseType = event.messageType.replace('_request', ':response').replace('.request', ':response')
-          const correlationId = (event.payload as { correlationId?: string }).correlationId || event.correlationId
           if (correlationId) {
+            consumeProxyResponseTarget(correlationId)
             redisPubSub.publishWsProxyResponse({
-              targetInstanceId: '',
+              targetInstanceId: event.instanceId,
               correlationId,
               responseType,
               payload: { correlationId, error: 'Machine not connected (socket closed)' },
@@ -487,8 +506,7 @@ async function start() {
       // The response events use the same correlationId, so the requesting instance
       // resolves its Promise when the WS proxy response arrives.
       redisPubSub.on('ws:proxy:response', (event) => {
-        // All instances receive this — the one waiting for this correlationId
-        // will have a listener on the relay server's EventEmitter that picks it up.
+        if (event.targetInstanceId && event.targetInstanceId !== redisPubSub.getInstanceId()) return
         // Mark as proxied so the bridge below doesn't re-publish it (preventing infinite loop).
         relayServer.emit(event.responseType, { ...event.payload, _fromProxy: true })
       })
@@ -509,6 +527,9 @@ async function start() {
         'slash_commands:response',
         'git_init:response',
         'branch_list:response',
+        'git_checkout:response',
+        'git_create_branch:response',
+        'content_search:response',
       ]
       for (const eventType of proxyResponseTypes) {
         relayServer.on(eventType, (data: Record<string, unknown>) => {
@@ -516,9 +537,11 @@ async function start() {
           // Skip events that arrived via proxy — prevents infinite Redis echo loop
           if ((data as { _fromProxy?: boolean })._fromProxy) return
           const correlationId = (data as { correlationId?: string }).correlationId
-          if (!correlationId) return // no correlationId — skip to avoid needless broadcast
+          if (!correlationId) return // no correlationId — skip to avoid needless publish
+          const targetInstanceId = consumeProxyResponseTarget(correlationId)
+          if (!targetInstanceId) return // local request/response; Redis is not needed
           redisPubSub.publishWsProxyResponse({
-            targetInstanceId: '', // broadcast — the instance with the matching correlationId picks it up
+            targetInstanceId,
             correlationId,
             responseType: eventType,
             payload: data,
