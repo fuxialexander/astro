@@ -193,14 +193,11 @@ async function runCleanup(): Promise<void> {
  * Acquires or renews leadership before running.
  */
 async function runCleanupIfLeader(): Promise<void> {
-  const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
-  const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
-
-  if (!acquired && !renewed) {
+  const isLeader = await redisPubSub.checkLeadership(LEADER_NAME, LEADER_TTL_SECONDS, 30_000);
+  if (!isLeader) {
     console.log('[cleanup] Another instance is the cleanup leader — skipping this cycle');
     return;
   }
-
   await runCleanup();
 }
 
@@ -209,14 +206,11 @@ async function runCleanupIfLeader(): Promise<void> {
  * Uses a separate leader lock to avoid contention with the full cleanup cycle.
  */
 async function runStreamingCleanupIfLeader(): Promise<void> {
-  const acquired = await redisPubSub.tryAcquireLeader(STREAMING_LEADER_NAME, LEADER_TTL_SECONDS);
-  const renewed = !acquired && await redisPubSub.renewLeadership(STREAMING_LEADER_NAME, LEADER_TTL_SECONDS);
-
-  if (!acquired && !renewed) {
+  const isLeader = await redisPubSub.checkLeadership(STREAMING_LEADER_NAME, LEADER_TTL_SECONDS, 30_000);
+  if (!isLeader) {
     console.log('[cleanup] Another instance is the streaming cleanup leader — skipping');
     return;
   }
-
   try {
     await cleanupOldStreamingEvents();
   } catch (error) {

@@ -290,14 +290,12 @@ async function runWatchdogCheck(): Promise<void> {
  * Run watchdog check only if this instance is the leader.
  */
 async function runWatchdogCheckIfLeader(): Promise<void> {
-  const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
-  const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS)
-
-  if (!acquired && !renewed) {
+  // 30s cache window — well below the 180s lock TTL.
+  const isLeader = await redisPubSub.checkLeadership(LEADER_NAME, LEADER_TTL_SECONDS, 30_000)
+  if (!isLeader) {
     console.log('[watchdog] Another instance is the watchdog leader — skipping this cycle')
     return
   }
-
   await runWatchdogCheck()
 }
 

@@ -153,16 +153,44 @@ export interface RedisPubSubEvents {
   'disconnected': () => void;
 }
 
+interface CachedLeadership {
+  isLeader: boolean;
+  checkedAt: number;
+}
+
 export class RedisPubSub extends EventEmitter {
   private publisher: Redis | null = null;
   private subscriber: Redis | null = null;
   private instanceId: string;
   private connected: boolean = false;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private leadershipCache: Map<string, CachedLeadership> = new Map();
+  private commandCounts: Map<string, number> = new Map();
+  private commandCountsResetAt: number = Date.now();
 
   constructor() {
     super();
     this.instanceId = `instance-${process.pid}-${Date.now()}`;
+  }
+
+  /** Increment a per-method command counter for /api/redis-metrics. */
+  private trackCommand(method: string, count = 1): void {
+    this.commandCounts.set(method, (this.commandCounts.get(method) ?? 0) + count);
+  }
+
+  /**
+   * Snapshot of Redis command counts since process start (or last reset).
+   * Used by /api/redis-metrics to identify hot paths.
+   */
+  getCommandMetrics(): { instanceId: string; sinceMs: number; counts: Record<string, number>; total: number } {
+    const counts = Object.fromEntries(this.commandCounts);
+    const total = Array.from(this.commandCounts.values()).reduce((a, b) => a + b, 0);
+    return {
+      instanceId: this.instanceId,
+      sinceMs: Date.now() - this.commandCountsResetAt,
+      counts,
+      total,
+    };
   }
 
   /**
@@ -329,6 +357,7 @@ export class RedisPubSub extends EventEmitter {
   ): Promise<void> {
     if (!this.publisher) return;
     const msg: StreamingEventMessage = { ...event, instanceId: this.instanceId };
+    this.trackCommand(`publish:streaming:${event.eventType}`);
     await this.publisher.publish(CHANNELS.TASK_STREAMING, JSON.stringify(msg));
   }
 
@@ -394,6 +423,7 @@ export class RedisPubSub extends EventEmitter {
   async publishWsProxyRequest(event: Omit<WsProxyRequestEvent, 'instanceId'>): Promise<void> {
     if (!this.publisher) return;
     const msg: WsProxyRequestEvent = { ...event, instanceId: this.instanceId };
+    this.trackCommand(`publish:ws_proxy_request:${event.messageType}`);
     await this.publisher.publish(CHANNELS.WS_PROXY_REQUEST, JSON.stringify(msg));
   }
 
@@ -403,6 +433,7 @@ export class RedisPubSub extends EventEmitter {
    */
   async publishWsProxyResponse(event: WsProxyResponseEvent): Promise<void> {
     if (!this.publisher) return;
+    this.trackCommand(`publish:ws_proxy_response:${event.responseType}`);
     await this.publisher.publish(CHANNELS.WS_PROXY_RESPONSE, JSON.stringify(event));
   }
 
@@ -630,8 +661,64 @@ export class RedisPubSub extends EventEmitter {
   async tryAcquireLeader(operationName: string, ttlSeconds: number): Promise<boolean> {
     if (!this.publisher) return true; // single-instance: always leader
     const key = `${KEYS.LEADER}${operationName}`;
+    this.trackCommand('tryAcquireLeader');
     const result = await this.publisher.set(key, this.instanceId, 'NX', 'EX', ttlSeconds);
     return result === 'OK';
+  }
+
+  /**
+   * Cached leadership check with local-only short-circuiting.
+   *
+   * Schedulers that poll on a tight interval (e.g., dispatch every 2s) used to
+   * call `tryAcquireLeader` + `renewLeadership` on every tick — that produces
+   * one or two Redis commands per scheduler per instance per tick, which
+   * dominates Redis cost in idle production.
+   *
+   * This helper caches the previous decision for `checkIntervalMs` and only
+   * touches Redis once per interval. The Redis TTL must be longer than
+   * `checkIntervalMs` so the lock doesn't expire between renewals.
+   *
+   * Returns true if this instance currently holds (or just acquired) the lock.
+   */
+  async checkLeadership(
+    operationName: string,
+    ttlSeconds: number,
+    checkIntervalMs = 30_000,
+  ): Promise<boolean> {
+    if (!this.publisher) return true; // single-instance: always leader
+    if (ttlSeconds * 1000 <= checkIntervalMs) {
+      throw new Error(
+        `checkLeadership(${operationName}): ttlSeconds=${ttlSeconds} must exceed checkIntervalMs=${checkIntervalMs}`,
+      );
+    }
+
+    const cached = this.leadershipCache.get(operationName);
+    const now = Date.now();
+    if (cached && now - cached.checkedAt < checkIntervalMs) {
+      return cached.isLeader;
+    }
+
+    let isLeader: boolean;
+    try {
+      if (cached?.isLeader) {
+        isLeader = await this.renewLeadership(operationName, ttlSeconds);
+        if (!isLeader) {
+          // Lost the lock (TTL expired, network blip, restart of this instance).
+          // Try to reclaim it before declaring ourselves a follower.
+          isLeader = await this.tryAcquireLeader(operationName, ttlSeconds);
+        }
+      } else {
+        isLeader = await this.tryAcquireLeader(operationName, ttlSeconds);
+      }
+    } catch (err) {
+      // On Redis error, return cached state so we don't drop work or
+      // double-elect. Don't update timestamp — retry on next tick.
+      console.warn(`[redis] checkLeadership(${operationName}) error:`, (err as Error).message);
+      return cached?.isLeader ?? false;
+    }
+
+    this.leadershipCache.set(operationName, { isLeader, checkedAt: now });
+    return isLeader;
   }
 
   /**
@@ -649,6 +736,7 @@ export class RedisPubSub extends EventEmitter {
   async renewLeadership(operationName: string, ttlSeconds: number): Promise<boolean> {
     if (!this.publisher) return true; // single-instance: always leader
     const key = `${KEYS.LEADER}${operationName}`;
+    this.trackCommand('renewLeadership');
     // Atomic compare-and-refresh via Lua: only extend TTL if this instance still owns the key.
     // GET+EXPIRE as two calls has a TOCTOU window where the key could expire and be re-acquired
     // between the two commands, causing both instances to believe they hold the lock.
@@ -670,10 +758,13 @@ export class RedisPubSub extends EventEmitter {
   async releaseLeadership(operationName: string): Promise<void> {
     if (!this.publisher) return;
     const key = `${KEYS.LEADER}${operationName}`;
+    this.trackCommand('releaseLeadership.get');
     const current = await this.publisher.get(key);
     if (current === this.instanceId) {
+      this.trackCommand('releaseLeadership.del');
       await this.publisher.del(key);
     }
+    this.leadershipCache.delete(operationName);
   }
 
   // =========================================================================
@@ -849,6 +940,7 @@ export class RedisPubSub extends EventEmitter {
       return;
     }
 
+    this.trackCommand(`publish:${channel}`);
     await this.publisher.publish(channel, JSON.stringify(data));
   }
 

@@ -702,9 +702,15 @@ export class RelayServer extends EventEmitter {
   // Dispatch ACK: timers that fire if the agent runner doesn't acknowledge a dispatch within 30s.
   // Detects lost WS messages much faster than the 5-minute dead job checker.
   private dispatchAckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private redisTextBuffers: Map<string, string> = new Map();
+  // Periodic flush timer per task. Forces streamingEventLog to write any
+  // buffered text to Postgres so the wake-up listener can publish a tiny
+  // {taskId, dbSeq} notification over Redis. Without this timer, text-only
+  // streams (no structural events) would sit in memory until completion.
   private redisTextFlushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly redisTextFlushIntervalMs = parseEnvMs('REDIS_TEXT_FLUSH_INTERVAL_MS', 1000, 100);
+  // Listener handle for streamingEventLog 'text-flushed' events — kept so we can
+  // detach on shutdown without affecting other subscribers.
+  private textFlushedListener: ((event: { executionId: string; seq: number }) => void) | null = null;
   private lastPublishedMachineHeartbeatState: Map<string, { activeTaskSignature: string; publishedAt: number }> = new Map();
   private readonly redisMachineUpdateIntervalMs = parseEnvMs('REDIS_MACHINE_UPDATE_INTERVAL_MS', 300_000, 60_000);
 
@@ -714,6 +720,20 @@ export class RelayServer extends EventEmitter {
     // Support multiple concurrent SSE connections (default 10 is too low)
     // Each SSE client registers ~14 event listeners, so allow 50 concurrent connections
     this.setMaxListeners(700);
+
+    // Subscribe once: every durable text row produces exactly one tiny Redis
+    // wake-up. Receivers fetch the row from Postgres — Redis carries no payload.
+    this.textFlushedListener = ({ executionId, seq }) => {
+      redisPubSub.publishStreamingEvent({
+        eventType: 'text',
+        taskId: executionId,
+        dbSeq: seq,
+        data: {},
+      }).catch((err) => {
+        console.error(`[relay] Failed to publish text wake-up for ${executionId}:`, err);
+      });
+    };
+    streamingEventLog.on('text-flushed', this.textFlushedListener);
   }
 
   /**
@@ -800,7 +820,10 @@ export class RelayServer extends EventEmitter {
         clearTimeout(timer);
       }
       this.redisTextFlushTimers.clear();
-      this.redisTextBuffers.clear();
+      if (this.textFlushedListener) {
+        streamingEventLog.off('text-flushed', this.textFlushedListener);
+        this.textFlushedListener = null;
+      }
       this.lastPublishedMachineHeartbeatState.clear();
 
       machineRegistry.shutdown();
@@ -1439,6 +1462,7 @@ export class RelayServer extends EventEmitter {
       if (event.eventType === 'text') {
         const text = typeof event.data.text === 'string' ? event.data.text : '';
         if (text.length === 0) {
+          // Empty heartbeat: tiny activity ping, no DB row, no payload.
           const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
           await redisPubSub.publishStreamingEvent({
             eventType: 'activity',
@@ -1448,11 +1472,22 @@ export class RelayServer extends EventEmitter {
           });
           return;
         }
-        this.queueRedisText(event.taskId, text);
+        // Text was already buffered into streamingEventLog by handleAgentRunnerTaskText.
+        // Schedule a periodic DB flush so the wake-up listener publishes promptly
+        // even when the stream contains no structural events. The actual Redis
+        // publish happens via the 'text-flushed' subscriber in the constructor.
+        this.scheduleTextFlush(event.taskId);
         return;
       }
 
-      await this.flushRedisText(event.taskId);
+      // Non-text events: streamingEventLog.append() already auto-flushed pending
+      // text and emitted the wake-up before we got here. Cancel any pending
+      // flush timer for this task and publish the structural event normally.
+      const pendingTimer = this.redisTextFlushTimers.get(event.taskId);
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        this.redisTextFlushTimers.delete(event.taskId);
+      }
       const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
       await redisPubSub.publishStreamingEvent({ ...event, userId });
     } catch (err) {
@@ -1460,39 +1495,53 @@ export class RelayServer extends EventEmitter {
     }
   }
 
-  private queueRedisText(taskId: string, text: string): void {
-    this.redisTextBuffers.set(taskId, (this.redisTextBuffers.get(taskId) ?? '') + text);
+  /**
+   * Ensure streamingEventLog flushes any buffered text within the configured
+   * interval. The wake-up Redis publish is driven by the 'text-flushed' event
+   * the log emits after the durable insert completes.
+   */
+  private scheduleTextFlush(taskId: string): void {
     if (this.redisTextFlushTimers.has(taskId)) return;
-
     const timer = setTimeout(() => {
       this.redisTextFlushTimers.delete(taskId);
-      this.flushRedisText(taskId).catch((err) => {
-        console.error(`[relay] Failed to flush Redis text batch for ${taskId}:`, err);
+      streamingEventLog.flushText(taskId).catch((err) => {
+        console.error(`[relay] flushText(${taskId}) failed:`, err);
       });
     }, this.redisTextFlushIntervalMs);
     this.redisTextFlushTimers.set(taskId, timer);
   }
 
-  private async flushRedisText(taskId: string): Promise<void> {
+  private cancelTextFlush(taskId: string): void {
     const timer = this.redisTextFlushTimers.get(taskId);
-    if (timer) clearTimeout(timer);
-    this.redisTextFlushTimers.delete(taskId);
-
-    const text = this.redisTextBuffers.get(taskId);
-    this.redisTextBuffers.delete(taskId);
-    if (!text) return;
-
-    try {
-      const userId = await executionContextStore.getUserIdForTaskWithFallback(taskId);
-      await redisPubSub.publishStreamingEvent({
-        eventType: 'text',
-        taskId,
-        userId,
-        data: { text },
-      });
-    } catch (err) {
-      console.error(`[relay] Failed to publish Redis text batch for ${taskId}:`, err);
+    if (timer) {
+      clearTimeout(timer);
+      this.redisTextFlushTimers.delete(taskId);
     }
+  }
+
+  /**
+   * Cross-instance text wake-up handler. Fetches the durable text row from
+   * Postgres by (taskId, seq) and emits a local task:text event so existing
+   * SSE listeners (events.ts, dispatch.ts, agent.ts, channel-router) deliver
+   * it identically to a locally-originated event.
+   *
+   * Fire-and-forget: we never await this from the Redis subscriber so the
+   * dispatch loop isn't gated on a Postgres round-trip.
+   */
+  private fetchAndEmitText(taskId: string, seq: number): void {
+    streamingEventLog.getOne(taskId, seq).then((event) => {
+      if (!event || event.eventType !== 'text') return;
+      const text = (event.data as { text?: string })?.text ?? '';
+      this.emit('task:text', {
+        type: 'task.text',
+        timestamp: event.createdAt,
+        taskId,
+        text,
+        sequence: 0,
+      });
+    }).catch((err) => {
+      console.error(`[relay] fetchAndEmitText(${taskId}, ${seq}) failed:`, err);
+    });
   }
 
   private async emitSyntheticTaskError(
@@ -1568,7 +1617,9 @@ export class RelayServer extends EventEmitter {
       await this.recoverLateResult(message.result.taskId, message.result.status, resultData);
     }
 
-    await this.flushRedisText(message.result.taskId);
+    // appendTerminalIfAbsent above already flushed pending text and emitted
+    // the text-flushed wake-up. Just cancel any pending periodic flush timer.
+    this.cancelTextFlush(message.result.taskId);
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
@@ -2053,13 +2104,20 @@ export class RelayServer extends EventEmitter {
           });
           break;
         case 'text':
-          this.emit('task:text', {
-            type: 'task.text',
-            timestamp: new Date(),
-            taskId: msg.taskId,
-            text: msg.data.text as string,
-            sequence: 0,
-          });
+          // Wake-up only — Redis carries {taskId, dbSeq}. Fetch the durable
+          // payload from Postgres and emit locally. Falls back to the inline
+          // payload if dbSeq is missing (older publishers, or future variants).
+          if (typeof msg.dbSeq === 'number') {
+            this.fetchAndEmitText(msg.taskId, msg.dbSeq);
+          } else if (typeof msg.data.text === 'string') {
+            this.emit('task:text', {
+              type: 'task.text',
+              timestamp: new Date(),
+              taskId: msg.taskId,
+              text: msg.data.text,
+              sequence: 0,
+            });
+          }
           break;
         case 'operational':
           this.emit('task:operational', {
@@ -3460,7 +3518,9 @@ export class RelayServer extends EventEmitter {
       summary,
     };
     const seq = await streamingEventLog.appendTerminalIfAbsent(taskId, 'result', resultData);
-    await this.flushRedisText(taskId);
+    // appendTerminalIfAbsent above already flushed pending text and emitted
+    // the text-flushed wake-up. Just cancel any pending periodic flush timer.
+    this.cancelTextFlush(taskId);
     this.emit('task:result', resultMsg);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId, userId,
