@@ -47,7 +47,7 @@ healthRoute.get('/health', async (c) => {
  * Returns top-level totals plus a sorted breakdown so the most expensive
  * channel/method is obvious without parsing the whole map.
  */
-healthRoute.get('/redis-metrics', async (c) => {
+healthRoute.get('/redis-metrics', requireAuth, async (c) => {
   try {
     const metrics = redisPubSub.getCommandMetrics()
     const sorted = Object.entries(metrics.counts)

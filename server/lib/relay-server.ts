@@ -1531,6 +1531,10 @@ export class RelayServer extends EventEmitter {
    * SSE listeners (events.ts, dispatch.ts, agent.ts, channel-router) deliver
    * it identically to a locally-originated event.
    *
+   * `taskId` here is the same identifier the dispatch layer uses as the
+   * `executionId` foreign key on `streaming_events` — they are interchangeable
+   * everywhere in the relay/dispatch path. Keep them aligned in any new code.
+   *
    * Fire-and-forget: we never await this from the Redis subscriber so the
    * dispatch loop isn't gated on a Postgres round-trip.
    */
