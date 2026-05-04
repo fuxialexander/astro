@@ -720,9 +720,15 @@ export class RelayServer extends EventEmitter {
     // Support multiple concurrent SSE connections (default 10 is too low)
     // Each SSE client registers ~14 event listeners, so allow 50 concurrent connections
     this.setMaxListeners(700);
+  }
 
-    // Subscribe once: every durable text row produces exactly one tiny Redis
-    // wake-up. Receivers fetch the row from Postgres — Redis carries no payload.
+  /**
+   * Attach the singleton text-flushed → Redis wake-up bridge. Safe to call
+   * multiple times — guarded so a stop()/start() cycle re-attaches exactly
+   * one listener instead of leaking.
+   */
+  private attachTextFlushedListener(): void {
+    if (this.textFlushedListener) return;
     this.textFlushedListener = ({ executionId, seq }) => {
       redisPubSub.publishStreamingEvent({
         eventType: 'text',
@@ -764,6 +770,9 @@ export class RelayServer extends EventEmitter {
 
         // Cross-instance routing: handle approval/steer/cancel from other instances
         this.registerRedisRouting();
+
+        // Bridge durable text writes to tiny Redis wake-ups.
+        this.attachTextFlushedListener();
 
         console.log(`[relay] WebSocket server listening on port ${serverPort}`);
         resolve();
@@ -1481,13 +1490,10 @@ export class RelayServer extends EventEmitter {
       }
 
       // Non-text events: streamingEventLog.append() already auto-flushed pending
-      // text and emitted the wake-up before we got here. Cancel any pending
-      // flush timer for this task and publish the structural event normally.
-      const pendingTimer = this.redisTextFlushTimers.get(event.taskId);
-      if (pendingTimer) {
-        clearTimeout(pendingTimer);
-        this.redisTextFlushTimers.delete(event.taskId);
-      }
+      // text and emitted its wake-up before we got here. Do NOT cancel the
+      // periodic flush timer — text chunks that arrived during the structural
+      // event's await window are still buffered and need the timer to flush
+      // them. flushText() is a safe no-op if the buffer is empty.
       const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
       await redisPubSub.publishStreamingEvent({ ...event, userId });
     } catch (err) {

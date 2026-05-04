@@ -39,6 +39,14 @@ export interface TextFlushedEvent {
 class StreamingEventLog extends EventEmitter {
   private textBuffers = new Map<string, string[]>()
 
+  constructor() {
+    super()
+    // Generous bound: a single relay-server adds one listener, but vitest
+    // creates many StreamingEventLog instances when re-importing. The wake-up
+    // listener is the only consumer in production, so this is a safety margin.
+    this.setMaxListeners(50)
+  }
+
   /**
    * Flush accumulated text for an execution, writing it as a single 'text' row.
    * Returns the seq number of the written row, or null if buffer was empty.
