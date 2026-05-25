@@ -200,7 +200,7 @@
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/ui": "^4.0.18",
     "@xterm/addon-fit": "0.12.0-beta.197",
-    "@xterm/addon-webgl": "0.20.0-beta.196",
+    "@xterm/addon-webgl": "0.20.0-beta.219",
     "@xterm/xterm": "6.1.0-beta.197",
     "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
