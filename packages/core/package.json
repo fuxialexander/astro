@@ -34,8 +34,8 @@
     "./cloud-provisioner": "./src/cloud-provisioner/index.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-ec2": "^3.1036.0",
-    "@google-cloud/compute": "^6.0.0",
-    "drizzle-orm": "^0.45.1"
+    "@aws-sdk/client-ec2": "^3.1053.0",
+    "@google-cloud/compute": "^6.11.0",
+    "drizzle-orm": "^0.45.2"
   }
 }
